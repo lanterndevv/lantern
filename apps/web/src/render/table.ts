@@ -1,6 +1,6 @@
 // Renderer Pixi v8: «mesa a la luz de una linterna». Implementa CreateTable (api.ts).
 import {
-  Application, Assets, BlurFilter, Container, Graphics, Polygon, Rectangle, RenderTexture, Sprite, Text, Texture, TilingSprite,
+  Application, Assets, BlurFilter, ColorMatrixFilter, Container, Graphics, Polygon, Rectangle, RenderTexture, Sprite, Text, Texture, TilingSprite,
 } from 'pixi.js';
 import type { FederatedPointerEvent } from 'pixi.js';
 import { sightSegments, visibility } from '@lantern/vision';
@@ -9,6 +9,13 @@ import type { CreateTable, Marks } from './api.ts';
 
 const FACTION = { ally: '#5B9BE0', enemy: '#E0643A', neutral: '#BFAE86' } as const;
 const MINE = '#F5C877', AMBER = '#E8A33D', TEXT = '#F2E8DA', SERIF = 'Georgia, "Times New Roman", serif';
+// Condición -> [letra(s), color]: el color nunca es la única pista, cada una lleva su letra.
+const COND: Record<string, [string, string]> = {
+  poisoned: ['Ev', '#6FCB7C'], prone: ['D', '#B8AEA2'], frightened: ['As', '#C29CF5'], stunned: ['At', '#F2E45A'],
+  invisible: ['I', '#8FD3F5'], grappled: ['Ag', '#D3C3A6'], charmed: ['H', '#EE8CCB'], paralyzed: ['Pa', '#F2E45A'],
+  restrained: ['Ap', '#D3C3A6'], blinded: ['C', '#9A8A74'], deafened: ['Se', '#9A8A74'], incapacitated: ['In', '#F08A64'],
+  petrified: ['Pe', '#B8AEA2'], unconscious: ['Z', '#6f6353'],
+};
 const flat = (p: Point[]) => p.flatMap((q) => [q.x, q.y]);
 
 // Suelo de losas: se genera UNA vez a un canvas y se repite.
@@ -77,9 +84,9 @@ export const createTable: CreateTable = async (el, opts) => {
   // ---- estado ----
   let cur: ClientState | undefined;
   let sceneId = '', bgToken = 0;
-  let gridKey = '', wallsKey = '', lightsKey = '', visKey = '';
+  let lit = true, gridKey = '', wallsKey = '', lightsKey = '', visKey = '';
   const isDM = () => opts.role === 'dm' || opts.role === 'assistant';
-  const tokens = new Map<Id, { c: Container; key: string; t: Token }>();
+  const tokens = new Map<Id, { c: Container; key: string; t: Token; fx?: Fx }>();
   const doors = new Map<Id, { g: Graphics; key: string; hover: boolean }>();
   const lights = new Map<Id, LightObj>();
   const polyCache = new Map<Id, { key: string; poly: Point[] }>();
@@ -230,26 +237,78 @@ export const createTable: CreateTable = async (el, opts) => {
     const f = (v: number, o: number) => (t.size % 2 ? o + (Math.floor((v - o) / g.size) + 0.5) * g.size : o + Math.round((v - o) / g.size) * g.size);
     return { x: f(p.x, g.offsetX), y: f(p.y, g.offsetY) };
   };
-  function drawToken(c: Container, t: Token, g: Scene['grid']) {
-    c.removeChildren().forEach((x) => x.destroy());
+  type Fx = { main: Container; ring?: Graphics; wob?: boolean; phase: number };
+  const statusKey = (t: Token) =>
+    `${t.conditions.join()}|${JSON.stringify(t.condRounds)}|${t.exhaustion}|${t.concentration}|${JSON.stringify(t.deathSaves)}`;
+  function drawToken(c: Container, t: Token, g: Scene['grid']): Fx {
+    c.removeChildren().forEach((x) => x.destroy({ children: true }));
     const r = (t.size * g.size * 0.84) / 2, mine = t.owners.includes(opts.memberId);
+    const has = (id: string) => t.conditions.includes(id), dead = has('dead'), ko = has('unconscious') || !!t.deathSaves;
+    const main = new Container(), fx: Fx = { main, phase: Math.random() * 10 };
     const body = new Graphics();
     body.circle(0, 0, r).fill('#1a1410'); // ponytail: degradado = 3 discos concéntricos, no FillGradient
     body.circle(-r * 0.15, -r * 0.15, r * 0.75).fill({ color: '#3a2d22', alpha: 0.7 });
     body.circle(-r * 0.25, -r * 0.25, r * 0.4).fill({ color: '#5a4636', alpha: 0.5 });
     body.circle(0, 0, r).stroke({ width: 3, color: mine ? MINE : FACTION[t.faction], alignment: 1 });
-    c.addChild(body);
+    main.addChild(body);
     if (t.hp && t.hp.max > 0) {
       const k = Math.max(0, Math.min(1, t.hp.cur / t.hp.max)), a0 = -Math.PI / 2;
       const arc = new Graphics();
       arc.circle(0, 0, r + 6).stroke({ width: 3, color: 0x000000, alpha: 0.5 });
       if (k > 0) arc.arc(0, 0, r + 6, a0, a0 + Math.PI * 2 * k).stroke({ width: 3, color: k > 0.5 ? '#7cc47f' : k > 0.25 ? AMBER : '#d9503a' });
-      c.addChild(arc);
+      main.addChild(arc);
     }
     const ini = new Text({ text: [...t.name][0]?.toUpperCase() ?? '?', style: { fontFamily: SERIF, fontSize: r * 1.1, fontWeight: 'bold', fill: TEXT } });
-    ini.anchor.set(0.5); c.addChild(ini);
+    ini.anchor.set(0.5); main.addChild(ini);
+    if (has('poisoned')) main.tint = 0xb4e8b4;
+    if (has('petrified') || dead) main.filters = [new ColorMatrixFilter()], (main.filters[0] as ColorMatrixFilter).desaturate();
+    else if (ko) (main.filters = [new ColorMatrixFilter()], (main.filters[0] as ColorMatrixFilter).saturate(-0.75));
+    // cruz (inconsciente) o X (muerto), dibujadas
+    if (dead || ko) {
+      const m = dead ? r * 0.6 : r * 0.35, x = new Graphics();
+      if (dead) x.moveTo(-m, -m).lineTo(m, m).moveTo(m, -m).lineTo(-m, m).stroke({ width: 5, color: 0xd9503a, cap: 'round' });
+      else x.moveTo(0, -m).lineTo(0, m).moveTo(-m * 0.7, -m * 0.3).lineTo(m * 0.7, -m * 0.3).stroke({ width: 4, color: 0xe6dccb, cap: 'round' });
+      main.addChild(x);
+    }
+    if (t.concentration) {
+      const ring = new Graphics(); // arcos ámbar sobre el borde; gira en el ticker
+      for (let i = 0; i < 6; i++) ring.moveTo((r + 11) * Math.cos(i * 1.047), (r + 11) * Math.sin(i * 1.047)).arc(0, 0, r + 11, i * 1.047, i * 1.047 + 0.75);
+      ring.stroke({ width: 1.5, color: AMBER });
+      c.addChild(ring); fx.ring = ring;
+    }
+    fx.wob = has('invisible');
+    c.addChild(main);
+    // iconos: hasta 4 y «+N», en fila sobre el token
+    const conds = t.conditions.filter((id) => COND[id]);
+    const shown = conds.slice(0, 4), n = shown.length + (conds.length > 4 ? 1 : 0), y = -r - 20;
+    const small = (s: string, fill: string, size = 9) => {
+      const x = new Text({ text: s, style: { fontFamily: SERIF, fontSize: size, fontWeight: 'bold', fill, stroke: size < 9 ? { color: '#000', width: 2 } : undefined } });
+      x.anchor.set(0.5); return x;
+    };
+    for (let i = 0; i < n; i++) {
+      const cx = (i - (n - 1) / 2) * 17, id = shown[i], d = new Graphics();
+      d.circle(cx, y, 7.5).fill(id ? COND[id][1] : '#3a2d22').stroke({ width: 1, color: 0x000000 });
+      const l = small(id ? COND[id][0] : `+${conds.length - 4}`, id ? '#141008' : TEXT);
+      l.position.set(cx, y); c.addChild(d, l);
+      const rd = id && t.condRounds?.[id];
+      if (rd) { const q = small(String(rd), '#fff', 8); q.position.set(cx + 7, y + 7); c.addChild(q); }
+    }
+    if (t.exhaustion) {
+      const e = small(`A${t.exhaustion}`, '#141008'), bx = -r * 0.7, by = r * 0.7;
+      c.addChild(new Graphics().roundRect(bx - 10, by - 7, 20, 14, 4).fill(AMBER).stroke({ width: 1, color: 0x000000 }));
+      e.position.set(bx, by); c.addChild(e);
+    }
     const lab = new Text({ text: t.name, style: { fontFamily: SERIF, fontSize: 13, fill: TEXT, stroke: { color: '#000', width: 3 } } });
     lab.anchor.set(0.5, 0); lab.y = r + 10; c.addChild(lab);
+    if (t.deathSaves) { // 3 éxitos (verdes) + 3 fallos (rojos) bajo el nombre
+      const ds = new Graphics(), y2 = r + 32;
+      for (let i = 0; i < 6; i++) {
+        const ok = i < 3, on = ok ? i < t.deathSaves.successes : i - 3 < t.deathSaves.failures, x = (i - 2.5) * 11 + (ok ? -3 : 3);
+        ds.circle(x, y2, 4).fill({ color: ok ? 0x6fcb7c : 0xd9503a, alpha: on ? 1 : 0.15 }).stroke({ width: 1, color: ok ? 0x6fcb7c : 0xd9503a });
+      }
+      c.addChild(ds);
+    }
+    return fx;
   }
 
   let press: { id?: Id; x: number; y: number; wx: number; wy: number } | undefined; // pulsación candidata a clic
@@ -275,11 +334,11 @@ export const createTable: CreateTable = async (el, opts) => {
         tokens.set(t.id, o);
       }
       o.t = t;
-      const k = `${t.name}|${t.faction}|${t.size}|${t.owners.includes(opts.memberId)}|${t.hp?.cur}/${t.hp?.max}|${s.grid.size}`;
-      if (k !== o.key) { o.key = k; drawToken(o.c, t, s.grid); }
+      const k = `${t.name}|${t.faction}|${t.size}|${t.owners.includes(opts.memberId)}|${t.hp?.cur}/${t.hp?.max}|${s.grid.size}|${statusKey(t)}`;
+      if (k !== o.key) { o.key = k; o.fx = drawToken(o.c, t, s.grid); }
       o.c.eventMode = 'static'; // también los no movibles: reciben clic
       o.c.cursor = canDrag(t) ? 'grab' : 'pointer';
-      o.c.alpha = t.hidden ? 0.55 : 1;
+      o.c.alpha = t.conditions.includes('dead') ? 0.5 : t.conditions.includes('invisible') ? 0.45 : t.hidden ? 0.55 : 1;
       if (drag?.id !== t.id) o.c.position.set(t.x, t.y);
     }
   }
@@ -409,6 +468,9 @@ export const createTable: CreateTable = async (el, opts) => {
   // ---- setState ----
   function setState(st: ClientState) {
     cur = st;
+    const on = st.settings.layers.lighting && st.settings.mode !== 'simple';
+    if (on !== lit) { lit = on; visKey = ''; lmDirty = true; }
+    lightSprite.visible = glowL.visible = lit;
     const s = st.scene, changed = s.id !== sceneId;
     if (changed) {
       sceneId = s.id; gridKey = wallsKey = visKey = '';
@@ -430,12 +492,12 @@ export const createTable: CreateTable = async (el, opts) => {
     syncLights(s);
     const lk = s.globalLight + '|' + isDM();
     if (lk !== lightsKey) { lightsKey = lk; lmDirty = true; }
-    fogSprite.visible = !!st.visible;
-    if (st.visible) {
+    fogSprite.visible = lit && !!st.visible;
+    if (lit && st.visible) {
       const vk = JSON.stringify(st.visible, (_, v) => (typeof v === 'number' ? Math.round(v) : v));
       if (vk !== visKey || changed) { visKey = vk; renderFog(s, st.visible); lmDirty = true; }
     }
-    if (lmDirty) renderLightmap();
+    if (lmDirty && lit) renderLightmap();
   }
 
   // ---- ticker: solo animaciones ----
@@ -453,8 +515,12 @@ export const createTable: CreateTable = async (el, opts) => {
       f.t.y = f.y0 - (reduced ? 0 : 40 * k); f.t.alpha = k < 0.6 ? 1 : (1 - k) / 0.4;
     }
     drawMarks(now);
+    for (const o of tokens.values()) if (o.fx && !reduced) {
+      if (o.fx.ring) o.fx.ring.rotation = now / 4000;
+      if (o.fx.wob) o.fx.main.x = 2.5 * Math.sin(now / 350 + o.fx.phase);
+    }
     if (ptr) { opts.onPointer?.(ptr.x, ptr.y); ptr = undefined; }
-    if (reduced || !lights.size) return;
+    if (reduced || !lit || !lights.size) return;
     const t = now / 1000;
     for (const o of lights.values()) {
       if (o.anim !== 'torch' && o.anim !== 'pulse') continue;

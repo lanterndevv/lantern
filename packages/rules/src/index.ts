@@ -51,16 +51,16 @@ export const CONDITIONS: Record<string, string> = {
   blinded: 'Cegado', charmed: 'Hechizado', deafened: 'Ensordecido', exhaustion: 'Agotamiento',
   frightened: 'Asustado', grappled: 'Apresado', incapacitated: 'Incapacitado', invisible: 'Invisible',
   paralyzed: 'Paralizado', petrified: 'Petrificado', poisoned: 'Envenenado', prone: 'Derribado',
-  restrained: 'Restringido', stunned: 'Aturdido', unconscious: 'Inconsciente',
+  restrained: 'Restringido', stunned: 'Aturdido', unconscious: 'Inconsciente', dead: 'Muerto',
 };
 
 const has = (list: string[], ...ids: string[]) => ids.some((id) => list.includes(id));
 
 export function attackMode(
-  attacker: string[], target: string[], o: { ranged: boolean; within5ft: boolean },
+  attacker: string[], target: string[], o: { ranged: boolean; within5ft: boolean; adv?: boolean; dis?: boolean }, // adv/dis: fuentes extra (flanqueo, agotamiento)
 ): 'adv' | 'dis' | 'normal' {
-  let adv = has(target, 'blinded', 'paralyzed', 'petrified', 'restrained', 'stunned', 'unconscious') || has(attacker, 'invisible');
-  let dis = has(attacker, 'blinded', 'poisoned', 'prone', 'restrained', 'frightened') || has(target, 'invisible');
+  let adv = has(target, 'blinded', 'paralyzed', 'petrified', 'restrained', 'stunned', 'unconscious') || has(attacker, 'invisible') || !!o.adv;
+  let dis = has(attacker, 'blinded', 'poisoned', 'prone', 'restrained', 'frightened') || has(target, 'invisible') || !!o.dis;
   if (target.includes('prone')) {
     if (o.within5ft && !o.ranged) adv = true;
     else dis = true;
@@ -69,6 +69,18 @@ export function attackMode(
 }
 
 type Ability = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
+export const ABILITY_ES: Record<Ability, string> = { str: 'FUE', dex: 'DES', con: 'CON', int: 'INT', wis: 'SAB', cha: 'CAR' };
+export const SKILLS: Record<string, { ability: Ability; name: string }> = {
+  acrobatics: { ability: 'dex', name: 'Acrobacias' }, animalHandling: { ability: 'wis', name: 'Trato con animales' },
+  arcana: { ability: 'int', name: 'Arcanos' }, athletics: { ability: 'str', name: 'Atletismo' },
+  deception: { ability: 'cha', name: 'Engaño' }, history: { ability: 'int', name: 'Historia' },
+  insight: { ability: 'wis', name: 'Perspicacia' }, intimidation: { ability: 'cha', name: 'Intimidación' },
+  investigation: { ability: 'int', name: 'Investigación' }, medicine: { ability: 'wis', name: 'Medicina' },
+  nature: { ability: 'int', name: 'Naturaleza' }, perception: { ability: 'wis', name: 'Percepción' },
+  performance: { ability: 'cha', name: 'Interpretación' }, persuasion: { ability: 'cha', name: 'Persuasión' },
+  religion: { ability: 'int', name: 'Religión' }, sleightOfHand: { ability: 'dex', name: 'Juego de manos' },
+  stealth: { ability: 'dex', name: 'Sigilo' }, survival: { ability: 'wis', name: 'Supervivencia' },
+};
 
 export function autoFailSave(conditions: string[], ability: Ability): boolean {
   return (ability === 'str' || ability === 'dex') && has(conditions, 'paralyzed', 'stunned', 'unconscious', 'petrified');

@@ -61,3 +61,6 @@ export const SPELLS                         = {
   'burning-hands': spell({ id: 'burning-hands', name: 'Manos ardientes', kind: 'save', range: 15, save: dexHalf, damage: '3d6',
     damageType: 'fire', area: { shape: 'cone', size: 15 }, slot: 1 }),
 };
+
+export * from './classes.ts';
+export * from './species.ts';

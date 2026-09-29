@@ -53,3 +53,17 @@ test('card.dice: ventaja, salvación y daño', () => {
   assert.equal(save.dice!.length, 4);
   assert.deepEqual(save.dice!.slice(2).map((d) => d.sides), [20, 20]);
 });
+
+test('brutalCrit: dados al máximo más una tirada normal; agotamiento 2024/2014 en ataques', async () => {
+  const { resolveAction } = await import('./combat.ts');
+  const actor: any = { id: 'a', name: 'A', conditions: [] }, tgt: any = { id: 't', name: 'T', conditions: [], ac: 10 };
+  const act: any = { id: 'x', name: 'X', cost: 'action', kind: 'attack', range: 5, toHit: 5, damage: '1d8+4' };
+  const seq = (...v: number[]) => () => v.shift() ?? 0;
+  assert.equal(resolveAction(actor, act, [tgt], seq(0.99, 0)).targets[0].amount, 6); // 2d8+4 con mínimos
+  assert.equal(resolveAction(actor, act, [tgt], seq(0.99, 0), { brutalCrit: true }).targets[0].amount, 13); // 8 + 1 + 4
+  assert.equal(resolveAction(actor, act, [tgt], seq(0.5)).targets[0].attack!.total, 16);
+  assert.equal(resolveAction({ ...actor, exhaustion: 2 }, act, [tgt], seq(0.5)).targets[0].attack!.total, 12);
+  assert.equal(resolveAction({ ...actor, exhaustion: 2 }, act, [tgt], seq(0.5), { edition: '2014' }).targets[0].attack!.mode, 'normal');
+  assert.equal(resolveAction({ ...actor, exhaustion: 3 }, act, [tgt], seq(0.5, 0.5), { edition: '2014' }).targets[0].attack!.mode, 'dis');
+  assert.equal(resolveAction(actor, act, [tgt], seq(0.5, 0.5), { flank: () => true }).targets[0].attack!.mode, 'adv');
+});

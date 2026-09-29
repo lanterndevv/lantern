@@ -95,7 +95,7 @@ test('abilityMod, proficiencyBonus, agotamiento, condiciones', () => {
   assert.equal(r.d20Penalty(3, '2014'), 0);
   assert.equal(r.exhaustion2014Effects(0).length, 0);
   assert.equal(r.exhaustion2014Effects(2).length, 2);
-  assert.equal(Object.keys(r.CONDITIONS).length, 15);
+  assert.equal(Object.keys(r.CONDITIONS).length, 16);
   assert.equal(r.CONDITIONS.blinded, 'Cegado');
 });
 

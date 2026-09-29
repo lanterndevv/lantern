@@ -1,15 +1,15 @@
 // Lógica pura de una mesa: sin sockets ni BD. Todo lo que llega de un cliente se valida aquí.
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
-import { CODE_ALPHABET, DICE_THEMES, blocksMove } from '@lantern/protocol';
-import type { ActionCard, C2S, ChatMsg, ClientState, Combat, DiceTheme, Die, Id, Light, Member, Point, Role, Scene, Token, Wall } from '@lantern/protocol';
-import { applyCard, resolveAction } from '@lantern/rules';
+import { CODE_ALPHABET, DEFAULT_SETTINGS, DICE_THEMES, blocksMove } from '@lantern/protocol';
+import type { Ability, ActionCard, C2S, ChatMsg, ClientState, Combat, DiceTheme, Die, Hp, Id, Light, Member, Point, Role, Scene, TableSettings, Token, Wall } from '@lantern/protocol';
+import { ABILITY_ES, CONDITIONS, SKILLS, abilityMod, applyCard, applyDamage, autoFailSave, concentrationDC, d20Penalty, deathSave, grantTemp, heal, resolveAction } from '@lantern/rules';
 import { MONSTERS } from '@lantern/srd';
 import { parseCharacter } from './import.ts';
 import { demoScene } from '@lantern/protocol/demo';
 import { cover, pointInPolygon, sightSegments, visibility } from '@lantern/vision';
 
 export type MemberRec = { id: Id; name: string; role: Role; keyHash: string; dice: DiceTheme };
-export type Room = { code: string; scene: Scene; members: Map<Id, MemberRec>; chat: ChatMsg[]; automation: 'assisted' | 'auto'; combat?: Combat; pending: ActionCard[] };
+export type Room = { code: string; scene: Scene; members: Map<Id, MemberRec>; chat: ChatMsg[]; automation: 'assisted' | 'auto'; combat?: Combat; pending: ActionCard[]; settings: TableSettings };
 export type RollFn = (expr: string) => { total: number; detail: string; dice?: Die[] };
 export type Effect = { error?: string; state?: boolean; chat?: ChatMsg; chats?: ChatMsg[]; ping?: { from: Id; x: number; y: number } };
 
@@ -35,7 +35,7 @@ function addMember(room: Room, name: string, role: Role) {
 export function createRoom(name: unknown, code: string, scene: Scene = demoScene()): { error: string } | { room: Room; member: MemberRec; key: string } {
   const n = cleanName(name);
   if (!n) return { error: 'nombre inválido' };
-  const room: Room = { code, scene, members: new Map(), chat: [], automation: 'assisted', pending: [] };
+  const room: Room = { code, scene, members: new Map(), chat: [], automation: 'assisted', pending: [], settings: structuredClone(DEFAULT_SETTINGS) };
   return { room, ...addMember(room, n, 'dm') };
 }
 
@@ -65,8 +65,8 @@ export function joinRoom(room: Room, name: unknown, key: unknown): { member: Mem
 export function filterFor(room: Room, member: MemberRec, online: ReadonlySet<Id> = new Set()): ClientState {
   const members: Member[] = [...room.members.values()].map((m) => ({ id: m.id, name: m.name, role: m.role, online: online.has(m.id), dice: m.dice }));
   const s = room.scene;
-  const automation = room.automation;
-  if (member.role === 'dm' || member.role === 'assistant') return { code: room.code, members, scene: structuredClone(s), automation, ...(room.combat && { combat: structuredClone(room.combat) }) };
+  const automation = room.automation, settings = structuredClone(room.settings);
+  if (member.role === 'dm' || member.role === 'assistant') return { code: room.code, members, scene: structuredClone(s), automation, settings, ...(room.combat && { combat: structuredClone(room.combat) }) };
 
   const segs = sightSegments(s.walls);
   const visible = s.tokens
@@ -96,7 +96,7 @@ export function filterFor(room: Room, member: MemberRec, online: ReadonlySet<Id>
     for (let i = Math.min(c.turn, c.order.length - 1); i >= 0 && turn < 0; i--) turn = order.findIndex((o) => o.tokenId === c.order[i].tokenId);
     combat = { round: c.round, turn, order, used: Object.fromEntries(Object.entries(c.used).filter(([id]) => ids.has(id))) };
   }
-  return { code: room.code, members, visible, scene: { ...structuredClone(s), walls, lights, tokens }, automation, ...(combat && { combat }) };
+  return { code: room.code, members, visible, scene: { ...structuredClone(s), walls, lights, tokens }, automation, settings, ...(combat && { combat }) };
 }
 
 export function chatFor(room: Room, m: MemberRec) {
@@ -178,6 +178,104 @@ function cross(p1: Point, p2: Point, q1: Point, q2: Point) {
 
 export const pathBlocked = (s: Scene, from: Point, to: Point) => s.walls.some((w) => blocksMove(w) && cross(from, to, w.a, w.b));
 
+// ---- ajustes de mesa ----
+// Mezcla profunda validada: sin claves desconocidas y con tipos correctos. null = patch inválido.
+export function mergeSettings(cur: TableSettings, patch: unknown): TableSettings | null {
+  if (!obj(patch)) return null;
+  const out = structuredClone(cur) as any;
+  for (const [k, v] of Object.entries(patch)) {
+    if (k === 'mode') { if (v !== 'simple' && v !== 'full') return null; out.mode = v; }
+    else if (k === 'edition') { if (v !== '2014' && v !== '2024') return null; out.edition = v; }
+    else if (k === 'layers' || k === 'optional') {
+      if (!obj(v)) return null;
+      for (const [kk, vv] of Object.entries(v)) { if (!Object.hasOwn(out[k], kk) || typeof vv !== 'boolean') return null; out[k][kk] = vv; }
+    } else return null;
+  }
+  return out;
+}
+
+// ---- reglas automáticas (condiciones, PG, tiradas) ----
+type Ctx = { room: Room; from: Id; now: number; rollFn: RollFn };
+const ROLES: Role[] = ['dm', 'assistant', 'trusted', 'player', 'spectator'];
+// ponytail: lista corta de conjuros de concentración (por nombre); ampliar o mover a los datos del SRD
+const CONC = new Set(['bendición', 'maldición', 'retener persona', 'telaraña', 'invisibilidad', 'mirada de fuego', 'fuego feérico', 'rayo de luna']);
+const DOWN = ['unconscious', 'dead', 'incapacitated', 'paralyzed', 'stunned', 'petrified'];
+const sg = (n: number) => (n >= 0 ? '+' : '') + n;
+const has = (t: Token, ...ids: string[]) => ids.some((i) => t.conditions.includes(i));
+const addCond = (t: Token, ...ids: string[]) => { for (const i of ids) if (!t.conditions.includes(i)) t.conditions.push(i); };
+const delCond = (t: Token, ...ids: string[]) => { t.conditions = t.conditions.filter((c) => !ids.includes(c)); for (const i of ids) if (t.condRounds) delete t.condRounds[i]; };
+const say = (c: Ctx, text: string) => pushChat(c.room, { id: randomUUID(), from: c.from, at: c.now, text });
+
+// Tirada de d20 de un token con modificador, agotamiento (según edición) y condiciones.
+function d20Test(c: Ctx, t: Token, kind: 'save' | 'skill' | 'ability', key: string) {
+  const ed = c.room.settings.edition, ex = t.exhaustion ?? 0;
+  const ab = (kind === 'skill' ? SKILLS[key].ability : key) as Ability;
+  const base = kind === 'save' ? t.saves?.[ab] : kind === 'skill' ? t.skills?.[key] : undefined;
+  const mod = (base ?? abilityMod(t.abilities?.[ab] ?? 10)) + d20Penalty(ex, ed);
+  if (kind === 'save' && autoFailSave(t.conditions, ab)) return { mod, total: 0, detail: 'fallo automático', dice: undefined as Die[] | undefined };
+  // 2014: desventaja en pruebas desde nv. 1 y en salvaciones desde nv. 3; envenenado/asustado: desventaja en pruebas
+  const dis = (ed === '2014' && ex >= (kind === 'save' ? 3 : 1)) || (kind !== 'save' && has(t, 'poisoned', 'frightened'));
+  const r = c.rollFn(dis ? '2d20kl1' : '1d20');
+  return { mod, total: r.total + mod, detail: `${r.detail} ${sg(mod)}${dis ? ' (desventaja)' : ''}`, dice: r.dice };
+}
+
+// Efectos de recibir `taken` de daño (ya aplicado a t.hp; prev = PG antes).
+function damageFx(c: Ctx, t: Token, prev: Hp, taken: number): ChatMsg[] {
+  const out: ChatMsg[] = [], hp = t.hp!;
+  if (taken <= 0 || has(t, 'dead')) return out;
+  if (t.concentration) {
+    const dc = concentrationDC(taken), r = d20Test(c, t, 'save', 'con'), ok = r.total >= dc, spell = t.concentration;
+    const card: ActionCard = { actorId: t.id, actorName: t.name, actionName: 'Concentración', kind: 'save',
+      targets: [{ id: t.id, name: t.name, save: { total: r.total, success: ok, ability: 'con', dc } }],
+      detail: `${spell}: ${r.detail}`, ...(r.dice && { dice: r.dice }), applied: true };
+    out.push(pushChat(c.room, { id: randomUUID(), from: c.from, at: c.now, card }));
+    if (!ok) { delete t.concentration; out.push(say(c, `${t.name} pierde la concentración en ${spell}`)); }
+  }
+  const kill = () => { addCond(t, 'dead'); delete t.deathSaves; out.push(say(c, `${t.name} muere`)); };
+  if (prev.cur > 0 && hp.cur === 0) {
+    if (taken - prev.cur - prev.temp >= hp.max) kill(); // daño masivo
+    else if (t.faction === 'ally') { addCond(t, 'unconscious', 'prone'); t.deathSaves = { successes: 0, failures: 0 }; out.push(say(c, `${t.name} cae inconsciente`)); }
+    else kill();
+  } else if (prev.cur === 0 && t.faction === 'ally') {
+    const d = (t.deathSaves ??= { successes: 0, failures: 0 });
+    d.failures++; // ponytail: el crítico no se conoce aquí, así que siempre un fallo (dos si fuera crítico)
+    if (taken >= hp.max || d.failures >= 3) kill();
+    else out.push(say(c, `${t.name} falla una salvación de muerte (${d.failures}/3)`));
+  }
+  return out;
+}
+
+function healFx(c: Ctx, t: Token, prev: Hp): ChatMsg[] {
+  if (prev.cur > 0 || t.hp!.cur <= 0 || has(t, 'dead')) return [];
+  delCond(t, 'unconscious'); delete t.deathSaves;
+  return [say(c, `${t.name} recupera la consciencia`)];
+}
+
+// Aplica una tarjeta a la escena y dispara los efectos automáticos en sus objetivos.
+function applyCardFx(c: Ctx, card: ActionCard, mode: 'full' | 'half' | 'none'): ChatMsg[] {
+  const prev = new Map(c.room.scene.tokens.map((t) => [t.id, t.hp && { ...t.hp }]));
+  c.room.scene.tokens = applyCard(card, c.room.scene.tokens, mode);
+  const out: ChatMsg[] = [];
+  for (const ct of card.targets) {
+    const t = c.room.scene.tokens.find((x) => x.id === ct.id), p = prev.get(ct.id);
+    if (mode === 'none' || !t?.hp || !p) continue;
+    const amt = mode === 'half' ? Math.floor((ct.amount ?? 0) / 2) : ct.amount ?? 0;
+    if (card.kind === 'heal') { if (has(t, 'dead')) { t.hp = p; continue; } out.push(...healFx(c, t, p)); } // curar no resucita
+    else out.push(...damageFx(c, t, p, applyDamage(p, amt, card.damageType ?? '', t.defenses).taken));
+  }
+  return out;
+}
+
+// Flanqueo: otro aliado consciente adyacente al objetivo, en el lado opuesto (ángulo > 135°).
+function flanked(s: Scene, at: Token, t: Token) {
+  const d = (a: Token, b: Token) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)) / s.grid.size * s.grid.feet;
+  return s.tokens.some((a) => {
+    if (a.id === at.id || a.id === t.id || a.faction !== at.faction || has(a, ...DOWN) || d(a, t) > 5 * (a.size + t.size) / 2 + 1e-6) return false;
+    const ux = at.x - t.x, uy = at.y - t.y, vx = a.x - t.x, vy = a.y - t.y, n = Math.hypot(ux, uy) * Math.hypot(vx, vy);
+    return n > 0 && (ux * vx + uy * vy) / n < -Math.SQRT1_2; // cos(135°)
+  });
+}
+
 // ---- mutaciones ----
 const DENY: Effect = { error: 'no permitido' };
 const isDM = (m: MemberRec) => m.role === 'dm' || m.role === 'assistant';
@@ -194,7 +292,92 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
   }
   if (role === 'spectator') return DENY;
 
+  const ctx: Ctx = { room, from: m.id, now, rollFn };
+  const tokenOf = () => str(m2.tokenId, 64) ? s.tokens.find((t) => t.id === m2.tokenId) : undefined;
+
   switch (m2.t) {
+    case 'settings': {
+      if (role !== 'dm') return DENY;
+      const next = mergeSettings(room.settings, m2.patch);
+      if (!next) return { error: 'ajustes inválidos' };
+      room.settings = next; // ponytail: 'simple' no toca las capas; el cliente decide qué muestra
+      return { state: true };
+    }
+    case 'setRole': {
+      if (role !== 'dm') return DENY;
+      if (!str(m2.memberId, 64) || !ROLES.includes(m2.role as Role)) return { error: 'mensaje inválido' };
+      const target = room.members.get(m2.memberId);
+      if (!target) return { error: 'miembro inexistente' };
+      if (target.role === 'dm' && m2.role !== 'dm' && [...room.members.values()].filter((x) => x.role === 'dm').length <= 1) return { error: 'tiene que quedar al menos un DM' };
+      target.role = m2.role as Role;
+      return { state: true };
+    }
+    case 'condition': {
+      if (!str(m2.condition, 32) || typeof m2.on !== 'boolean' || (m2.rounds !== undefined && !(Number.isInteger(m2.rounds) && (m2.rounds as number) >= 1 && (m2.rounds as number) <= 100))) return { error: 'mensaje inválido' };
+      if (!Object.hasOwn(CONDITIONS, m2.condition)) return { error: 'condición inexistente' };
+      const t = tokenOf();
+      if (!t) return { error: 'token inexistente' };
+      if (!isDM(m) && !t.owners.includes(m.id)) return DENY;
+      const cond = m2.condition;
+      if (cond === 'exhaustion') { // ponytail: el nivel 6 no mata solo; el DM lo decide
+        t.exhaustion = Math.min(6, Math.max(0, (t.exhaustion ?? 0) + (m2.on ? 1 : -1)));
+        if (t.exhaustion > 0) addCond(t, cond); else delCond(t, cond);
+      } else if (m2.on) {
+        addCond(t, cond);
+        if (m2.rounds) (t.condRounds ??= {})[cond] = m2.rounds as number;
+        else if (t.condRounds) delete t.condRounds[cond];
+      } else delCond(t, cond);
+      return { state: true };
+    }
+    case 'hp': {
+      const d = m2.delta as number;
+      if (!Number.isInteger(d) || d < 1 || d > 999 || !['damage', 'heal', 'temp'].includes(m2.kind as string) || (m2.damageType !== undefined && !str(m2.damageType, 32))) return { error: 'mensaje inválido' };
+      const t = tokenOf();
+      if (!t) return { error: 'token inexistente' };
+      if (!isDM(m) && !t.owners.includes(m.id)) return DENY;
+      if (!t.hp) return { error: 'el token no tiene PG' };
+      if (m2.kind !== 'damage' && has(t, 'dead')) return { error: `${t.name} está muerto: curar no lo devuelve a la vida` };
+      const prev = { ...t.hp };
+      let chats: ChatMsg[] = [];
+      if (m2.kind === 'damage') { const r = applyDamage(prev, d, (m2.damageType as string | undefined) ?? '', t.defenses); t.hp = r.hp; chats = damageFx(ctx, t, prev, r.taken); }
+      else if (m2.kind === 'heal') { t.hp = heal(prev, d); chats = healFx(ctx, t, prev); }
+      else t.hp = grantTemp(prev, d);
+      return { state: true, chats };
+    }
+    case 'concentration': {
+      if (m2.spell !== null && !str(m2.spell, 64)) return { error: 'mensaje inválido' };
+      const t = tokenOf();
+      if (!t) return { error: 'token inexistente' };
+      if (!isDM(m) && !t.owners.includes(m.id)) return DENY;
+      if (m2.spell === null) delete t.concentration; else t.concentration = m2.spell as string;
+      return { state: true };
+    }
+    case 'deathSave': {
+      const t = tokenOf();
+      if (!t) return { error: 'token inexistente' };
+      if (!isDM(m)) {
+        if (!t.owners.includes(m.id)) return DENY;
+        if (room.combat && room.combat.order[room.combat.turn]?.tokenId !== t.id) return { error: 'no es su turno' }; // fuera de combate, cuando quiera
+      }
+      if (!t.deathSaves || !t.hp || t.hp.cur > 0) return { error: 'no está haciendo salvaciones de muerte' };
+      const r = ctx.rollFn('1d20'), res = deathSave(t.deathSaves, r.total);
+      let out = `${r.detail}: `;
+      if (res.revived) { t.hp = { ...t.hp, cur: 1 }; delCond(t, 'unconscious'); delete t.deathSaves; out += `¡20 natural! ${t.name} revive con 1 PG`; }
+      else if (res.dead) { addCond(t, 'dead'); delete t.deathSaves; out += `${t.name} muere`; }
+      else if (res.stable) { delete t.deathSaves; out += `${t.name} queda estable`; }
+      else { t.deathSaves = res.state; out += `éxitos ${res.state.successes}/3, fallos ${res.state.failures}/3`; }
+      return { state: true, chat: pushChat(room, { id: randomUUID(), from: m.id, at: now, roll: { expr: `Salvación de muerte de ${t.name}`, total: r.total, detail: out, secret: false, ...(r.dice && { dice: r.dice }) } }) };
+    }
+    case 'check': {
+      const kind = m2.kind as string, key = m2.key as string;
+      if (!['save', 'skill', 'ability'].includes(kind) || !str(key, 32) || !Object.hasOwn(kind === 'skill' ? SKILLS : ABILITY_ES, key) || (m2.secret !== undefined && typeof m2.secret !== 'boolean')) return { error: 'mensaje inválido' };
+      const t = tokenOf();
+      if (!t) return { error: 'token inexistente' };
+      if (!isDM(m) && !t.owners.includes(m.id)) return DENY;
+      const r = d20Test(ctx, t, kind as 'save', key), ab = kind === 'skill' ? SKILLS[key].ability : key as Ability;
+      const expr = kind === 'skill' ? `${SKILLS[key].name} (${ABILITY_ES[ab]}) ${sg(r.mod)}` : kind === 'save' ? `Salvación ${ABILITY_ES[ab]} ${sg(r.mod)}` : `Prueba de ${ABILITY_ES[ab]} ${sg(r.mod)}`;
+      return { chat: pushChat(room, { id: randomUUID(), from: m.id, at: now, roll: { expr, total: r.total, detail: r.detail, secret: m2.secret === true, ...(r.dice && { dice: r.dice }) } }) };
+    }
     case 'moveToken': {
       if (!str(m2.id, 64) || !inScene(s, m2.x, m2.y)) return { error: 'mensaje inválido' };
       const t = s.tokens.find((t) => t.id === m2.id);
@@ -310,9 +493,15 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
         if (s.tokens.some((t) => t.id === c.order[i].tokenId)) break;
       }
       if (r < 1) return { error: 'primera ronda' };
+      const chats: ChatMsg[] = [];
+      const ended = m2.op === 'next' ? s.tokens.find((t) => t.id === c.order[c.turn]?.tokenId) : undefined;
+      for (const [k, n] of Object.entries(ended?.condRounds ?? {})) { // duración de condiciones: al terminar el turno del token
+        if (n > 1) ended!.condRounds![k] = n - 1;
+        else { delCond(ended!, k); chats.push(say(ctx, `${ended!.name} ya no está ${CONDITIONS[k]?.toLowerCase() ?? k}`)); }
+      }
       c.turn = i; c.round = r;
       c.used[c.order[i].tokenId] = { action: false, bonus: false, reaction: false, moved: 0 };
-      return { state: true };
+      return { state: true, chats };
     }
     case 'act': {
       if (!str(m2.tokenId, 64) || !str(m2.actionId, 64) || !Array.isArray(m2.targets) || m2.targets.length < 1 || m2.targets.length > 20 || !m2.targets.every((x) => str(x, 64)))
@@ -354,14 +543,22 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
       const dexSave = act.kind === 'save' && act.save?.ability === 'dex';
       // resolveAction solo aplica la cobertura a la CA: en salvaciones de DES se suma al bono de la salvación del objetivo
       const rt = dexSave ? targets.map((t) => ({ ...t, saves: { ...t.saves, dex: (t.saves?.dex ?? 0) + cov.get(t.id)! } })) : targets;
-      const card = resolveAction(tk, act, rt, undefined, { within5ft: (t) => dist(t) <= 5 + 5 * (tk.size - 1), cover: (t) => cov.get(t.id) ?? 0 });
+      const opt = room.settings.optional;
+      const card = resolveAction(tk, act, rt, undefined, { within5ft: (t) => dist(t) <= 5 + 5 * (tk.size - 1), cover: (t) => cov.get(t.id) ?? 0,
+        edition: room.settings.edition, brutalCrit: opt.brutalCrit, flank: opt.flanking && act.range <= 5 ? (t) => flanked(s, tk, t) : undefined });
       if (act.kind === 'attack' || dexSave) for (const ct of card.targets) { const c = cov.get(ct.id); if (c) ct.cover = c; }
-      if (lvl) tk.slots![lvl].used++;
+      if (lvl) { tk.slots![lvl].used++; if (CONC.has(act.name.toLowerCase())) tk.concentration = act.name; } // reemplaza a la anterior
       if (cb) (cb.used[tk.id] ??= { action: false, bonus: false, reaction: false, moved: 0 })[act.cost] = true;
-      if (room.automation === 'auto' || act.kind === 'heal') { s.tokens = applyCard(card, s.tokens, 'full'); card.applied = true; }
+      // en modo sencillo, o sin la capa de automatización, el servidor no automatiza el daño: se comporta como 'assisted'
+      const auto = room.automation === 'auto' && room.settings.mode === 'full' && room.settings.layers.automation;
+      const now2 = auto || act.kind === 'heal';
+      if (now2) card.applied = true;
       else if (card.targets.some((t) => (t.amount ?? 0) > 0)) { card.pending = randomUUID(); room.pending.push(card); }
       else card.applied = true; // nada que aplicar (todo fallado)
-      return { state: true, chat: pushChat(room, { id: randomUUID(), from: m.id, at: now, card: structuredClone(card) }) };
+      const cardMsg = pushChat(room, { id: randomUUID(), from: m.id, at: now, card: structuredClone(card) });
+      const chats = now2 ? applyCardFx(ctx, card, 'full') : [];
+      if (opt.fumbles && card.targets.some((x) => x.attack?.d20 === 1)) chats.push(say(ctx, `¡Pifia! ${tk.name} falla estrepitosamente`)); // ponytail: sin tabla de pifias
+      return { state: true, chat: cardMsg, chats };
     }
     case 'importCharacter': {
       if (!str(m2.tokenId, 64)) return { error: 'mensaje inválido' };
@@ -371,8 +568,8 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
       const d = parseCharacter(m2.data);
       if (!d) return { error: 'datos de personaje inválidos' };
       const { ddbId, level, classes, avatar, ...stats } = d;
-      Object.assign(t, stats, { ddb: { id: ddbId, level, classes, syncedAt: now } }, avatar && { img: avatar });
-      return { state: true, chat: pushChat(room, { id: randomUUID(), from: m.id, at: now, text: `${t.name} se ha vinculado con D&D Beyond (nivel ${level})` }) };
+      Object.assign(t, stats, ddbId && { ddb: { id: ddbId, level, classes, syncedAt: now } }, avatar && { img: avatar }); // ddbId 0 = creado en Lantern, sin vínculo
+      return { state: true, chat: pushChat(room, { id: randomUUID(), from: m.id, at: now, text: ddbId ? `${t.name} se ha vinculado con D&D Beyond (nivel ${level})` : `${t.name} se ha actualizado (nivel ${level})` }) };
     }
     case 'confirm': {
       if (!isDM(m)) return DENY;
@@ -380,11 +577,11 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
       const i = room.pending.findIndex((c) => c.pending === m2.pending);
       if (i < 0) return { error: 'no hay tarjeta pendiente' };
       const [card] = room.pending.splice(i, 1);
-      if (m2.mode !== 'none') s.tokens = applyCard(card, s.tokens, m2.mode as 'full' | 'half');
       const old = room.chat.find((c) => c.card === undefined ? false : c.card.pending === m2.pending);
       if (old?.card) { delete old.card.pending; old.card.applied = true; }
       delete card.pending; card.applied = true;
-      return { state: true, chat: pushChat(room, { id: randomUUID(), from: m.id, at: now, card: structuredClone(card) }) };
+      const cardMsg = pushChat(room, { id: randomUUID(), from: m.id, at: now, card: structuredClone(card) });
+      return { state: true, chat: cardMsg, chats: applyCardFx(ctx, card, m2.mode as 'full' | 'half' | 'none') };
     }
     case 'spawn': {
       if (!isDM(m)) return DENY;

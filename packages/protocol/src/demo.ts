@@ -17,6 +17,7 @@ const E = (id: string, name: string, x: number, y: number, srd: string, extra: {
 const A = (id: string, name: string, toHit: number, damage: string, damageType: string, range = 5): Action =>
   ({ id, name, cost: 'action', kind: 'attack', range, toHit, damage, damageType });
 const sv = (o: Partial<Record<Ability, number>>) => o;
+const ab = (str: number, dex: number, con: number, int: number, wis: number, cha: number): Record<Ability, number> => ({ str, dex, con, int, wis, cha });
 
 export function demoScene(): Scene {
   return {
@@ -47,7 +48,7 @@ export function demoScene(): Scene {
     ],
     tokens: [
       T('kael', 'Kael', 510, 570, 'ally', { darkvision: 720, hp: { cur: 19, max: 27, temp: 5 }, ac: 15, speed: 30, initMod: 2,
-        saves: sv({ int: 7, wis: 5, dex: 2 }),
+        saves: sv({ int: 7, wis: 4 }), prof: 3, abilities: ab(8, 14, 14, 18, 12, 10), skills: { arcana: 7, history: 7, investigation: 7, perception: 1 },
         actions: [
           A('rayo-escarcha', 'Rayo de escarcha', 7, '2d8', 'cold', 60),
           { id: 'bola-fuego', name: 'Bola de fuego', cost: 'action', kind: 'save', range: 150, save: { ability: 'dex', dc: 15, half: true }, damage: '8d6', damageType: 'fire', area: { shape: 'sphere', size: 20 }, slot: 3 },
@@ -55,12 +56,13 @@ export function demoScene(): Scene {
           { ...A('proyectil-magico', 'Proyectil mágico', 99, '3d4+3', 'force', 120), slot: 1 },
         ],
         slots: { 1: { max: 4, used: 1 }, 2: { max: 3, used: 0 }, 3: { max: 2, used: 1 } } }),
-      T('ysolde', 'Ysolde', 570, 390, 'ally', { hp: { cur: 44, max: 44, temp: 0 }, ac: 18, speed: 30, initMod: 1, saves: sv({ str: 6, con: 6 }), actions: [A('espada-larga', 'Espada larga', 6, '1d8+4', 'slashing')] }),
-      T('brida', 'Brida', 390, 630, 'ally', { darkvision: 720, hp: { cur: 31, max: 38, temp: 0 }, ac: 18, speed: 30, initMod: 0, saves: sv({ wis: 6, cha: 3 }),
+      T('ysolde', 'Ysolde', 570, 390, 'ally', { hp: { cur: 44, max: 44, temp: 0 }, ac: 18, speed: 30, initMod: 1, saves: sv({ wis: 4, cha: 6 }), prof: 3, abilities: ab(16, 10, 14, 8, 12, 16), skills: { athletics: 6, intimidation: 6, persuasion: 6, perception: 1 }, actions: [A('espada-larga', 'Espada larga', 6, '1d8+4', 'slashing')] }),
+      T('brida', 'Brida', 390, 630, 'ally', { darkvision: 720, hp: { cur: 31, max: 38, temp: 0 }, ac: 18, speed: 30, initMod: 0, saves: sv({ wis: 7, cha: 4 }), prof: 3, abilities: ab(12, 10, 14, 10, 18, 12), skills: { medicine: 7, insight: 7, religion: 3, persuasion: 4, perception: 4 },
         actions: [A('maza', 'Maza', 5, '1d6+3', 'bludgeoning'),
           { id: 'palabra-sanadora', name: 'Palabra sanadora', cost: 'bonus', kind: 'heal', range: 60, damage: '1d4+3', slot: 1 }],
         slots: { 1: { max: 4, used: 0 } } }),
-      T('nix', 'Nix', 750, 450, 'ally', { darkvision: 720, hp: { cur: 31, max: 33, temp: 0 }, ac: 15, speed: 30, initMod: 4, saves: sv({ dex: 7, int: 3 }), actions: [A('arco-corto', 'Arco corto', 7, '1d6+4', 'piercing', 80)] }),
+      T('nix', 'Nix', 750, 450, 'ally', { darkvision: 720, hp: { cur: 31, max: 33, temp: 0 }, ac: 15, speed: 30, initMod: 4, saves: sv({ dex: 7, int: 4 }), prof: 3, abilities: ab(10, 18, 12, 12, 10, 14), skills: { stealth: 10, acrobatics: 7, sleightOfHand: 7, perception: 3, deception: 5 }, // pericia (x2 competencia) en Sigilo
+         actions: [A('arco-corto', 'Arco corto', 7, '1d6+4', 'piercing', 80)] }),
       E('trasgo-a', 'Trasgo A', 570, 510, 'goblin', { cur: 2 }),
       E('trasgo-b', 'Trasgo B', 930, 510, 'goblin'),
       E('hobgoblin', 'Hobgoblin', 1020, 390, 'hobgoblin'),

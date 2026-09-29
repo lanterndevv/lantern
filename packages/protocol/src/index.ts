@@ -81,7 +81,7 @@ export const DEFAULT_SETTINGS: TableSettings = {
 
 // Lo que el puente (extensión Lantern Link) extrae de un personaje de D&D Beyond.
 // Solo estadísticas de juego del propio usuario; nunca texto de reglas ni el token de sesión.
-export type ImportedCharacter = Pick<Token, 'name' | 'hp' | 'ac' | 'speed' | 'initMod' | 'saves' | 'darkvision' | 'actions' | 'slots' | 'defenses'> & {
+export type ImportedCharacter = Pick<Token, 'name' | 'hp' | 'ac' | 'speed' | 'initMod' | 'saves' | 'darkvision' | 'actions' | 'slots' | 'defenses' | 'abilities' | 'skills' | 'prof'> & {
   ddbId: number; level: number; classes: string; avatar?: string;
 };
 

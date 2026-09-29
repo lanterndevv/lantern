@@ -5,6 +5,8 @@ import { net } from '../net.ts';
 import { DICE } from '../dice/themes.ts';
 import { ddbCharacterId } from '@lantern/protocol/link';
 import { getCharacter, linkAvailable } from '../link.ts';
+import { mountSheet, deathSavesHtml } from './sheet.ts';
+import { mountSettings } from './settings.ts';
 
 const ROLES: Record<Role, string> = { dm: 'DM', assistant: 'Asistente', trusted: 'De confianza', player: 'Jugador', spectator: 'Espectador' };
 const PALETTE = ['#F5C877', '#5B9BE0', '#7FCB8A', '#E0643A', '#C79BF0', '#6FD3D3', '#F08AB4', '#E8E27A'];
@@ -62,7 +64,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     <div id="hud" class="hud panel" hidden></div>
     <dialog id="elegir" aria-labelledby="elegir-t"><h2 id="elegir-t">Elige tu personaje</h2><ul id="libres" class="libres"></ul><button type="button" id="ddbc">Traer mi personaje de D&amp;D Beyond</button></dialog>
     <div class="panel tl">
-      <h1 id="escena"></h1>
+      <h1 id="escena"></h1><span class="chip simple" id="simple" hidden>Modo Sencillo</span>
       <button class="chip" id="cod" type="button" title="Copiar enlace"></button>
       <span class="conn" id="conn"></span>
     </div>
@@ -70,7 +72,9 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       <header>
         <div role="tablist" aria-label="Panel">
           <button role="tab" id="t-reg" aria-selected="true" aria-controls="p-reg">Registro</button>
+          <button role="tab" id="t-hoja" aria-selected="false" aria-controls="p-hoja">Hoja</button>
           <button role="tab" id="t-mesa" aria-selected="false" aria-controls="p-mesa">Mesa</button>
+          <button role="tab" id="t-aj" aria-selected="false" aria-controls="p-aj" hidden>Ajustes</button>
         </div>
         <button id="plegar" type="button" aria-expanded="true" aria-controls="cuerpo" aria-label="Plegar panel">▾</button>
       </header>
@@ -83,6 +87,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
             <button class="primary" type="submit">Enviar</button>
           </form>
         </div>
+        <div id="p-hoja" role="tabpanel" aria-labelledby="t-hoja" class="hoja" hidden></div>
+        <div id="p-aj" role="tabpanel" aria-labelledby="t-aj" class="ajustes" hidden></div>
         <div id="p-mesa" role="tabpanel" aria-labelledby="t-mesa" hidden>
           <ul id="miembros" class="miembros"></ul>
           <section id="mios" aria-label="Tu personaje"></section>
@@ -92,7 +98,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
             <button id="d3d" type="button" role="switch" aria-checked="true">Ver dados 3D</button>
           </section>
           <section id="dm" class="dm" aria-label="Controles del DM" hidden>
-            <div class="dmbtns">
+            <div class="dmbtns" id="cbt">
               <button type="button" data-op="start">Empezar combate</button><button type="button" data-op="next">Siguiente turno</button>
               <button type="button" data-op="prev">Turno anterior</button><button type="button" data-op="end">Terminar combate</button>
             </div>
@@ -124,6 +130,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   const mine = () => state.scene.tokens.filter(t => t.owners.includes(w.memberId));
   const activeId = () => state.combat?.order[state.combat.turn]?.tokenId;
   const hudTok = () => { const m = mine(); return m.find(t => t.id === selected) ?? m[0] ?? (w.role === 'dm' ? tok(selected) ?? tok(activeId()) : undefined); };
+  const layerOn = (k: keyof ClientState['settings']['layers']) => state.settings.mode === 'full' && state.settings.layers[k];
   const canConfirm = w.role === 'dm' || w.role === 'assistant';
   const areaR = (a: Action) => a.area!.size / state.scene.grid.feet * state.scene.grid.size;
   const marks = () => table.then(t => t.setMarks({
@@ -157,7 +164,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
         if (shift) { targets = [...new Set([...targets, id])]; marks(); return; }
         return fire(armed.tok, armed.a.id, [...new Set([...targets, id])]);
       }
-      selected = id; targets = shift ? [...new Set([...targets, id])] : [id];
+      selected = id; targets = shift ? [...new Set([...targets, id])] : [id]; sheet.render();
       renderHud(); marks();
     },
     onMapClick: (x, y) => {
@@ -173,6 +180,11 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     onDoor: (id, open) => net.send({ t: 'door', id, open }),
   });
 
+  const sheet = mountSheet($('p-hoja'), { role: w.role, send: m => net.send(m), token: () => w.role === 'dm' ? tok(selected) ?? hudTok() : mine().find(t => t.id === selected) ?? mine()[0] });
+  const staff = w.role === 'dm' || w.role === 'assistant';
+  const settings = staff ? mountSettings($('p-aj'), m => net.send(m), w.memberId) : undefined;
+  $('t-aj').hidden = !staff;
+
   const render = (s: ClientState) => {
     state = s;
     $('escena').textContent = s.scene.name;
@@ -186,13 +198,14 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     if (selected && !tok(selected)) selected = undefined;
     targets = targets.filter(id => tok(id));
     if (armed && !tok(armed.tok)) armed = undefined;
-    renderMios(); renderInit(); renderTurn(); renderHud(); renderDm(); renderClaim(); marks();
+    $('simple').hidden = state.settings.mode === 'full'; $('cbt').hidden = !layerOn('initiative');
+    sheet.render(); settings?.render(s); renderMios(); renderInit(); renderTurn(); renderHud(); renderDm(); renderClaim(); marks();
   };
 
   const renderInit = () => {
     const c = state.combat, el = $('init');
-    el.hidden = !c;
-    if (!c) return;
+    el.hidden = !c || !layerOn('initiative');
+    if (el.hidden || !c) return;
     el.innerHTML = `<span class="ronda">Ronda ${c.round}</span><ol>` + c.order.map((o, i) => {
       const t = tok(o.tokenId); if (!t) return '';
       const on = i === c.turn;
@@ -214,7 +227,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
 
   const pick = (i: number) => {
     const t = hudTok(), a = t?.actions?.[i];
-    if (!t || !a) return;
+    if (!t || !a || $('hud').hidden) return;
     if (armed?.a.id === a.id) return cancel();
     spawn = undefined; renderMonsters();
     if (!a.area && targets.length) return fire(t.id, a.id, targets);
@@ -225,9 +238,13 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
 
   const renderHud = () => {
     const t = hudTok(), el = $('hud');
-    el.hidden = !t || !state.combat; // ponytail: HUD solo en combate; acciones fuera de combate irán por el menú radial
+    el.hidden = !t || !state.combat || !layerOn('initiative'); // ponytail: HUD solo en combate; acciones fuera de combate irán por el menú radial
     if (el.hidden || !t) return;
     const c = state.combat, u = c?.used[t.id];
+    if (t.hp?.cur === 0 && t.deathSaves && c && activeId() === t.id && t.owners.includes(w.memberId)) {
+      el.innerHTML = `${portrait(t)}<div class="info"><strong>${esc(t.name)}</strong><span>PG 0</span></div>${deathSavesHtml(t)}`;
+      return;
+    }
     const pill = (k: 'action' | 'bonus' | 'reaction', n: string) =>
       `<span class="pill ${k}${u?.[k] ? ' gastada' : ''}"><i aria-hidden="true"></i>${n}${u?.[k] ? '<span class="sr"> (gastada)</span>' : ''}</span>`;
     const acts = (t.actions ?? []).map((a, i) => {
@@ -251,6 +268,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     const b = (e.target as HTMLElement).closest('button'); if (!b) return;
     if (b.dataset.sync) void resync(b.dataset.sync);
     else if (b.dataset.i) pick(+b.dataset.i);
+    else if (b.dataset.ds) net.send({ t: 'deathSave', tokenId: b.dataset.ds });
     else if (b.hasAttribute('data-end')) net.send({ t: 'combat', op: 'next' });
   };
   document.addEventListener('keydown', e => {
@@ -276,7 +294,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     $('auto').setAttribute('aria-checked', String(auto));
     $('auto').textContent = `Automatización: ${auto ? 'Automática' : 'Asistida'}`;
   };
-  root.querySelector('.dmbtns')!.addEventListener('click', e => {
+  $('cbt').addEventListener('click', e => {
     const op = (e.target as HTMLElement).closest('button')?.dataset.op as 'start' | 'next' | 'prev' | 'end' | undefined;
     if (op) net.send({ t: 'combat', op });
   });
@@ -443,14 +461,16 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   };
 
   // Pestañas y plegado
-  const tab = (a: 'reg' | 'mesa') => {
-    for (const k of ['reg', 'mesa'] as const) {
+  const tab = (a: 'reg' | 'hoja' | 'mesa' | 'aj') => {
+    for (const k of ['reg', 'hoja', 'mesa', 'aj'] as const) {
       $('t-' + k).setAttribute('aria-selected', String(k === a));
       $('p-' + k).hidden = k !== a;
     }
   };
   $('t-reg').onclick = () => tab('reg');
   $('t-mesa').onclick = () => tab('mesa');
+  $('t-hoja').onclick = () => tab('hoja');
+  $('t-aj').onclick = () => tab('aj');
   $('plegar').onclick = () => {
     const c = $('lado').classList.toggle('plegado');
     $('plegar').setAttribute('aria-expanded', String(!c));

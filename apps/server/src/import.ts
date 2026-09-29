@@ -1,6 +1,6 @@
 // Validación de un personaje importado de D&D Beyond. Viene de una extensión del cliente: nada es de fiar.
 import type { Ability, Action, ImportedCharacter } from '@lantern/protocol';
-import { roll } from '@lantern/rules';
+import { SKILLS, roll } from '@lantern/rules';
 
 const ABILITIES: Ability[] = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
 const obj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -44,7 +44,7 @@ function parseAction(v: unknown): Action | null {
 }
 
 export function parseCharacter(v: unknown): ImportedCharacter | null {
-  if (!obj(v) || !str(v.name, 40) || !int(v.ddbId, 1, Number.MAX_SAFE_INTEGER) || !int(v.level, 1, 20) || !int(v.darkvision, 0, 2400) || typeof v.classes !== 'string' || v.classes.length > 60) return null;
+  if (!obj(v) || !str(v.name, 40) || !int(v.ddbId, 0, Number.MAX_SAFE_INTEGER) || !int(v.level, 1, 20) || !int(v.darkvision, 0, 2400) || typeof v.classes !== 'string' || v.classes.length > 60) return null;
   const c: ImportedCharacter = { name: v.name.trim(), ddbId: v.ddbId, level: v.level, classes: v.classes, darkvision: v.darkvision };
   if (!c.name) return null;
   if (v.hp !== undefined) {
@@ -60,6 +60,16 @@ export function parseCharacter(v: unknown): ImportedCharacter | null {
     c.saves = {};
     for (const [k, n] of Object.entries(v.saves)) { if (!int(n, -10, 20)) return null; c.saves[k as Ability] = n; }
   }
+  if (v.abilities !== undefined) {
+    if (!obj(v.abilities) || !keysIn(v.abilities, ABILITIES) || !ABILITIES.every((k) => int((v.abilities as Record<string, unknown>)[k], 1, 30))) return null;
+    c.abilities = Object.fromEntries(ABILITIES.map((k) => [k, (v.abilities as Record<string, number>)[k]])) as Record<Ability, number>;
+  }
+  if (v.skills !== undefined) {
+    if (!obj(v.skills) || Object.keys(v.skills).length > 30 || !keysIn(v.skills, Object.keys(SKILLS))) return null;
+    c.skills = {};
+    for (const [k, n] of Object.entries(v.skills)) { if (!int(n, -10, 20)) return null; c.skills[k] = n; }
+  }
+  if (v.prof !== undefined) { if (!int(v.prof, 2, 6)) return null; c.prof = v.prof; }
   if (v.defenses !== undefined) {
     const d = v.defenses;
     if (!obj(d) || !keysIn(d, ['resist', 'immune', 'vuln'])) return null;

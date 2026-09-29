@@ -319,3 +319,226 @@ test('importCharacter: datos maliciosos y permisos', () => {
   assert.ok(handle(room, dm, { t: 'importCharacter', tokenId: 'trasgo-a', data: goodChar() }, fakeRoll).error);
   assert.equal(handle(room, dm, { t: 'importCharacter', tokenId: 'nix', data: goodChar() }, fakeRoll).state, true);
 });
+
+// ---- ajustes, roles, condiciones, PG y tiradas ----
+const rollOf = (v: number, seen: string[] = []) => (e: string) => { seen.push(e); return { total: v, detail: e, dice: [{ sides: 20, value: v, kept: true }] }; };
+const H = (room: Room, m: any, msg: any, rf: any = fakeRoll) => handle(room, m, msg, rf);
+
+test('settings: solo DM, mezcla profunda validada y persistencia', async () => {
+  const { room, dm, player } = setup();
+  assert.deepEqual(room.settings, filterFor(room, player).settings);
+  assert.equal(H(room, dm, { t: 'settings', patch: { mode: 'simple', layers: { lighting: false }, optional: { flanking: true } } }).state, true);
+  assert.deepEqual([room.settings.mode, room.settings.layers.lighting, room.settings.layers.story, room.settings.optional.flanking, room.settings.edition], ['simple', false, true, true, '2024']);
+  assert.equal(filterFor(room, player).settings.mode, 'simple');
+  const before = JSON.stringify(room.settings);
+  assert.equal(H(room, player, { t: 'settings', patch: { mode: 'full' } }).error, 'no permitido');
+  for (const patch of [{ foo: 1 }, { layers: { x: true } }, { layers: { story: 'si' } }, { layers: null }, { edition: '2020' }, { mode: 'raro' }, { optional: [] }, null, 'x'])
+    assert.equal(H(room, dm, { t: 'settings', patch }).error, 'ajustes inválidos');
+  assert.equal(JSON.stringify(room.settings), before); // un patch inválido no aplica nada
+  const { openDb } = await import('./db.ts');
+  const db = openDb(':memory:');
+  db.save(room);
+  assert.deepEqual(db.load(room.code)!.settings, room.settings);
+});
+
+test('settings: modo sencillo o sin automatización fuerza assisted', () => {
+  const { room, dm, player } = setup();
+  H(room, dm, { t: 'automation', value: 'auto' });
+  H(room, dm, { t: 'settings', patch: { mode: 'simple' } });
+  assert.ok(act(room, player, 'kael', 'proyectil-magico', ['trasgo-a']).chat!.card!.pending);
+  H(room, dm, { t: 'settings', patch: { mode: 'full', layers: { automation: false } } });
+  assert.ok(act(room, player, 'kael', 'proyectil-magico', ['trasgo-a']).chat!.card!.pending);
+  H(room, dm, { t: 'settings', patch: { layers: { automation: true } } });
+  assert.equal(act(room, player, 'kael', 'proyectil-magico', ['trasgo-a']).chat!.card!.applied, true);
+});
+
+test('setRole: solo dm, valida el rol y el último DM no se degrada', () => {
+  const { room, dm, player } = setup();
+  assert.equal(H(room, player, { t: 'setRole', memberId: player.id, role: 'dm' }).error, 'no permitido');
+  assert.ok(H(room, dm, { t: 'setRole', memberId: player.id, role: 'rey' }).error);
+  assert.ok(H(room, dm, { t: 'setRole', memberId: 'nadie', role: 'player' }).error);
+  assert.ok(H(room, dm, { t: 'setRole', memberId: dm.id, role: 'player' }).error); // único DM
+  assert.equal(dm.role, 'dm');
+  assert.equal(H(room, dm, { t: 'setRole', memberId: player.id, role: 'dm' }).state, true);
+  assert.equal(H(room, dm, { t: 'setRole', memberId: dm.id, role: 'player' }).state, true); // ya hay otro DM
+  assert.equal(dm.role, 'player');
+});
+
+test('condition: permisos, validación, agotamiento y rondas que expiran', () => {
+  const { room, dm, player } = setup();
+  const k = tok(room, 'kael');
+  const otra = (joinRoom(room, 'Otra', undefined) as { member: any }).member;
+  assert.equal(H(room, otra, { t: 'condition', tokenId: 'kael', condition: 'poisoned', on: true }).error, 'no permitido');
+  for (const [condition, rounds] of [['foo', undefined], ['poisoned', 0], ['poisoned', 101], ['poisoned', 1.5]] as const)
+    assert.ok(H(room, player, { t: 'condition', tokenId: 'kael', condition, on: true, rounds }).error);
+  H(room, player, { t: 'condition', tokenId: 'kael', condition: 'poisoned', on: true, rounds: 2 });
+  assert.deepEqual([k.conditions, k.condRounds], [['poisoned'], { poisoned: 2 }]);
+  H(room, dm, { t: 'condition', tokenId: 'kael', condition: 'exhaustion', on: true });
+  H(room, dm, { t: 'condition', tokenId: 'kael', condition: 'exhaustion', on: true });
+  assert.deepEqual([k.exhaustion, k.conditions.includes('exhaustion')], [2, true]);
+  H(room, dm, { t: 'condition', tokenId: 'kael', condition: 'exhaustion', on: false });
+  H(room, dm, { t: 'condition', tokenId: 'kael', condition: 'exhaustion', on: false });
+  assert.deepEqual([k.exhaustion, k.conditions.includes('exhaustion')], [0, false]);
+  H(room, dm, { t: 'combat', op: 'start' });
+  toTurn(room, dm, 'kael');
+  H(room, dm, { t: 'combat', op: 'next' });
+  assert.equal(k.condRounds!.poisoned, 1);
+  toTurn(room, dm, 'kael');
+  const fx = H(room, dm, { t: 'combat', op: 'next' });
+  assert.deepEqual([k.conditions, k.condRounds], [[], {}]);
+  assert.match(fx.chats![0].text!, /Kael ya no está envenenado/);
+});
+
+test('hp: daño rompe la concentración; si la supera, se mantiene', () => {
+  const { room, dm, player } = setup();
+  const k = tok(room, 'kael');
+  H(room, player, { t: 'concentration', tokenId: 'kael', spell: 'Bendición' });
+  assert.equal(k.concentration, 'Bendición');
+  let fx = H(room, player, { t: 'hp', tokenId: 'kael', delta: 8, kind: 'damage' }, rollOf(15)); // 15 + CON +2 >= CD 10
+  assert.equal(k.concentration, 'Bendición');
+  assert.equal(fx.chats![0].card!.actionName, 'Concentración');
+  assert.equal(fx.chats![0].card!.targets[0].save!.success, true);
+  fx = H(room, dm, { t: 'hp', tokenId: 'kael', delta: 2, kind: 'damage' }, rollOf(1)); // 1 + 2 < 10
+  assert.equal(k.concentration, undefined);
+  assert.equal(fx.chats![0].card!.targets[0].save!.success, false);
+  assert.match(fx.chats![1].text!, /pierde la concentración en Bendición/);
+  assert.ok(H(room, player, { t: 'hp', tokenId: 'kael', delta: 0, kind: 'damage' }).error);
+  assert.ok(H(room, player, { t: 'hp', tokenId: 'trasgo-a', delta: 1, kind: 'heal' }).error); // ajeno
+});
+
+test('hp: 0 PG deja inconsciente al aliado y mata al enemigo; curar desde 0 despierta', () => {
+  const { room, dm, player } = setup();
+  const k = tok(room, 'kael');
+  H(room, player, { t: 'hp', tokenId: 'kael', delta: 30, kind: 'damage' }); // 19 + 5 temp = 24 → 0, sobran 6
+  assert.equal(k.hp!.cur, 0);
+  assert.deepEqual([k.conditions.includes('unconscious'), k.conditions.includes('prone'), k.deathSaves], [true, true, { successes: 0, failures: 0 }]);
+  H(room, dm, { t: 'hp', tokenId: 'kael', delta: 1, kind: 'damage' }); // a 0 PG: un fallo
+  assert.equal(k.deathSaves!.failures, 1);
+  H(room, dm, { t: 'hp', tokenId: 'kael', delta: 5, kind: 'heal' });
+  assert.deepEqual([k.hp!.cur, k.conditions.includes('unconscious'), k.deathSaves], [5, false, undefined]);
+  H(room, dm, { t: 'hp', tokenId: 'trasgo-a', delta: 5, kind: 'damage' });
+  assert.ok(tok(room, 'trasgo-a').conditions.includes('dead'));
+  H(room, dm, { t: 'hp', tokenId: 'kael', delta: 999, kind: 'damage' }); // daño masivo
+  assert.ok(k.conditions.includes('dead'));
+});
+
+test('tarjetas aplican los mismos efectos (auto y confirm)', () => {
+  const { room, dm, player } = setup();
+  H(room, dm, { t: 'automation', value: 'auto' });
+  const fx = act(room, player, 'kael', 'proyectil-magico', ['trasgo-a']);
+  assert.ok(tok(room, 'trasgo-a').conditions.includes('dead'));
+  assert.match(fx.chats!.map((c) => c.text).join(), /Trasgo A muere/);
+  H(room, dm, { t: 'automation', value: 'assisted' });
+  tok(room, 'ysolde').hp!.cur = 1; tok(room, 'kael').concentration = 'Bendición';
+  tok(room, 'nix').actions![0] = { ...tok(room, 'nix').actions![0], toHit: 99, damage: '20' };
+  const nixCard = fixed(() => H(room, dm, { t: 'act', tokenId: 'nix', actionId: 'arco-corto', targets: ['ysolde'] })).chat!.card!;
+  const c = H(room, dm, { t: 'confirm', pending: nixCard.pending, mode: 'full' });
+  assert.ok(tok(room, 'ysolde').conditions.includes('unconscious'));
+  assert.ok(c.chats!.some((x) => /cae inconsciente/.test(x.text ?? '')));
+});
+
+test('deathSave: 20 natural revive, éxitos estabilizan y 3 fallos matan', () => {
+  const { room, dm, player } = setup();
+  const k = tok(room, 'kael');
+  H(room, dm, { t: 'hp', tokenId: 'kael', delta: 99, kind: 'damage' }, rollOf(1));
+  k.hp!.max = 200; k.conditions = ['unconscious', 'prone']; k.deathSaves = { successes: 0, failures: 0 }; k.hp!.cur = 0;
+  let fx = H(room, dm, { t: 'deathSave', tokenId: 'kael' }, rollOf(20));
+  assert.deepEqual([k.hp!.cur, k.conditions.includes('unconscious'), k.deathSaves], [1, false, undefined]);
+  assert.match(fx.chat!.roll!.detail, /revive/);
+  k.hp!.cur = 0; k.conditions = ['unconscious']; k.deathSaves = { successes: 0, failures: 0 };
+  for (let i = 0; i < 3; i++) fx = H(room, dm, { t: 'deathSave', tokenId: 'kael' }, rollOf(12));
+  assert.deepEqual([k.deathSaves, k.conditions, k.hp!.cur], [undefined, ['unconscious'], 0]); // estable
+  assert.ok(H(room, dm, { t: 'deathSave', tokenId: 'kael' }).error); // ya no hace salvaciones
+  k.deathSaves = { successes: 0, failures: 0 };
+  for (let i = 0; i < 3; i++) H(room, dm, { t: 'deathSave', tokenId: 'kael' }, rollOf(5));
+  assert.ok(k.conditions.includes('dead')); assert.equal(k.deathSaves, undefined);
+  // dueño en su turno de combate
+  k.conditions = ['unconscious']; k.deathSaves = { successes: 0, failures: 0 };
+  H(room, dm, { t: 'combat', op: 'start' }); toTurn(room, dm, 'ysolde');
+  assert.equal(H(room, player, { t: 'deathSave', tokenId: 'kael' }).error, 'no es su turno');
+  toTurn(room, dm, 'kael');
+  assert.equal(H(room, player, { t: 'deathSave', tokenId: 'kael' }, rollOf(15)).state, true);
+  assert.equal(k.deathSaves!.successes, 1);
+});
+
+test('check: modificadores, agotamiento 2024/2014 y condiciones', () => {
+  const { room, dm, player } = setup();
+  const k = tok(room, 'kael');
+  k.skills = { perception: 3 }; k.abilities = { str: 8, dex: 14, con: 14, int: 18, wis: 12, cha: 10 };
+  assert.ok(H(room, player, { t: 'check', tokenId: 'kael', kind: 'skill', key: 'nope' }).error);
+  assert.ok(H(room, player, { t: 'check', tokenId: 'kael', kind: 'save', key: 'perception' }).error);
+  assert.equal(H(room, player, { t: 'check', tokenId: 'trasgo-a', kind: 'ability', key: 'str' }).error, 'no permitido');
+  let fx = H(room, player, { t: 'check', tokenId: 'kael', kind: 'skill', key: 'perception', secret: true }, rollOf(10));
+  assert.deepEqual([fx.chat!.roll!.expr, fx.chat!.roll!.total, fx.chat!.roll!.secret], ['Percepción (SAB) +3', 13, true]);
+  assert.equal(H(room, player, { t: 'check', tokenId: 'kael', kind: 'save', key: 'int' }, rollOf(10)).chat!.roll!.total, 17); // saves.int = 7
+  assert.equal(H(room, player, { t: 'check', tokenId: 'kael', kind: 'ability', key: 'dex' }, rollOf(10)).chat!.roll!.total, 12); // mod de 14
+  k.exhaustion = 2; // 2024: −2 por nivel
+  fx = H(room, player, { t: 'check', tokenId: 'kael', kind: 'skill', key: 'perception' }, rollOf(10));
+  assert.deepEqual([fx.chat!.roll!.expr, fx.chat!.roll!.total], ['Percepción (SAB) -1', 9]);
+  H(room, dm, { t: 'settings', patch: { edition: '2014' } });
+  const seen: string[] = [];
+  fx = H(room, player, { t: 'check', tokenId: 'kael', kind: 'skill', key: 'perception' }, rollOf(10, seen));
+  assert.deepEqual([seen[0], fx.chat!.roll!.total], ['2d20kl1', 13]); // desventaja, sin penalizador
+  H(room, player, { t: 'check', tokenId: 'kael', kind: 'save', key: 'int' }, rollOf(10, seen));
+  assert.equal(seen[1], '1d20'); // salvaciones: desventaja solo desde nv. 3
+  k.exhaustion = 0; k.conditions = ['poisoned'];
+  H(room, player, { t: 'check', tokenId: 'kael', kind: 'ability', key: 'str' }, rollOf(10, seen));
+  assert.equal(seen[2], '2d20kl1');
+  k.conditions = ['unconscious'];
+  fx = H(room, player, { t: 'check', tokenId: 'kael', kind: 'save', key: 'dex' }, rollOf(20));
+  assert.deepEqual([fx.chat!.roll!.total, fx.chat!.roll!.detail], [0, 'fallo automático']);
+});
+
+test('act: flanqueo da ventaja solo con aliado en el lado opuesto y la opción activa', () => {
+  const { room, dm } = setup();
+  const ys = tok(room, 'ysolde'), nix = tok(room, 'nix');
+  ys.x = 570; ys.y = 450; nix.x = 570; nix.y = 570; // trasgo-a está en (570,510): lados opuestos
+  const mode = () => fixed(() => H(room, dm, { t: 'act', tokenId: 'ysolde', actionId: 'espada-larga', targets: ['trasgo-a'] })).chat!.card!.targets[0].attack!.mode;
+  assert.equal(mode(), 'normal');
+  H(room, dm, { t: 'settings', patch: { optional: { flanking: true } } });
+  assert.equal(mode(), 'adv');
+  nix.x = 510; nix.y = 510; // a 90°
+  assert.equal(mode(), 'normal');
+  nix.x = 570; nix.y = 570; nix.conditions = ['unconscious'];
+  assert.equal(mode(), 'normal');
+});
+
+test('act: pifia con la opción; ranuras de concentración; import con abilities/skills/prof', () => {
+  const { room, dm, player } = setup();
+  const ys = tok(room, 'ysolde');
+  H(room, dm, { t: 'settings', patch: { optional: { fumbles: true } } });
+  ys.y = 450;
+  const r = Math.random; Math.random = () => 0; // d20 = 1
+  const fx = H(room, dm, { t: 'act', tokenId: 'ysolde', actionId: 'espada-larga', targets: ['trasgo-a'] });
+  Math.random = r;
+  assert.ok(fx.chats!.some((c) => /¡Pifia!/.test(c.text ?? '')));
+  // conjuro con espacio y nombre de concentración
+  tok(room, 'kael').actions!.push({ id: 'bend', name: 'Bendición', cost: 'action', kind: 'heal', range: 30, damage: '1', slot: 1 });
+  act(room, player, 'kael', 'bend', ['ysolde']);
+  assert.equal(tok(room, 'kael').concentration, 'Bendición');
+  // import
+  const ok: any = { ...goodChar(), ddbId: 0, abilities: { str: 8, dex: 14, con: 14, int: 18, wis: 12, cha: 10 }, skills: { arcana: 7 }, prof: 3 };
+  assert.equal(H(room, player, { t: 'importCharacter', tokenId: 'kael', data: ok }).state, true);
+  const k = tok(room, 'kael');
+  assert.deepEqual([k.abilities!.int, k.skills, k.prof], [18, { arcana: 7 }, 3]);
+  for (const f of [(c: any) => { c.skills = { nope: 1 }; }, (c: any) => { c.abilities.str = 31; }, (c: any) => { delete c.abilities.str; }, (c: any) => { c.prof = 1; }, (c: any) => { c.skills = { arcana: 21 }; }]) {
+    const c = structuredClone(ok); f(c);
+    assert.equal(H(room, player, { t: 'importCharacter', tokenId: 'kael', data: c }).error, 'datos de personaje inválidos');
+  }
+});
+
+test('curar a un muerto no lo devuelve a la vida; salvación de muerte fuera de combate', () => {
+  const { room, member: dm } = createRoom('DM', 'TESTDD') as Extract<ReturnType<typeof createRoom>, { room: unknown }>;
+  const j = joinRoom(room, 'Sara', undefined) as { member: Parameters<typeof handle>[1] };
+  const kael = room.scene.tokens.find((t) => t.id === 'kael')!;
+  kael.owners = [j.member.id];
+  handle(room, dm, { t: 'hp', tokenId: 'kael', delta: 19 + 5, kind: 'damage' }, fakeRoll);
+  assert.equal(kael.hp!.cur, 0);
+  assert.ok(kael.deathSaves, 'inconsciente con salvaciones de muerte');
+  const r = handle(room, j.member, { t: 'deathSave', tokenId: 'kael' }, fakeRoll);
+  assert.ok(!('error' in r && r.error), 'fuera de combate el dueño puede tirar');
+  kael.conditions.push('dead');
+  const h = handle(room, dm, { t: 'hp', tokenId: 'kael', delta: 5, kind: 'heal' }, fakeRoll);
+  assert.ok('error' in h && h.error);
+  assert.equal(kael.hp!.cur, 0);
+});
