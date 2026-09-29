@@ -33,6 +33,7 @@ test('e2e: el jugador nunca recibe tokens ocultos', async () => {
   dm.send({ t: 'moveToken', id: 'hobgoblin-2', x: 570, y: 450 }); // oculto, dentro de la vista
   dm.send({ t: 'moveToken', id: 'trasgo-c', x: 480, y: 600 });
   dm.send({ t: 'upsert', kind: 'token', item: { ...w.state.scene.tokens.find((t: any) => t.id === 'osgo'), hidden: true } });
+  dm.send({ t: 'combat', op: 'start' });
   dm.send({ t: 'roll', expr: '1d20', secret: true });
   dm.send({ t: 'chat', text: 'hola' });
   pl.send({ t: 'moveToken', id: 'trasgo-c', x: 1, y: 1 }); // prohibido

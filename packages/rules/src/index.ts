@@ -140,3 +140,4 @@ const EX2014 = [
 
 // Efectos acumulados del agotamiento 2014 hasta ese nivel.
 export const exhaustion2014Effects = (level: number): string[] => EX2014.slice(0, Math.max(0, Math.min(6, level)));
+export * from './combat.ts';

@@ -4,7 +4,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type { ChatMsg, Id, S2C } from '@lantern/protocol';
 import { roll } from '@lantern/rules';
 import { openDb } from './db.ts';
-import { canSee, chatFor, createRoom, filterFor, genCode, handle, joinRoom, normCode, type MemberRec, type Room, type RollFn } from './room.ts';
+import { canSee, chatFor, redact, createRoom, filterFor, genCode, handle, joinRoom, normCode, type MemberRec, type Room, type RollFn } from './room.ts';
 
 type Conn = { room: Room; member: MemberRec };
 
@@ -61,7 +61,7 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
         }
         conns.set(ws, { room, member });
         dirty(room);
-        send(ws, { t: 'welcome', memberId: member.id, key, role: member.role, state: filterFor(room, member, online(room)), chat: chatFor(room.chat, member) });
+        send(ws, { t: 'welcome', memberId: member.id, key, role: member.role, state: filterFor(room, member, online(room)), chat: chatFor(room, member) });
         broadcastState(room); // el resto ve el nuevo miembro / online
         return;
       }
@@ -70,7 +70,7 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
       const { room, member } = conn;
       const fx = handle(room, member, msg, rollFn);
       if (fx.error) return send(ws, { t: 'error', msg: fx.error });
-      if (fx.chat) for (const [w, c] of conns) if (c.room === room && canSee(fx.chat, c.member)) send(w, { t: 'chat', msg: fx.chat as ChatMsg });
+      for (const cm of [fx.chat, ...(fx.chats ?? [])]) if (cm) for (const [w, c] of conns) if (c.room === room && canSee(cm, c.member)) send(w, { t: 'chat', msg: redact(room, cm, c.member) as ChatMsg });
       if (fx.ping) for (const [w, c] of conns) if (c.room === room) send(w, { t: 'ping', ...fx.ping });
       if (fx.state) broadcastState(room);
       dirty(room);

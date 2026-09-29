@@ -1,14 +1,17 @@
 // Lógica pura de una mesa: sin sockets ni BD. Todo lo que llega de un cliente se valida aquí.
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { CODE_ALPHABET, blocksMove } from '@lantern/protocol';
-import type { C2S, ChatMsg, ClientState, Id, Light, Member, Point, Role, Scene, Token, Wall } from '@lantern/protocol';
+import type { ActionCard, C2S, ChatMsg, ClientState, Combat, Id, Light, Member, Point, Role, Scene, Token, Wall } from '@lantern/protocol';
+import { applyCard, resolveAction } from '@lantern/rules';
+import { MONSTERS } from '@lantern/srd';
 import { demoScene } from '@lantern/protocol/demo';
 import { pointInPolygon, sightSegments, visibility } from '@lantern/vision';
 
 export type MemberRec = { id: Id; name: string; role: Role; keyHash: string };
-export type Room = { code: string; scene: Scene; members: Map<Id, MemberRec>; chat: ChatMsg[] };
+// ponytail: automation, combat y pending viven solo en memoria (no se guardan en la BD); persistir si hay que sobrevivir a reinicios
+export type Room = { code: string; scene: Scene; members: Map<Id, MemberRec>; chat: ChatMsg[]; automation: 'assisted' | 'auto'; combat?: Combat; pending: ActionCard[] };
 export type RollFn = (expr: string) => { total: number; detail: string };
-export type Effect = { error?: string; state?: boolean; chat?: ChatMsg; ping?: { from: Id; x: number; y: number } };
+export type Effect = { error?: string; state?: boolean; chat?: ChatMsg; chats?: ChatMsg[]; ping?: { from: Id; x: number; y: number } };
 
 const MAX_CHAT = 200, MAX_ITEMS = 500;
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -32,7 +35,7 @@ function addMember(room: Room, name: string, role: Role) {
 export function createRoom(name: unknown, code: string, scene: Scene = demoScene()): { error: string } | { room: Room; member: MemberRec; key: string } {
   const n = cleanName(name);
   if (!n) return { error: 'nombre inválido' };
-  const room: Room = { code, scene, members: new Map(), chat: [] };
+  const room: Room = { code, scene, members: new Map(), chat: [], automation: 'assisted', pending: [] };
   return { room, ...addMember(room, n, 'dm') };
 }
 
@@ -62,7 +65,8 @@ export function joinRoom(room: Room, name: unknown, key: unknown): { member: Mem
 export function filterFor(room: Room, member: MemberRec, online: ReadonlySet<Id> = new Set()): ClientState {
   const members: Member[] = [...room.members.values()].map((m) => ({ id: m.id, name: m.name, role: m.role, online: online.has(m.id) }));
   const s = room.scene;
-  if (member.role === 'dm' || member.role === 'assistant') return { code: room.code, members, scene: structuredClone(s) };
+  const automation = room.automation;
+  if (member.role === 'dm' || member.role === 'assistant') return { code: room.code, members, scene: structuredClone(s), automation, ...(room.combat && { combat: structuredClone(room.combat) }) };
 
   const segs = sightSegments(s.walls);
   const visible = s.tokens
@@ -83,10 +87,37 @@ export function filterFor(room: Room, member: MemberRec, online: ReadonlySet<Id>
   });
   // ponytail: luces filtradas solo por su centro; un halo que asome desde fuera de la visión no se distingue
   const lights = s.lights.filter((l) => seen(l));
-  return { code: room.code, members, visible, scene: { ...structuredClone(s), walls, lights, tokens } };
+  const ids = new Set(tokens.map((t) => t.id));
+  let combat: Combat | undefined;
+  if (room.combat) {
+    const c = room.combat, order = c.order.filter((o) => ids.has(o.tokenId));
+    // turno oculto: apunta al último visible anterior (o -1)
+    let turn = -1;
+    for (let i = Math.min(c.turn, c.order.length - 1); i >= 0 && turn < 0; i--) turn = order.findIndex((o) => o.tokenId === c.order[i].tokenId);
+    combat = { round: c.round, turn, order, used: Object.fromEntries(Object.entries(c.used).filter(([id]) => ids.has(id))) };
+  }
+  return { code: room.code, members, visible, scene: { ...structuredClone(s), walls, lights, tokens }, automation, ...(combat && { combat }) };
 }
 
-export const chatFor = (chat: ChatMsg[], m: MemberRec) => chat.filter((c) => canSee(c, m));
+export function chatFor(room: Room, m: MemberRec) {
+  const vis = m.role === 'dm' || m.role === 'assistant' ? undefined : new Set(filterFor(room, m).scene.tokens.map((t) => t.id));
+  return room.chat.filter((c) => canSee(c, m)).map((c) => redact(room, c, m, vis));
+}
+// Tarjeta para un jugador: lo que no ve sale como '???' y las CD ajenas se ocultan. La CA nunca viaja en la tarjeta.
+export function redact(room: Room, c: ChatMsg, m: MemberRec, vis?: Set<Id>): ChatMsg {
+  if (!c.card || m.role === 'dm' || m.role === 'assistant') return c;
+  const v = vis ?? new Set(filterFor(room, m).scene.tokens.map((t) => t.id));
+  const card = structuredClone(c.card);
+  const own = room.scene.tokens.find((t) => t.id === card.actorId)?.owners.includes(m.id) ?? false;
+  const hide: string[] = [];
+  if (!v.has(card.actorId)) { hide.push(card.actorName); card.actorName = '???'; card.actorId = '???'; }
+  card.targets.forEach((t, i) => {
+    if (!v.has(t.id)) { hide.push(t.name); t.name = '???'; t.id = '???' + i; }
+    if (t.save && !own) delete (t.save as { dc?: number }).dc; // ponytail: el contrato tipa dc como number; el cliente debe tolerar su ausencia
+  });
+  if (card.detail) for (const h of hide) card.detail = card.detail.replaceAll(h, '???');
+  return { ...c, card };
+}
 export const canSee = (c: ChatMsg, m: MemberRec) =>
   !c.roll?.secret || c.from === m.id || m.role === 'dm' || m.role === 'assistant';
 
@@ -220,6 +251,119 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
     case 'ping': {
       if (!inScene(s, m2.x, m2.y)) return { error: 'mensaje inválido' };
       return { ping: { from: m.id, x: m2.x as number, y: m2.y as number } };
+    }
+    case 'claim': {
+      if (role !== 'player' && role !== 'trusted') return DENY;
+      if (!str(m2.tokenId, 64)) return { error: 'mensaje inválido' };
+      const t = s.tokens.find((t) => t.id === m2.tokenId);
+      if (!t || t.faction !== 'ally') return { error: 'token inexistente' };
+      if (!t.owners.includes(m.id) && t.owners.length > 0) return { error: 'ya tiene dueño' };
+      for (const o of s.tokens) o.owners = o.owners.filter((x) => x !== m.id);
+      t.owners.push(m.id);
+      return { state: true };
+    }
+    case 'automation': {
+      if (role !== 'dm') return DENY;
+      if (m2.value !== 'assisted' && m2.value !== 'auto') return { error: 'mensaje inválido' };
+      room.automation = m2.value;
+      return { state: true };
+    }
+    case 'combat': {
+      // El dueño del token activo puede pasar su propio turno («Fin de turno»); lo demás es del DM.
+      const own = m2.op === 'next' && !!room.combat && !!s.tokens.find((t) => t.id === room.combat!.order[room.combat!.turn]?.tokenId)?.owners.includes(m.id);
+      if (!isDM(m) && !own) return DENY;
+      if (m2.op === 'end') { delete room.combat; return { state: true }; }
+      if (m2.op === 'start') {
+        if (!s.tokens.length) return { error: 'sin tokens' };
+        const rows = s.tokens.map((t) => ({ t, init: rollFn('1d20').total + (t.initMod ?? 0) }))
+          .sort((a, b) => b.init - a.init || (b.t.initMod ?? 0) - (a.t.initMod ?? 0));
+        room.combat = { round: 1, turn: 0, order: rows.map((r) => ({ tokenId: r.t.id, init: r.init })), used: {} };
+        const fmt = (h: boolean) => rows.filter((r) => r.t.hidden === h).map((r) => `${r.t.name} ${r.init}`).join(', ');
+        // Público: solo el aviso (el carrusel ya llega filtrado por visión). El orden completo, secreto para DM/asistente.
+        const chats = [pushChat(room, { id: randomUUID(), from: m.id, at: now, text: '¡Comienza el combate! Ronda 1' })];
+        chats.push(pushChat(room, { id: randomUUID(), from: m.id, at: now, roll: { expr: 'iniciativa', total: 0, detail: fmt(false) + (rows.some((r) => r.t.hidden) ? ' · ocultos: ' + fmt(true) : ''), secret: true } }));
+        return { state: true, chats };
+      }
+      if (m2.op !== 'next' && m2.op !== 'prev') return { error: 'mensaje inválido' };
+      const c = room.combat;
+      if (!c) return { error: 'sin combate' };
+      const n = c.order.length, step = m2.op === 'next' ? 1 : -1;
+      let i = c.turn, r = c.round;
+      for (let k = 0; k < n; k++) { // salta tokens borrados
+        i += step;
+        if (i >= n) { i = 0; r++; } else if (i < 0) { i = n - 1; r--; }
+        if (s.tokens.some((t) => t.id === c.order[i].tokenId)) break;
+      }
+      if (r < 1) return { error: 'primera ronda' };
+      c.turn = i; c.round = r;
+      c.used[c.order[i].tokenId] = { action: false, bonus: false, reaction: false, moved: 0 };
+      return { state: true };
+    }
+    case 'act': {
+      if (!str(m2.tokenId, 64) || !str(m2.actionId, 64) || !Array.isArray(m2.targets) || m2.targets.length < 1 || m2.targets.length > 20 || !m2.targets.every((x) => str(x, 64)))
+        return { error: 'mensaje inválido' };
+      const tk = s.tokens.find((t) => t.id === m2.tokenId);
+      if (!tk) return { error: 'token inexistente' };
+      if (!isDM(m) && !tk.owners.includes(m.id) && !(role === 'trusted' && tk.faction === 'ally')) return DENY;
+      const act = tk.actions?.find((a) => a.id === m2.actionId);
+      if (!act) return { error: 'acción inexistente' };
+      const vis = isDM(m) ? null : new Set(filterFor(room, m).scene.tokens.map((t) => t.id));
+      const targets: Token[] = [];
+      for (const id of new Set(m2.targets as string[])) {
+        const t = s.tokens.find((t) => t.id === id);
+        if (!t || (vis && !vis.has(id))) return { error: 'objetivo inválido' };
+        targets.push(t);
+      }
+      // distancia en pies entre centros, regla 5-5-5 (la diagonal cuenta como una casilla)
+      const dist = (t: Token) => Math.max(Math.abs(t.x - tk.x), Math.abs(t.y - tk.y)) / s.grid.size * s.grid.feet;
+      const reach = act.range + 5 * (tk.size - 1);
+      // ponytail: en acciones de área solo se comprueba el alcance al primer objetivo (punto de impacto); sin plantilla de área real
+      if ((act.area ? targets.slice(0, 1) : targets).some((t) => dist(t) > reach + 1e-6)) return { error: 'fuera de alcance' };
+      const cb = room.combat;
+      if (cb) {
+        if (!isDM(m) && act.cost !== 'reaction' && cb.order[cb.turn]?.tokenId !== tk.id) return { error: 'no es su turno' };
+        if (cb.used[tk.id]?.[act.cost]) return { error: 'ya usada' };
+      }
+      let lvl = 0;
+      if (act.slot) {
+        lvl = Object.keys(tk.slots ?? {}).map(Number).sort((a, b) => a - b).find((l) => l >= act.slot! && tk.slots![l].used < tk.slots![l].max) ?? 0;
+        if (!lvl) return { error: 'sin espacios de conjuro' };
+      }
+      const card = resolveAction(tk, act, targets, undefined, { within5ft: (t) => dist(t) <= 5 + 5 * (tk.size - 1), cover: () => 0 /* ponytail: cobertura por muros pendiente */ });
+      if (lvl) tk.slots![lvl].used++;
+      if (cb) (cb.used[tk.id] ??= { action: false, bonus: false, reaction: false, moved: 0 })[act.cost] = true;
+      if (room.automation === 'auto' || act.kind === 'heal') { s.tokens = applyCard(card, s.tokens, 'full'); card.applied = true; }
+      else if (card.targets.some((t) => (t.amount ?? 0) > 0)) { card.pending = randomUUID(); room.pending.push(card); }
+      else card.applied = true; // nada que aplicar (todo fallado)
+      return { state: true, chat: pushChat(room, { id: randomUUID(), from: m.id, at: now, card: structuredClone(card) }) };
+    }
+    case 'confirm': {
+      if (!isDM(m)) return DENY;
+      if (!str(m2.pending, 64) || !['full', 'half', 'none'].includes(m2.mode as string)) return { error: 'mensaje inválido' };
+      const i = room.pending.findIndex((c) => c.pending === m2.pending);
+      if (i < 0) return { error: 'no hay tarjeta pendiente' };
+      const [card] = room.pending.splice(i, 1);
+      if (m2.mode !== 'none') s.tokens = applyCard(card, s.tokens, m2.mode as 'full' | 'half');
+      const old = room.chat.find((c) => c.card === undefined ? false : c.card.pending === m2.pending);
+      if (old?.card) { delete old.card.pending; old.card.applied = true; }
+      delete card.pending; card.applied = true;
+      return { state: true, chat: pushChat(room, { id: randomUUID(), from: m.id, at: now, card: structuredClone(card) }) };
+    }
+    case 'spawn': {
+      if (!isDM(m)) return DENY;
+      if (!str(m2.srd, 64) || !inScene(s, m2.x, m2.y) || (m2.hidden !== undefined && typeof m2.hidden !== 'boolean')) return { error: 'mensaje inválido' };
+      if (!Object.hasOwn(MONSTERS, m2.srd)) return { error: 'monstruo inexistente' };
+      if (s.tokens.length >= MAX_ITEMS) return { error: 'demasiados elementos' };
+      const { cr: _cr, type: _ty, ...base } = structuredClone(MONSTERS[m2.srd]);
+      // tamaño par → esquina de casilla; impar → centro de casilla
+      const g = s.grid, snap = (v: number, off: number) => base.size % 2 === 0 ? Math.round((v - off) / g.size) * g.size + off : Math.floor((v - off) / g.size) * g.size + off + g.size / 2;
+      const names = new Set(s.tokens.map((t) => t.name));
+      let name = base.name;
+      for (let n = 2; names.has(name); n++) name = `${base.name} ${n}`;
+      let id = m2.srd as string;
+      for (let n = 2; s.tokens.some((t) => t.id === id); n++) id = `${m2.srd}-${n}`;
+      s.tokens.push({ ...base, id, name, x: snap(m2.x as number, g.offsetX), y: snap(m2.y as number, g.offsetY), owners: [], hidden: m2.hidden === true, srd: m2.srd as string });
+      return { state: true };
     }
     default: return { error: 'mensaje desconocido' };
   }

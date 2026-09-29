@@ -28,7 +28,7 @@ export function openDb(path = process.env.LANTERN_DB ?? 'lantern.db') {
       if (!row) return null;
       const ms = getMembers.all(code) as { id: string; name: string; role: MemberRec['role']; key_hash: string }[];
       return {
-        code, scene: JSON.parse(row.scene), chat: JSON.parse(row.chat),
+        code, scene: JSON.parse(row.scene), chat: JSON.parse(row.chat), automation: 'assisted', pending: [],
         members: new Map(ms.map((m) => [m.id, { id: m.id, name: m.name, role: m.role, keyHash: m.key_hash }])),
       };
     },

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRoom, filterFor, handle, joinRoom, type Room } from './room.ts';
+import { chatFor, createRoom, filterFor, handle, joinRoom, redact, type Room } from './room.ts';
 
 const fakeRoll = (e: string) => { if (e === 'bad') throw new Error('x'); return { total: 7, detail: e }; };
 function setup() {
@@ -83,4 +83,111 @@ test('chat, dados secretos y spectator', () => {
   assert.equal(fx.chat?.roll?.secret, true);
   const sp = { ...player, id: 's', role: 'spectator' as const };
   assert.ok(handle(room, sp, { t: 'chat', text: 'hola' }, fakeRoll).error);
+});
+
+// d20 fijo (0.5 → 11) para que los ataques con toHit 99 impacten siempre
+const fixed = <T>(f: () => T) => { const r = Math.random; Math.random = () => 0.5; try { return f(); } finally { Math.random = r; } };
+const act = (room: Room, m: any, tokenId: string, actionId: string, targets: string[]) => fixed(() => handle(room, m, { t: 'act', tokenId, actionId, targets }, fakeRoll));
+const toTurn = (room: Room, dm: any, id: string) => { while (room.combat!.order[room.combat!.turn].tokenId !== id) handle(room, dm, { t: 'combat', op: 'next' }, fakeRoll); };
+
+test('combate: start ordena, crea used vacío y next da la vuelta', () => {
+  const { room, dm, player } = setup();
+  assert.ok(handle(room, player, { t: 'combat', op: 'start' }, fakeRoll).error);
+  const fx = handle(room, dm, { t: 'combat', op: 'start' }, fakeRoll);
+  const c = room.combat!;
+  assert.equal(c.order.length, room.scene.tokens.length);
+  assert.equal(c.order[0].tokenId, 'nix'); // 7 + 4, el mejor initMod
+  assert.deepEqual(c.used, {});
+  assert.ok(fx.chats!.some((m) => m.roll?.secret && m.roll.detail.includes('Trasgo C'))); // ocultos: solo secreto
+  assert.ok(!fx.chats![0].text!.includes('Trasgo C'));
+  for (let i = 0; i < c.order.length; i++) handle(room, dm, { t: 'combat', op: 'next' }, fakeRoll);
+  assert.equal(c.round, 2); assert.equal(c.turn, 0);
+  handle(room, dm, { t: 'combat', op: 'prev' }, fakeRoll);
+  assert.equal(c.round, 1); assert.equal(c.turn, c.order.length - 1);
+  assert.deepEqual(c.used[c.order[c.turn].tokenId], { action: false, bonus: false, reaction: false, moved: 0 });
+  handle(room, dm, { t: 'combat', op: 'end' }, fakeRoll);
+  assert.equal(room.combat, undefined);
+});
+
+test('act: turno, una vez por turno y alcance', () => {
+  const { room, dm, player } = setup();
+  handle(room, dm, { t: 'combat', op: 'start' }, fakeRoll);
+  assert.equal(act(room, player, 'kael', 'proyectil-magico', ['trasgo-a']).error, 'no es su turno');
+  toTurn(room, dm, 'kael');
+  assert.ok(act(room, player, 'ysolde', 'espada-larga', ['trasgo-a']).error); // ajeno
+  assert.equal(act(room, player, 'kael', 'proyectil-magico', ['hobgoblin-2']).error, 'objetivo inválido'); // oculto
+  assert.equal(act(room, player, 'kael', 'proyectil-magico', ['trasgo-a']).state, true);
+  assert.equal(act(room, player, 'kael', 'proyectil-magico', ['trasgo-a']).error, 'ya usada');
+  assert.equal(room.scene.tokens.find((t) => t.id === 'kael')!.slots![1].used, 2);
+  assert.equal(act(room, dm, 'ysolde', 'espada-larga', ['trasgo-a']).error, 'fuera de alcance');
+});
+
+test('act: espacios agotados', () => {
+  const { room, dm } = setup();
+  const k = tok(room, 'kael'); k.slots![3].used = 2;
+  assert.equal(act(room, dm, 'kael', 'bola-fuego', ['trasgo-a']).error, 'sin espacios de conjuro');
+});
+
+test('assisted deja pendiente y confirm aplica; auto aplica al momento', () => {
+  const { room, dm, player } = setup();
+  const before = tok(room, 'trasgo-a').hp!.cur;
+  const fx = act(room, player, 'kael', 'proyectil-magico', ['trasgo-a']);
+  assert.ok(fx.chat!.card!.pending && !fx.chat!.card!.applied);
+  assert.equal(tok(room, 'trasgo-a').hp!.cur, before);
+  const id = fx.chat!.card!.pending!;
+  assert.ok(handle(room, player, { t: 'confirm', pending: id, mode: 'full' }, fakeRoll).error);
+  const c = handle(room, dm, { t: 'confirm', pending: id, mode: 'full' }, fakeRoll);
+  assert.ok(c.chat!.card!.applied && !c.chat!.card!.pending);
+  assert.ok(tok(room, 'trasgo-a').hp!.cur < before);
+  assert.ok(handle(room, dm, { t: 'confirm', pending: id, mode: 'full' }, fakeRoll).error); // ya aplicada
+  handle(room, dm, { t: 'automation', value: 'auto' }, fakeRoll);
+  const b2 = tok(room, 'trasgo-b').hp!.cur;
+  act(room, dm, 'kael', 'proyectil-magico', ['trasgo-b']);
+  assert.ok(tok(room, 'trasgo-b').hp!.cur < b2);
+  assert.ok(handle(room, player, { t: 'automation', value: 'assisted' }, fakeRoll).error);
+});
+
+test('spawn: sufijo, solo DM, monstruo inexistente y ajuste a casilla', () => {
+  const { room, dm, player } = setup();
+  assert.ok(handle(room, player, { t: 'spawn', srd: 'goblin', x: 10, y: 10 }, fakeRoll).error);
+  assert.ok(handle(room, dm, { t: 'spawn', srd: 'nope', x: 10, y: 10 }, fakeRoll).error);
+  assert.ok(handle(room, dm, { t: 'spawn', srd: 'constructor', x: 10, y: 10 }, fakeRoll).error);
+  handle(room, dm, { t: 'spawn', srd: 'goblin', x: 100, y: 100 }, fakeRoll);
+  handle(room, dm, { t: 'spawn', srd: 'goblin', x: 100, y: 100, hidden: true }, fakeRoll);
+  const t = room.scene.tokens.filter((t) => t.id.startsWith('goblin'));
+  assert.deepEqual(t.map((x) => x.name), ['Trasgo', 'Trasgo 2']);
+  assert.equal(new Set(room.scene.tokens.map((x) => x.id)).size, room.scene.tokens.length);
+  assert.deepEqual([t[0].x, t[0].y, t[1].hidden], [90, 90, true]);
+  handle(room, dm, { t: 'spawn', srd: 'ogre', x: 100, y: 100 }, fakeRoll);
+  const o = room.scene.tokens.find((x) => x.srd === 'ogre')!;
+  assert.deepEqual([o.x, o.y], [120, 120]);
+});
+
+test('claim cambia de token', () => {
+  const { room, player, dm } = setup();
+  assert.ok(handle(room, player, { t: 'claim', tokenId: 'kael' }, fakeRoll).state); // ya suyo
+  assert.ok(handle(room, dm, { t: 'claim', tokenId: 'nix' }, fakeRoll).error);
+  assert.equal(handle(room, player, { t: 'claim', tokenId: 'trasgo-a' }, fakeRoll).error, 'token inexistente');
+  assert.ok(handle(room, player, { t: 'claim', tokenId: 'nix' }, fakeRoll).state);
+  assert.deepEqual([tok(room, 'kael').owners, tok(room, 'nix').owners], [[], [player.id]]);
+});
+
+test('combate y tarjetas no filtran ocultos al jugador', () => {
+  const { room, player, dm } = setup();
+  handle(room, dm, { t: 'combat', op: 'start' }, fakeRoll);
+  toTurn(room, dm, 'trasgo-c'); // turno oculto
+  const st = filterFor(room, player);
+  assert.ok(!JSON.stringify(st.combat).includes('trasgo-c') && !JSON.stringify(st.combat).includes('hobgoblin-2'));
+  assert.equal(st.combat!.order.length, st.scene.tokens.length);
+  assert.ok(st.combat!.turn < st.combat!.order.length);
+  // kael ataca a un oculto (como DM) y luego una CD ajena
+  const fx = act(room, dm, 'kael', 'rayo-escarcha', ['hobgoblin-2']);
+  assert.equal(fx.error, undefined);
+  const s = JSON.stringify(chatFor(room, player));
+  assert.ok(!s.includes('Hobgoblin 2') && !s.includes('hobgoblin-2') && !s.includes('Trasgo C'), s);
+  assert.ok(JSON.stringify(redact(room, fx.chat!, dm)).includes('Hobgoblin 2'));
+  delete room.combat!.used.kael;
+  const f2 = act(room, dm, 'kael', 'bola-fuego', ['trasgo-a']);
+  const other = { ...player, id: 'otro' };
+  assert.ok(!('dc' in redact(room, f2.chat!, other).card!.targets[0].save!));
 });

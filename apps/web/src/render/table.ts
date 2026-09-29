@@ -5,7 +5,7 @@ import {
 import type { FederatedPointerEvent } from 'pixi.js';
 import { sightSegments, visibility } from '@lantern/vision';
 import type { ClientState, Id, Light, Point, Scene, Token, Wall } from '@lantern/protocol';
-import type { CreateTable } from './api.ts';
+import type { CreateTable, Marks } from './api.ts';
 
 const FACTION = { ally: '#5B9BE0', enemy: '#E0643A', neutral: '#BFAE86' } as const;
 const MINE = '#F5C877', AMBER = '#E8A33D', TEXT = '#F2E8DA', SERIF = 'Georgia, "Times New Roman", serif';
@@ -66,11 +66,11 @@ export const createTable: CreateTable = async (el, opts) => {
   const world = new Container();
   stage.addChild(world);
   const floorL = new Container(), gridG = new Graphics(), wallsG = new Graphics(), doorsL = new Container(),
-    tokensL = new Container(), glowL = new Container(), uiL = new Container();
+    tokensL = new Container(), glowL = new Container(), marksG = new Graphics(), uiL = new Container();
   const lightSprite = new Sprite(), fogSprite = new Sprite();
   lightSprite.blendMode = 'multiply';
   glowL.blendMode = 'add';
-  world.addChild(floorL, gridG, wallsG, doorsL, tokensL, lightSprite, glowL, fogSprite, uiL);
+  world.addChild(floorL, gridG, wallsG, doorsL, tokensL, lightSprite, glowL, fogSprite, marksG, uiL);
   const stone = stoneTexture();
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -117,6 +117,40 @@ export const createTable: CreateTable = async (el, opts) => {
   const ruler = new Graphics(), rulerTxt = new Text({ text: '', style: { fontFamily: SERIF, fontSize: 16, fill: AMBER, stroke: { color: '#000', width: 4 } } });
   rulerTxt.anchor.set(0.5, 1); ruler.visible = rulerTxt.visible = false;
   uiL.addChild(ruler, rulerTxt);
+
+  // ---- marcas y texto flotante ----
+  let marks: Marks = { targets: [] };
+  const setMarks = (m: Marks) => { marks = m; };
+  const tokR = (t: Token) => (t.size * (cur?.scene.grid.size ?? 70) * 0.84) / 2;
+  const floats: { id: Id; t: Text; t0: number; y0: number }[] = [];
+  function floatText(id: Id, text: string, color: string) {
+    const o = tokens.get(id);
+    if (!o) return;
+    const n = floats.filter((f) => f.id === id).length; // apila con desplazamiento
+    const t = new Text({ text, style: { fontFamily: SERIF, fontSize: 30, fontWeight: 'bold', fill: color, stroke: { color: '#1a0f08', width: 6 } } });
+    t.anchor.set(0.5, 1);
+    const y0 = o.c.y - tokR(o.t) - n * 30;
+    t.position.set(o.c.x + (n % 2 ? 14 : 0), y0);
+    uiL.addChild(t); floats.push({ id, t, t0: performance.now(), y0 });
+  }
+  function drawMarks(now: number) {
+    const g = marksG.clear(), m = marks, s = now / 1000;
+    if (m.area) g.circle(m.area.x, m.area.y, m.area.radius).fill({ color: m.area.color, alpha: 0.18 }).stroke({ width: 2, color: m.area.color });
+    const at = (id?: Id) => { const o = id ? tokens.get(id) : undefined; return o && { x: o.c.x, y: o.c.y, r: tokR(o.t) }; };
+    const a = at(m.active);
+    if (a) g.circle(a.x, a.y, a.r + 8).stroke({ width: 6, color: AMBER, alpha: reduced ? 0.75 : 0.55 + 0.35 * Math.sin(s * 4) });
+    const sel = at(m.selected);
+    if (sel) g.circle(sel.x, sel.y, sel.r + 4).stroke({ width: 2, color: 0xffd27a });
+    for (const id of m.targets) {
+      const q = at(id); if (!q) continue;
+      const R = q.r + 14, a0 = reduced ? 0 : s * 0.6; // cuatro arcos que giran despacio
+      for (let i = 0; i < 4; i++) {
+        const b = a0 + (i * Math.PI) / 2;
+        g.moveTo(q.x + R * Math.cos(b), q.y + R * Math.sin(b)).arc(q.x, q.y, R, b, b + 0.7);
+      }
+      g.stroke({ width: 3, color: 0xe0643a });
+    }
+  }
 
   // ---- suelo / cuadrícula ----
   async function buildFloor(s: Scene) {
@@ -218,6 +252,7 @@ export const createTable: CreateTable = async (el, opts) => {
     lab.anchor.set(0.5, 0); lab.y = r + 10; c.addChild(lab);
   }
 
+  let press: { id?: Id; x: number; y: number; wx: number; wy: number } | undefined; // pulsación candidata a clic
   let drag: { id: Id; c: Container; from: Point; off: Point; to: Point } | undefined;
   function syncTokens(s: Scene) {
     const ids = new Set(s.tokens.map((t) => t.id));
@@ -229,9 +264,9 @@ export const createTable: CreateTable = async (el, opts) => {
         c.on('pointerdown', (e) => {
           if (e.button !== 0 || e.altKey || space || !cur) return;
           e.stopPropagation();
-          const t2 = tokens.get(t.id)!.t;
+          const t2 = tokens.get(t.id)!.t, p = world.toLocal(e.global);
+          press = { id: t.id, x: e.global.x, y: e.global.y, wx: p.x, wy: p.y };
           if (!canDrag(t2)) return;
-          const p = world.toLocal(e.global);
           drag = { id: t.id, c, from: { x: t2.x, y: t2.y }, off: { x: t2.x - p.x, y: t2.y - p.y }, to: { x: t2.x, y: t2.y } };
           c.zIndex = 1e6; tokensL.sortableChildren = true;
         });
@@ -242,8 +277,8 @@ export const createTable: CreateTable = async (el, opts) => {
       o.t = t;
       const k = `${t.name}|${t.faction}|${t.size}|${t.owners.includes(opts.memberId)}|${t.hp?.cur}/${t.hp?.max}|${s.grid.size}`;
       if (k !== o.key) { o.key = k; drawToken(o.c, t, s.grid); }
-      o.c.eventMode = canDrag(t) ? 'static' : 'passive';
-      o.c.cursor = canDrag(t) ? 'grab' : 'default';
+      o.c.eventMode = 'static'; // también los no movibles: reciben clic
+      o.c.cursor = canDrag(t) ? 'grab' : 'pointer';
       o.c.alpha = t.hidden ? 0.55 : 1;
       if (drag?.id !== t.id) o.c.position.set(t.x, t.y);
     }
@@ -262,10 +297,14 @@ export const createTable: CreateTable = async (el, opts) => {
   // ---- pointer global: pan, arrastre, alt+clic ----
   stage.on('pointerdown', (e: FederatedPointerEvent) => {
     if (!cur) return;
+    press = undefined;
     if (e.altKey && e.button === 0) { const p = world.toLocal(e.global); opts.onPing(p.x, p.y); return; }
+    if (e.button === 0 && !space && e.target === stage) { const p = world.toLocal(e.global); press = { x: e.global.x, y: e.global.y, wx: p.x, wy: p.y }; }
     if (e.button === 1 || (e.button === 0 && (space || e.target === stage))) pan = { x: e.global.x - world.x, y: e.global.y - world.y };
   });
+  let ptr: Point | undefined; // último puntero pendiente de avisar (1 vez por frame, en el ticker)
   stage.on('globalpointermove', (e: FederatedPointerEvent) => {
+    if (opts.onPointer) ptr = world.toLocal(e.global);
     if (pan) { world.position.set(e.global.x - pan.x, e.global.y - pan.y); return; }
     if (!drag || !cur) return;
     const p = world.toLocal(e.global), t = tokens.get(drag.id)!.t, g = cur.scene.grid;
@@ -278,8 +317,13 @@ export const createTable: CreateTable = async (el, opts) => {
     rulerTxt.text = `${cells * g.feet} pies`;
     rulerTxt.position.set(drag.to.x, drag.to.y - t.size * g.size * 0.5 - 14);
   });
-  const up = () => { pan = undefined; endDrag(true); };
-  stage.on('pointerup', up); stage.on('pointerupoutside', up);
+  const up = (e: FederatedPointerEvent) => {
+    pan = undefined; endDrag(true);
+    const p = press; press = undefined;
+    if (!p || Math.hypot(e.global.x - p.x, e.global.y - p.y) >= 4) return;
+    if (p.id) opts.onTokenClick?.(p.id, e.shiftKey); else opts.onMapClick?.(p.wx, p.wy);
+  };
+  stage.on('pointerup', up); stage.on('pointerupoutside', (e) => { press = undefined; up(e); });
 
   // ---- luz: mapa de luz en RenderTexture (multiply) + resplandor aditivo ----
   const LS = () => Math.min(0.5, 2048 / Math.max(cur!.scene.width, cur!.scene.height)); // escala de las RT
@@ -403,6 +447,13 @@ export const createTable: CreateTable = async (el, opts) => {
       p.g.clear().circle(0, 0, 10 + 60 * k).stroke({ width: 4 / world.scale.x, color: 0xffffff });
       p.g.alpha = 1 - k;
     }
+    for (let i = floats.length - 1; i >= 0; i--) {
+      const f = floats[i], k = (now - f.t0) / 1200;
+      if (k >= 1) { f.t.destroy(); floats.splice(i, 1); continue; }
+      f.t.y = f.y0 - (reduced ? 0 : 40 * k); f.t.alpha = k < 0.6 ? 1 : (1 - k) / 0.4;
+    }
+    drawMarks(now);
+    if (ptr) { opts.onPointer?.(ptr.x, ptr.y); ptr = undefined; }
     if (reduced || !lights.size) return;
     const t = now / 1000;
     for (const o of lights.values()) {
@@ -429,5 +480,5 @@ export const createTable: CreateTable = async (el, opts) => {
     app.destroy(true, { children: true });
   }
 
-  return { setState, ping, destroy };
+  return { setState, setMarks, ping, floatText, destroy };
 };
