@@ -28,17 +28,20 @@ type Provider interface {
 
 // Info: precio aproximado y ayuda para el token (ES/EN).
 type Info struct {
-	Name, TokenURL, Price string
-	TokenSteps            map[string]string // "es"/"en"
+	Name, TokenURL string
+	Price          map[string]string // "es"/"en"
+	TokenSteps     map[string]string // "es"/"en"; líneas «• » = pasos
 }
 
 var (
-	HetznerInfo = Info{"Hetzner Cloud", "https://console.hetzner.cloud/", "~4-5 EUR/mes (CX22 x86 ~4 EUR, CAX11 Arm ~4 EUR; IVA aparte)", map[string]string{
-		"es": "1. Entra en https://console.hetzner.cloud/ y crea un proyecto.\n2. Seguridad > Tokens de API > Generar token API.\n3. Permisos: Lectura y escritura. Copia el token (solo se muestra una vez) y pégalo aquí.",
-		"en": "1. Open https://console.hetzner.cloud/ and create a project.\n2. Security > API tokens > Generate API token.\n3. Permissions: Read & Write. Copy the token (shown only once) and paste it here."}}
-	DigitalOceanInfo = Info{"DigitalOcean", "https://cloud.digitalocean.com/account/api/tokens", "~6 USD/mes (droplet s-1vcpu-1gb)", map[string]string{
-		"es": "1. Entra en https://cloud.digitalocean.com/account/api/tokens\n2. Generate New Token, permisos Read y Write (o personalizado: droplet y ssh_key).\n3. Copia el token y pégalo aquí.",
-		"en": "1. Open https://cloud.digitalocean.com/account/api/tokens\n2. Generate New Token with Read and Write scopes (or custom: droplet and ssh_key).\n3. Copy the token and paste it here."}}
+	HetznerInfo = Info{"Hetzner Cloud", "https://console.hetzner.cloud/", map[string]string{
+		"es": "Unos 4-5 EUR al mes (IVA aparte)", "en": "About 4-5 EUR per month (VAT extra)"}, map[string]string{
+		"es": "• Pulsa «o» para abrir «console.hetzner.cloud» e inicia sesión (o crea una cuenta).\n• Crea un proyecto con «New project»: vale cualquier nombre.\n• Dentro del proyecto: «Security» > «API tokens» > «Generate API token».\n• En «Permissions» elige «Read & Write», ponle un nombre y pulsa «Generate API token».\n• Copia el token que aparece: solo se muestra una vez.",
+		"en": "• Press \"o\" to open \"console.hetzner.cloud\" and sign in (or create an account).\n• Create a project with \"New project\": any name works.\n• Inside the project: \"Security\" > \"API tokens\" > \"Generate API token\".\n• Under \"Permissions\" pick \"Read & Write\", give it a name and click \"Generate API token\".\n• Copy the token shown: it is displayed only once."}}
+	DigitalOceanInfo = Info{"DigitalOcean", "https://cloud.digitalocean.com/account/api/tokens", map[string]string{
+		"es": "Unos 6 USD al mes", "en": "About 6 USD per month"}, map[string]string{
+		"es": "• Pulsa «o» para abrir la página de tokens e inicia sesión (o crea una cuenta; piden tarjeta).\n• Pulsa «Generate New Token» y ponle un nombre.\n• En los permisos («Scopes») elige «Full Access» (o «Custom» con escritura en «droplet» y «ssh_key»).\n• Pulsa «Generate Token» y copia el token: solo se muestra una vez.",
+		"en": "• Press \"o\" to open the tokens page and sign in (or create an account; a card is required).\n• Click \"Generate New Token\" and give it a name.\n• Under \"Scopes\" pick \"Full Access\" (or \"Custom\" with write on \"droplet\" and \"ssh_key\").\n• Click \"Generate Token\" and copy the token: it is displayed only once."}}
 )
 
 // doJSON hace la petición y decodifica la respuesta; los códigos >=300 devuelven error con el cuerpo.

@@ -62,8 +62,6 @@ type textScreen struct {
 	lines  int
 }
 
-func (s *textScreen) NoBack() {}
-
 func (s *textScreen) Update(a *App, msg tea.Msg) tea.Cmd {
 	switch m := msg.(type) {
 	case tea.KeyPressMsg:
@@ -98,7 +96,11 @@ func (s *textScreen) Update(a *App, msg tea.Msg) tea.Cmd {
 func (s *textScreen) Help(*App) string { return s.help }
 func (s *textScreen) View(a *App, w, h int) string {
 	lines := strings.Split(s.render(a, w), "\n")
-	room := max(3, h-2)
+	room := h
+	if s.hint != "" {
+		room -= 2
+	}
+	room = max(3, room)
 	if len(lines) > room {
 		s.scroll = min(s.scroll, len(lines)-room)
 		lines = append(lines[s.scroll:min(len(lines), s.scroll+room)], a.th.Muted.Render("  ↑↓ …"))

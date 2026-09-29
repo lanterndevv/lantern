@@ -186,7 +186,7 @@ func Explain(err error, es bool) string {
 	var h *HTTPError
 	if errors.As(err, &h) {
 		switch h.Status {
-		case 401, 403:
+		case 400, 401, 403:
 			return pick("La clave no es válida o no tiene permiso. Vuelve a copiarla completa.", "The key is invalid or lacks permission. Copy it again in full.")
 		case 429:
 			return pick("Has llegado al límite del plan. Espera un poco o elige otro proveedor.", "You hit the plan limit. Wait a bit or pick another provider.")
@@ -194,5 +194,10 @@ func Explain(err error, es bool) string {
 			return pick("No se encontró el recurso: revisa la URL base o el modelo.", "Resource not found: check the base URL or the model.")
 		}
 	}
-	return err.Error()
+	// Un cuerpo JSON largo no ayuda a nadie: una sola línea y corta.
+	if t := strings.Join(strings.Fields(err.Error()), " "); len([]rune(t)) > 240 {
+		return string([]rune(t)[:240]) + "…"
+	} else {
+		return t
+	}
 }

@@ -3,11 +3,9 @@ package ui
 
 import (
 	"image/color"
-	"os"
 
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/term"
 )
 
 // theme: día = pergamino/oro/bermellón/lapislázuli; noche = cuero/marfil/oro. No fija el fondo: respeta el del terminal.
@@ -16,13 +14,6 @@ type theme struct {
 	Title, Sub, Muted, Accent, Good, Bad, Link, Sel lipgloss.Style
 	Box, Key, Done, Todo, Cur                       lipgloss.Style
 	huh                                             huh.Theme
-}
-
-func hasDark() bool {
-	if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
-		return true
-	}
-	return lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
 }
 
 func newTheme(dark, mono bool) theme {

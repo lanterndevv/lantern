@@ -146,22 +146,26 @@ func (p *panel) View(a *App, w, h int) string {
 				info += " · " + a.t("sin respuesta del admin", "admin not responding")
 			}
 		}
-		b.WriteString(fmt.Sprintf("  %s %-10s %s\n", dot(a, p.s.srv), a.t("Servidor", "Server"), info))
+		b.WriteString(fmt.Sprintf("  %s %-10s %s\n", dot(a, p.s.srv), a.t("Lantern", "Lantern"), info))
 		if p.state.Tunnel != "none" && p.state.Tunnel != "" {
-			t := a.t("caído", "down")
+			t := a.t("caído: tus jugadores no pueden entrar", "down: your players cannot get in")
 			if p.s.tun {
 				t = a.t("activo ", "active ") + a.th.Link.Render(p.s.origin)
 			}
-			b.WriteString(fmt.Sprintf("  %s %-10s %s\n", dot(a, p.s.tun), a.t("Túnel", "Tunnel"), t))
+			b.WriteString(fmt.Sprintf("  %s %-10s %s\n", dot(a, p.s.tun), a.t("Enlace", "Link"), t))
 		}
 		ai := a.t("sin configurar", "not configured")
 		if p.s.st.LLM {
-			ai = a.t("LLM configurado", "LLM configured")
+			ai = a.t("configurada", "configured")
 		}
 		if p.s.st.Laya != "" && p.s.st.Laya != "off" {
 			ai += " · Laya " + p.s.st.Laya
 		}
 		b.WriteString(fmt.Sprintf("  %s %-10s %s\n\n", dot(a, p.s.st.LLM || (p.s.st.Laya != "" && p.s.st.Laya != "off")), "IA", ai))
+	}
+	if inv := rebase(p.state.Invite, p.s.origin+p.state.Remote); inv != "" { // un solo origen: el del túnel o el del servidor remoto
+		b.WriteString(a.th.Accent.Render(a.t("Enlace para tus jugadores", "Link for your players")) + "\n" + styled(a.th.Link, wrap(inv, w)) + "\n" +
+			a.th.Muted.Render(a.t("Código de la mesa  ", "Table code  ")) + a.th.Title.Render(p.state.Code) + "\n\n")
 	}
 	if p.note != "" {
 		b.WriteString(a.th.Accent.Render(p.note) + "\n\n")
@@ -191,14 +195,15 @@ func (p *panel) linkScreen(a *App) screen {
 		origin = p.state.Remote
 	}
 	inv := rebase(p.state.Invite, origin)
-	return &textScreen{base: base{-1}, hint: a.th.Key.Render("c") + " " + a.th.Muted.Render(a.t("copiar · Esc volver", "copy · Esc back")),
-		keys: map[string]func(*App) tea.Cmd{"c": func(a *App) tea.Cmd { return tea.SetClipboard(inv) }},
+	qr, copied := false, false
+	return &textScreen{base: base{-1},
+		keys: map[string]func(*App) tea.Cmd{
+			"c": func(a *App) tea.Cmd { copied = true; cmd, _ := copyText(inv); return cmd },
+			"v": func(*App) tea.Cmd { qr = !qr; return nil }},
 		render: func(a *App, w int) string {
-			if inv == "" {
-				return a.t("Aún no hay enlace: el servidor no está publicado.", "No link yet: the server is not published.")
-			}
-			txt := a.th.Title.Render(a.t("Enlace de invitación", "Invite link")) + "\n" + a.th.Link.Render(inv) + "\n\n" + a.th.Accent.Render(a.t("Código: ", "Code: ")) + p.state.Code
-			return txt + "\n\n" + renderQR(inv, a.th.mono, a.th.dark)
+			acts := []string{a.th.Key.Render("c") + " " + a.t("copiar el enlace", "copy the link") + map[bool]string{true: " ✓", false: ""}[copied],
+				a.th.Key.Render("Esc") + " " + a.t("volver", "back")}
+			return inviteView(a, a.t("Enlace de invitación", "Invite link"), inv, p.state.Code, acts, "", w, a.avail(), qr)
 		}}
 }
 
@@ -290,7 +295,7 @@ func newOp(a *App, title, ok string, run func(context.Context) error, after func
 func backToPanel(a *App) tea.Cmd { return a.reset(newPanel()) }
 
 func (p *panel) updateScreen(a *App) screen {
-	items := []item{{title: a.t("Sí, actualizar ahora", "Yes, update now"), lines: []string{a.t("Descarga la última versión, verifica su SHA256 y reinicia el servidor (unos segundos sin servicio).", "Downloads the latest version, verifies its SHA256 and restarts the server (a few seconds of downtime).")}}, {title: a.t("Cancelar", "Cancel")}}
+	items := []item{{title: a.t("Sí, actualizar ahora", "Yes, update now"), lines: []string{a.t("Descarga la última versión, comprueba que no está dañada y reinicia el servidor (unos segundos sin servicio).", "Downloads the latest version, checks it is not corrupted and restarts the server (a few seconds of downtime).")}}, {title: a.t("Cancelar", "Cancel")}}
 	return &menuScreen{base: base{-1}, ch: newChoice(items, 0), numbered: true,
 		intro: func(a *App, w int) string { return a.th.Title.Render(a.t("Actualizar Lantern", "Update Lantern")) },
 		pick: func(a *App, i int) tea.Cmd {

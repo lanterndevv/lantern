@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"rsc.io/qr"
 )
 
@@ -150,26 +151,81 @@ func clip(s string, w int) string {
 }
 
 // wrap parte el texto en líneas de ancho w (por palabras, respetando saltos).
+// Las viñetas («• », «- », «1. ») y la sangría se conservan en las líneas de continuación;
+// una palabra más larga que la línea (una URL, una clave) se parte a la fuerza.
 func wrap(s string, w int) string {
 	if w < 10 {
 		return s
 	}
 	var out []string
 	for _, para := range strings.Split(s, "\n") {
+		pre, rest := bullet(para)
+		ind := strings.Repeat(" ", lipgloss.Width(pre))
+		room := max(1, w-len(ind))
+		var lines []string
 		cur := ""
-		for _, word := range strings.Fields(para) {
-			if cur != "" && lipgloss.Width(cur)+1+lipgloss.Width(word) > w {
-				out = append(out, cur)
+		for _, word := range strings.Fields(rest) {
+			switch {
+			case lipgloss.Width(word) > room:
+				if cur != "" {
+					lines = append(lines, cur)
+				}
+				parts := strings.Split(ansi.Hardwrap(word, room, true), "\n")
+				lines = append(lines, parts[:len(parts)-1]...)
+				cur = parts[len(parts)-1]
+			case cur == "":
 				cur = word
-			} else if cur == "" {
+			case lipgloss.Width(cur)+1+lipgloss.Width(word) > room:
+				lines = append(lines, cur)
 				cur = word
-			} else {
+			default:
 				cur += " " + word
 			}
 		}
-		out = append(out, cur)
+		lines = append(lines, cur)
+		for i, l := range lines {
+			switch {
+			case l == "":
+				out = append(out, "")
+			case i == 0:
+				out = append(out, pre+l)
+			default:
+				out = append(out, ind+l)
+			}
+		}
 	}
 	return strings.Join(out, "\n")
+}
+
+// bullet separa la sangría y la viñeta de una línea («  • », «- », «3. ») del resto.
+func bullet(p string) (pre, rest string) {
+	n := len(p) - len(strings.TrimLeft(p, " "))
+	switch t := p[n:]; {
+	case strings.HasPrefix(t, "• "):
+		n += len("• ")
+	case strings.HasPrefix(t, "- "):
+		n += 2
+	default:
+		k := 0
+		for k < len(t) && t[k] >= '0' && t[k] <= '9' {
+			k++
+		}
+		if k > 0 && k+1 < len(t) && (t[k] == '.' || t[k] == ')') && t[k+1] == ' ' {
+			n += k + 2
+		}
+	}
+	return p[:n], p[n:]
+}
+
+// styled aplica un estilo a cada línea por separado (un texto partido no arrastra colores entre líneas).
+func styled(st lipgloss.Style, s string) string {
+	ls := strings.Split(s, "\n")
+	for i, l := range ls {
+		if l != "" {
+			ls[i] = st.Render(l)
+		}
+	}
+	return strings.Join(ls, "\n")
 }
 
 // renderQR dibuja el QR con medios bloques (2 filas por línea). Con colores: negro sobre blanco.

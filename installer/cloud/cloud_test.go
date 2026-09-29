@@ -96,14 +96,14 @@ func TestDigitalOcean(t *testing.T) {
 	}
 }
 
-func TestOracleGuide(t *testing.T) {
+func TestOracleSteps(t *testing.T) {
 	for _, l := range []string{"es", "en"} {
-		g := OracleGuide(l, "ssh-ed25519 KEY")
-		if !strings.Contains(g, "ssh-ed25519 KEY") || !strings.Contains(g, OracleSignupURL) || !strings.Contains(g, "443") {
+		g := OracleSteps(l)
+		if len(g) != OracleIPStep+1 || g[0].URL != OracleSignupURL || !strings.Contains(g[3].Body, "443") {
 			t.Fatal(l)
 		}
 	}
-	if b := CheckConnectivity(context.Background(), "127.0.0.1", "1"); len(b) != 1 {
-		t.Fatal("puerto 1 debería estar cerrado")
+	if Reach(context.Background(), "127.0.0.1", "1") != "closed" {
+		t.Fatal("puerto 1 debería rechazar la conexión")
 	}
 }

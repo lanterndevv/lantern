@@ -100,16 +100,16 @@ func (s *welcome) View(a *App, w, h int) string {
 func modeMenu(a *App) screen {
 	items := []item{
 		{title: a.t("Mi PC + enlace público", "My PC + public link"), tag: "local", lines: []string{
-			a.t("Instala aquí y publica con un túnel de Cloudflare (HTTPS incluido).", "Installs here and publishes through a Cloudflare tunnel (HTTPS included)."),
+			a.t("Se instala en este ordenador y te doy un enlace de Internet para tus jugadores (con un túnel de Cloudflare, HTTPS incluido).", "Installs on this computer and gives your players an Internet link (through a Cloudflare tunnel, HTTPS included)."),
 			a.t("+ Gratis, sin abrir puertos   − Tu PC debe estar encendido para jugar", "+ Free, no open ports   − Your PC must be on to play")}},
 		{title: a.t("Oracle Cloud gratis", "Oracle Cloud free"), tag: "oracle", lines: []string{
-			a.t("Una máquina Arm gratuita (2 CPU, 12 GB) siempre encendida. Te guío paso a paso.", "A free always-on Arm machine (2 CPU, 12 GB). I guide you step by step."),
-			a.t("+ Gratis y 24/7   − Pide tarjeta para verificar; a veces no hay capacidad", "+ Free and 24/7   − Needs a card to verify; capacity is sometimes out")}},
+			a.t("Un servidor gratis en Internet, siempre encendido. Tú haces unos clics en la web de Oracle y yo te guío paso a paso (unos 20 minutos).", "A free always-on server on the Internet. You click through Oracle's website and I guide you step by step (about 20 minutes)."),
+			a.t("+ Gratis y siempre encendido   − Pide tarjeta para verificar (no cobra); a veces no hay hueco", "+ Free and always on   − Needs a card to verify (no charge); sometimes no room")}},
 		{title: a.t("VPS automático (Hetzner / DigitalOcean)", "Automatic VPS (Hetzner / DigitalOcean)"), tag: "vps", lines: []string{
-			a.t("Creo el servidor por ti con tu token de API y lo dejo listo con HTTPS.", "I create the server for you with your API token and set up HTTPS."),
-			a.t("+ Lo más cómodo y estable   − Unos 4–6 €/mes", "+ Easiest and most stable   − About 4–6 EUR/month")}},
+			a.t("Alquilo un servidor por ti en Hetzner o DigitalOcean (necesitas una cuenta allí) y lo dejo listo con HTTPS.", "I rent a server for you at Hetzner or DigitalOcean (you need an account there) and set it up with HTTPS."),
+			a.t("+ Lo más cómodo y estable   − Unos 4–6 € al mes", "+ Easiest and most stable   − About 4–6 EUR per month")}},
 		{title: a.t("Red local / NAS", "Local network / NAS"), tag: "lan", lines: []string{
-			a.t("Solo dentro de tu casa: en este equipo o con Docker en un NAS.", "Only inside your home: on this machine or with Docker on a NAS."),
+			a.t("Solo dentro de tu casa: en este ordenador o en un NAS (un disco de red) con Docker.", "Only inside your home: on this computer or on a NAS (a network drive) with Docker."),
 			a.t("+ Privado y gratis   − Sin HTTPS: la voz solo va en el propio PC", "+ Private and free   − No HTTPS: voice only works on the PC itself")}},
 	}
 	return &menuScreen{base: base{1}, ch: newChoice(items, 0), numbered: true,
@@ -165,10 +165,10 @@ func validHost(s string) error {
 }
 
 func domainForm(a *App, intro string, done func(*App) tea.Cmd) screen {
-	f := huh.NewForm(huh.NewGroup(huh.NewInput().Title(a.t("Nombre de host", "Hostname")).
-		Description(a.t("Un subdominio de un dominio que ya está en tu cuenta de Cloudflare.", "A subdomain of a domain already in your Cloudflare account.")).
+	f := huh.NewForm(huh.NewGroup(huh.NewInput().Title(a.t("¿Qué dirección quieres para tu mesa?", "What address do you want for your table?")).
+		Description(a.t("Tus jugadores la escribirán en el navegador. Debe colgar de un dominio tuyo que ya esté en Cloudflare (gratis), p. ej. mesa.midominio.com.", "Your players will type it in the browser. It must hang from a domain of yours already on Cloudflare (free), e.g. table.mydomain.com.")).
 		Placeholder("mesa.midominio.com").Value(&a.cfg.Domain).Validate(validHost)))
-	s := newForm(a, 2, a.t("Se abrirá el navegador para que autorices a Lantern en tu cuenta de Cloudflare.", "Your browser will open so you can authorize Lantern on your Cloudflare account."), f, done)
+	s := newForm(a, 2, a.t("Al continuar se abrirá el navegador para que dejes a Lantern usar tu cuenta de Cloudflare (es solo un «Autorizar»).", "When you continue your browser will open so you can let Lantern use your Cloudflare account (just click \"Authorize\")."), f, done)
 	s.help = a.t("Cloudflare debe gestionar el DNS de tu dominio. El asistente crea el túnel y el registro DNS por ti.", "Cloudflare must manage your domain's DNS. The assistant creates the tunnel and DNS record for you.")
 	return s
 }
@@ -180,63 +180,65 @@ func lanMenu(a *App) screen {
 	}
 	return &menuScreen{base: base{2}, ch: newChoice(items, 0), numbered: true,
 		intro: func(a *App, w int) string {
-			return a.th.Title.Render(a.t("Red local", "Local network")) + "\n" + a.th.Bad.Render(a.t("Aviso: ", "Note: ")) +
-				wrap(a.t("sin HTTPS el navegador bloquea el micrófono, así que la voz solo funciona en el propio equipo donde corre Lantern. Para el resto, vuelve atrás y elige «Mi PC + enlace» (túnel).",
-					"without HTTPS the browser blocks the microphone, so voice only works on the machine running Lantern. For everyone else, go back and pick “My PC + link” (tunnel)."), w)
+			return a.th.Title.Render(a.t("Red local", "Local network")) + "\n" + wrap(a.t("Aviso: sin HTTPS el navegador bloquea el micrófono, así que la voz solo funciona en el propio equipo donde corre Lantern. Para el resto, vuelve atrás y elige «Mi PC + enlace» (túnel).",
+				"Note: without HTTPS the browser blocks the microphone, so voice only works on the machine running Lantern. For everyone else, go back and pick “My PC + link” (tunnel)."), w)
 		},
 		pick: func(a *App, i int) tea.Cmd {
 			a.cfg.Docker = items[i].tag == "docker"
+			if a.cfg.Docker {
+				return a.goTo(dockerGuide(a))
+			}
 			return a.toAI()
 		}}
 }
 
-// Oracle: guía + datos de conexión.
-func oracleGuide(a *App) screen {
-	key, pub, err := remote.EnsureKey(a.cfg.DataDir)
-	if err == nil {
-		a.cfg.SSHKeyPath = key
-	}
-	a.cfg.SSHUser = "ubuntu"
-	return &textScreen{base: base{2}, hint: a.th.Muted.Render(a.t("o abrir Oracle Cloud · Enter continuar cuando tengas la IP", "o open Oracle Cloud · Enter to continue once you have the IP")),
-		render: func(a *App, w int) string {
-			if err != nil {
-				return a.th.Bad.Render(err.Error())
-			}
-			lang := "es"
-			if !a.es() {
-				lang = "en"
-			}
-			return a.th.Title.Render(a.t("Oracle Cloud: crea tu máquina gratis", "Oracle Cloud: create your free machine")) + "\n\n" + wrap(cloud.OracleGuide(lang, pub), w+10)
-		},
-		keys:  map[string]func(*App) tea.Cmd{"o": func(a *App) tea.Cmd { _ = platform.OpenURL(cloud.OracleSignupURL); return nil }},
-		enter: func(a *App) tea.Cmd { return a.goTo(remoteForm(a)) },
-		help:  a.t("Esta clave SSH la generó el asistente y solo se usa para entrar en tu máquina de Oracle. La parte privada no sale de tu equipo.", "This SSH key was generated by the assistant and is only used to log into your Oracle machine. The private part never leaves your computer."),
-	}
-}
-
+// Oracle: la guía paso a paso está en oracle.go; aquí, lo último que falta: el dominio.
 func remoteForm(a *App) screen {
 	f := huh.NewForm(huh.NewGroup(
-		huh.NewInput().Title(a.t("IP pública de la máquina", "Machine public IP")).Value(&a.cfg.SSHHost).Validate(func(s string) error {
+		huh.NewInput().Title(a.t("¿Tienes un dominio propio? (opcional)", "Do you have your own domain? (optional)")).
+			Description(a.t("Por ejemplo mesa.midominio.com, ya apuntando a la IP de tu máquina. Si lo dejas vacío no pasa nada: uso una dirección gratuita basada en la IP (sslip.io) y el candado HTTPS funciona igual.",
+				"For example table.mydomain.com, already pointing to your machine's IP. Leaving it empty is fine: I use a free address based on the IP (sslip.io) and the HTTPS padlock works the same.")).
+			Placeholder("mesa.midominio.com").Value(&a.cfg.Domain).Validate(func(s string) error {
 			if strings.TrimSpace(s) == "" {
-				return fmt.Errorf("%s", a.t("escribe la IP", "enter the IP"))
+				return nil
 			}
-			return nil
+			return validHost(s)
 		}),
-		huh.NewInput().Title(a.t("Usuario SSH", "SSH user")).Value(&a.cfg.SSHUser),
-		huh.NewInput().Title(a.t("Dominio (opcional)", "Domain (optional)")).
-			Description(a.t("Vacío: uso <ip>.sslip.io con certificado HTTPS automático.", "Empty: I use <ip>.sslip.io with an automatic HTTPS certificate.")).Value(&a.cfg.Domain),
 	))
-	return newForm(a, 2, "", f, func(a *App) tea.Cmd { return a.toAI() })
+	return newForm(a, 2, a.t("Conexión correcta: llego a tu máquina de Oracle. Última pregunta de este bloque.", "Connection works: I can reach your Oracle machine. Last question of this block."), f, func(a *App) tea.Cmd { return a.toAI() })
 }
 
-// VPS.
+// dockerGuide explica qué es y qué va a pasar antes de generar los archivos para el NAS.
+func dockerGuide(a *App) screen {
+	dir := filepath.Join(a.cfg.DataDir, "docker")
+	return &textScreen{base: base{2}, hint: a.th.Key.Render("Enter") + " " + a.th.Muted.Render(a.t("continuar · Esc volver", "continue · Esc back")),
+		enter: func(a *App) tea.Cmd { return a.toAI() },
+		help:  a.t("Docker es un sistema para instalar programas en un NAS sin tocar nada más. Si no sabes qué es, casi seguro que te conviene «Mi PC + enlace público».", "Docker is a way to install programs on a NAS without touching anything else. If you do not know what it is, \"My PC + public link\" is almost certainly what you want."),
+		render: func(a *App, w int) string {
+			h := func(s string) string { return a.th.Accent.Render(s) }
+			return a.th.Title.Render(a.t("Instalar en tu NAS con Docker", "Install on your NAS with Docker")) + "\n\n" +
+				h(a.t("Qué es", "What it is")) + "\n" + wrap(a.t("Docker es la forma habitual de instalar programas en un NAS (Synology, Unraid, TrueNAS…). Yo no toco tu NAS: te preparo dos archivos y tú los subes.", "Docker is the usual way to install programs on a NAS (Synology, Unraid, TrueNAS…). I do not touch your NAS: I prepare two files and you upload them."), w) + "\n\n" +
+				h(a.t("Cuánto cuesta", "What it costs")) + "\n" + a.t("Nada: usa el NAS que ya tienes.", "Nothing: it uses the NAS you already have.") + "\n\n" +
+				h(a.t("Qué va a pasar", "What will happen")) + "\n" + wrap(a.t(
+				"• Te haré unas preguntas más (por ejemplo, la IA).\n• Crearé los archivos «docker-compose.yml» y «lantern.env» en:\n  "+dir+"\n• Te explicaré cómo subirlos a tu NAS.\n• Se juega con http://IP-del-NAS:8787 dentro de tu casa. La voz necesita HTTPS y no funcionará desde otros equipos.",
+				"• I will ask a few more questions (for example, the AI).\n• I will create \"docker-compose.yml\" and \"lantern.env\" in:\n  "+dir+"\n• I will explain how to upload them to your NAS.\n• You play at http://NAS-IP:8787 inside your home. Voice needs HTTPS and will not work from other machines."), w)
+		}}
+}
+
+// VPS: qué es y cuánto cuesta (proveedor) -> cómo conseguir el token -> pegarlo -> qué va a pasar.
 func vpsProviderMenu(a *App) screen {
 	hz, do := cloud.HetznerInfo, cloud.DigitalOceanInfo
-	items := []item{{title: hz.Name, tag: "hetzner", lines: []string{hz.Price}}, {title: do.Name, tag: "digitalocean", lines: []string{do.Price}}}
+	lang := a.pick2("es", "en")
+	items := []item{
+		{title: hz.Name, tag: "hetzner", lines: []string{hz.Price[lang], a.t("Empresa alemana. Muy fiable y con buen precio.", "German company. Very reliable and good value.")}},
+		{title: do.Name, tag: "digitalocean", lines: []string{do.Price[lang], a.t("Empresa estadounidense. Su web es muy sencilla.", "US company. Its website is very simple.")}}}
 	return &menuScreen{base: base{2}, ch: newChoice(items, 0), numbered: true,
 		intro: func(a *App, w int) string {
-			return a.th.Title.Render(a.t("¿Con qué proveedor?", "Which provider?")) + "\n" + a.t("Crearé un servidor pequeño con tu token de API. Se cobra por horas.", "I will create a small server with your API token. Billed hourly.")
+			return a.th.Title.Render(a.t("¿Con qué empresa alquilamos el servidor?", "Which company do we rent the server from?")) + "\n" +
+				wrap(a.t("Un VPS es un ordenador alquilado en Internet, siempre encendido, donde vivirá tu mesa. Yo lo creo y lo dejo listo con HTTPS; tú solo me das permiso desde tu cuenta. Se cobra por horas y puedes borrarlo cuando quieras desde la web de la empresa.",
+					"A VPS is a computer rented on the Internet, always on, where your table will live. I create it and set it up with HTTPS; you only give me permission from your account. It is billed hourly and you can delete it any time from the company's website."), w)
 		},
+		help: a.t("Necesitas una cuenta en la empresa (con tarjeta). Hasta el paso «Instalar» no se crea ni se cobra nada.", "You need an account with the company (with a card). Nothing is created or charged until the \"Install\" step."),
 		pick: func(a *App, i int) tea.Cmd {
 			a.cfg.CloudProvider = items[i].tag
 			info := hz
@@ -249,26 +251,29 @@ func vpsProviderMenu(a *App) screen {
 			}
 			a.cfg.SSHKeyPath = key
 			a.cfg.SSHUser = "ubuntu"
-			lang := map[bool]string{true: "es", false: "en"}[a.es()]
-			return a.goTo(&textScreen{base: base{2}, hint: a.th.Muted.Render(a.t("o abrir la página del token · Enter cuando lo tengas copiado", "o open the token page · Enter once you copied it")),
+			return a.goTo(&textScreen{base: base{2}, hint: a.th.Key.Render("o") + " " + a.th.Muted.Render(a.t("abrir la página del token · ", "open the token page · ")) + a.th.Key.Render("Enter") + " " + a.th.Muted.Render(a.t("cuando lo tengas copiado", "once you copied it")),
 				render: func(a *App, w int) string {
-					return a.th.Title.Render(a.t("Token de ", "API token for ")+info.Name) + "\n\n" + wrap(info.TokenSteps[lang], w) + "\n\n" + a.th.Accent.Render(info.TokenURL)
+					return a.th.Title.Render(a.t("Consigue tu token de ", "Get your token from ")+info.Name) + "\n\n" +
+						wrap(a.t("Un «token» es una contraseña especial que deja a Lantern crear el servidor en tu cuenta sin conocer tu contraseña de verdad. Lo creas tú en la web de "+info.Name+":", "A \"token\" is a special password that lets Lantern create the server in your account without knowing your real password. You create it on the "+info.Name+" website:"), w) + "\n\n" +
+						wrap(info.TokenSteps[a.pick2("es", "en")], w) + "\n\n" + a.th.Muted.Render(a.t("Coste: ", "Cost: ")+info.Price[a.pick2("es", "en")])
 				},
 				keys: map[string]func(*App) tea.Cmd{"o": func(a *App) tea.Cmd { _ = platform.OpenURL(info.TokenURL); return nil }},
 				enter: func(a *App) tea.Cmd {
 					f := huh.NewForm(huh.NewGroup(
-						huh.NewInput().Title(a.t("Pega tu token", "Paste your token")).EchoMode(huh.EchoModePassword).Value(&a.cfg.CloudToken).
+						huh.NewInput().Title(a.t("Pega tu token", "Paste your token")).Description(a.t("No se verá en pantalla mientras lo pegas.", "It will not be shown on screen while you paste it.")).
+							EchoMode(huh.EchoModePassword).Value(&a.cfg.CloudToken).
 							Validate(func(s string) error {
 								if len(strings.TrimSpace(s)) < 10 {
 									return fmt.Errorf("%s", a.t("el token parece incompleto", "the token looks incomplete"))
 								}
 								return nil
 							}),
-						huh.NewInput().Title(a.t("Dominio (opcional)", "Domain (optional)")).
-							Description(a.t("Vacío: uso <ip>.sslip.io con HTTPS automático.", "Empty: I use <ip>.sslip.io with automatic HTTPS.")).Value(&a.cfg.Domain)))
-					return a.goTo(newForm(a, 2, a.t("El token no se muestra ni se guarda: solo se usa ahora para crear el servidor.", "The token is not shown or stored: it is only used now to create the server."), f, func(a *App) tea.Cmd { return a.toAI() }))
+						huh.NewInput().Title(a.t("¿Tienes un dominio propio? (opcional)", "Do you have your own domain? (optional)")).
+							Description(a.t("Vacío: uso una dirección gratuita basada en la IP (sslip.io), con HTTPS igualmente.", "Empty: I use a free address based on the IP (sslip.io), with HTTPS anyway.")).Value(&a.cfg.Domain)))
+					return a.goTo(newForm(a, 2, a.t("Qué va a pasar: al final, en «Instalar», crearé el servidor en tu cuenta de "+info.Name+" (1-2 minutos) y lo dejaré funcionando. Desde ahí empieza a cobrarse. El token no se guarda: solo se usa en ese momento.",
+						"What will happen: at the end, in \"Install\", I will create the server in your "+info.Name+" account (1-2 minutes) and leave it running. Billing starts from then. The token is not stored: it is only used at that moment."), f, func(a *App) tea.Cmd { return a.toAI() }))
 				},
-				help: a.t("El servidor se crea en tu cuenta. Si algo falla, el servidor no se borra solo: puedes reintentar con su IP o eliminarlo desde el panel del proveedor.", "The server is created in your account. If something fails it is not deleted automatically: retry with its IP or delete it in the provider's console."),
+				help: a.t("El servidor se crea en tu cuenta. Si algo falla, el servidor no se borra solo: puedes reintentar con su IP o eliminarlo desde la web de la empresa.", "The server is created in your account. If something fails it is not deleted automatically: retry with its IP or delete it from the company's website."),
 			})
 		}}
 }

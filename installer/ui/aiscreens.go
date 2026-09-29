@@ -93,7 +93,7 @@ func (s *providerScreen) rebuild(a *App) {
 		title := p.Name
 		var lines []string
 		if !p.Enabled {
-			title += a.t("  (verificar condiciones)", "  (verify terms)")
+			title += a.t("  (aún no disponible)", "  (not available yet)")
 		}
 		lines = append(lines, a.pick2(p.CostES, p.CostEN))
 		its = append(its, item{title: title, disabled: !p.Enabled, lines: lines[:1]})
@@ -165,19 +165,21 @@ func (s *providerScreen) View(a *App, w, h int) string {
 	var detail string
 	if s.ch.sel >= 0 && s.ch.sel < len(s.items[s.tab]) {
 		p := s.items[s.tab][s.ch.sel]
-		detail = "\n\n" + a.th.Accent.Render(p.Name) + "  " + a.th.Muted.Render(a.pick2(p.CostES, p.CostEN))
-		if t := a.pick2(p.TermsES, p.TermsEN); t != "" {
-			detail += "\n" + wrap(a.th.Muted.Render(a.t("Condiciones: ", "Terms: "))+t, w)
+		if tm := a.pick2(p.TermsES, p.TermsEN); tm != "" {
+			detail = "\n\n" + styled(a.th.Muted, wrap(a.t("Condiciones: ", "Terms: ")+tm, w))
 		}
 		if p.Verify {
-			detail += "\n" + a.th.Muted.Render(a.t("La URL de este proveedor está pendiente de verificar; si falla, revísala en su web.", "This provider's URL is pending verification; if it fails, check its website."))
+			detail += "\n" + styled(a.th.Muted, wrap(a.t("No he podido confirmar la dirección de este servicio; si falla, revisa su web.", "I could not confirm this service's address; if it fails, check its website."), w))
 		}
 		if p.TosURL != "" && !p.Enabled {
 			detail += "\n" + a.th.Link.Render(p.TosURL)
 		}
 	}
-	note := "\n\n" + a.th.Muted.Render(wrap(a.t("Claude Pro/Max y ChatGPT Plus/Pro no aparecen: no se pueden usar desde apps de terceros. Usa la API de Anthropic u OpenAI.",
+	note := "\n\n" + styled(a.th.Muted, wrap(a.t("Claude Pro/Max y ChatGPT Plus/Pro no aparecen: no se pueden usar desde apps de terceros. Usa la API de Anthropic u OpenAI.",
 		"Claude Pro/Max and ChatGPT Plus/Pro are not listed: they cannot be used from third-party apps. Use the Anthropic or OpenAI API."), w))
+	if h < 22 { // en terminales bajas la nota (que también está en la ayuda) le quita sitio a la lista
+		note = ""
+	}
 	s.ch.Y0 = 2
 	room := h - 2 - strings.Count(detail, "\n") - strings.Count(note, "\n") - 3
 	return strings.Join(tabs, " ") + "\n\n" + s.ch.view(a.th, w, room, false) + detail + note
@@ -229,7 +231,7 @@ func (s *keyScreen) build(a *App) {
 		if !p.NeedsKey {
 			title = a.t("Clave de API (si tu servidor la pide)", "API key (if your server needs one)")
 		}
-		in := huh.NewInput().Title(title).EchoMode(huh.EchoModePassword).Value(&s.keyValue)
+		in := huh.NewInput().Title(title).Description(a.t("Es como una contraseña para que Lantern use este servicio. No se verá en pantalla al pegarla y se guarda solo en tu equipo.", "It is like a password that lets Lantern use this service. It will not be shown on screen when pasted and it is stored only on your computer.")).EchoMode(huh.EchoModePassword).Value(&s.keyValue)
 		if p.NeedsKey {
 			in = in.Validate(func(x string) error {
 				if len(strings.TrimSpace(x)) < 8 {
@@ -355,8 +357,9 @@ func (s *keyScreen) View(a *App, w, h int) string {
 	case 1:
 		return s.sp.View() + " " + a.t("Comprobando la clave y buscando modelos…", "Checking the key and listing models…")
 	case 2:
-		s.retry.Y0 = strings.Count(a.th.Bad.Render(s.err), "\n") + 2
-		return a.th.Bad.Render(a.t("No se pudo validar: ", "Could not validate: ")) + wrap(s.err, w) + "\n\n" + s.retry.view(a.th, w, 4, false)
+		msg := a.th.Bad.Render(a.t("No se pudo validar la clave.", "Could not validate the key.")) + "\n" + wrap(s.err, w)
+		s.retry.Y0 = strings.Count(msg, "\n") + 2
+		return msg + "\n\n" + s.retry.view(a.th, w, 4, false)
 	}
 	return s.form.View()
 }
@@ -503,8 +506,8 @@ func (a *App) toLaya() tea.Cmd {
 	return a.goTo(&menuScreen{base: base{3}, ch: newChoice(items, 1), numbered: true,
 		intro: func(a *App, w int) string {
 			return a.th.Title.Render(a.t("Laya: IA local para el turno de los monstruos", "Laya: local AI for monster turns")) + "\n" +
-				wrap(a.t("Laya decide qué hacen los monstruos en combate y funciona en tu CPU, sin enviar nada a Internet. Descarga Python, PyTorch (CPU) y el modelo: unos 1,2 GB y entre 5 y 15 minutos según tu conexión. ",
-					"Laya decides what monsters do in combat and runs on your CPU, sending nothing to the Internet. It downloads Python, PyTorch (CPU) and the model: about 1.2 GB and 5–15 minutes depending on your connection. ")+
+				wrap(a.t("Laya decide qué hacen los monstruos en combate y funciona en tu propio ordenador, sin enviar nada a Internet. Hay que descargar unos 1,2 GB, entre 5 y 15 minutos según tu conexión. ",
+					"Laya decides what monsters do in combat and runs on your own computer, sending nothing to the Internet. It needs a download of about 1.2 GB, 5–15 minutes depending on your connection. ")+
 					fmt.Sprintf(a.t("Espacio libre: %.1f GB.", "Free space: %.1f GB."), free), w)
 		},
 		pick: func(a *App, i int) tea.Cmd {

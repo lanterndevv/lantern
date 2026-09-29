@@ -10,6 +10,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"lantern/installer/docker"
 	"lantern/installer/engine"
@@ -168,14 +169,18 @@ func (s *installScreen) View(a *App, w, h int) string {
 			b.WriteString(a.th.Todo.Render("  ○ "+txt) + "\n")
 		}
 	}
-	b.WriteString("\n  " + s.bar.ViewAs(float64(s.cur)/float64(len(s.steps))) + "\n\n")
+	if s.err == nil {
+		b.WriteString("\n  " + s.bar.ViewAs(float64(s.cur)/float64(len(s.steps))) + "\n\n")
+	} else {
+		b.WriteString("\n")
+	}
 	room := max(2, h-len(s.steps)-9)
 	if s.err != nil {
 		msg := s.redact(s.err.Error())
 		b.WriteString(a.th.Bad.Render(a.t("Algo falló:", "Something failed:")) + "\n" + wrap(msg, w) + "\n")
 		b.WriteString(a.th.Muted.Render(a.t("Puedes reintentar; lo que ya se instaló se reutiliza.", "You can retry; what is already installed is reused.")) + "\n\n")
 		s.retry.Y0 = strings.Count(b.String(), "\n") + 0
-		b.WriteString(s.retry.view(a.th, w, 4, true))
+		b.WriteString(s.retry.view(a.th, w, max(3, h-strings.Count(b.String(), "\n")), true))
 		return b.String()
 	}
 	logs := s.logs
@@ -210,7 +215,7 @@ func writeDocker(c model.Config) (string, error) {
 	if port == 0 {
 		port = engine.DefaultPort
 	}
-	compose := docker.Compose(docker.Options{Image: "ghcr.io/lantern-vtt/lantern:latest", Port: port})
+	compose := docker.Compose(docker.Options{Image: lantern.DefaultImage + ":latest", Port: port})
 	if err := os.WriteFile(filepath.Join(dir, "docker-compose.yml"), []byte(compose), 0o644); err != nil {
 		return "", err
 	}
@@ -227,6 +232,7 @@ type doneScreen struct {
 	base
 	text   string
 	copied bool
+	qr     bool // se muestra solo el QR (cuando no cabe junto al texto)
 }
 
 func newDone(a *App, text string) *doneScreen { return &doneScreen{base: base{6}, text: text} }
@@ -243,21 +249,33 @@ func (a *App) inviteURL() string {
 func (s *doneScreen) Update(a *App, msg tea.Msg) tea.Cmd {
 	if k, ok := msg.(tea.KeyPressMsg); ok {
 		switch k.String() {
-		case "o":
-			if a.result.DMURL != "" {
+		case "esc":
+			s.qr = false
+		case "v":
+			s.qr = !s.qr
+		case "o", "enter":
+			if k.String() == "enter" && a.cfg.Docker {
+				a.quitting = true
+				return tea.Quit
+			}
+			if a.cfg.Docker {
+				dir, _, _ := strings.Cut(s.text, "\n\n")
+				_ = platform.OpenURL(dir)
+			} else if a.result.DMURL != "" {
 				_ = platform.OpenURL(a.result.DMURL)
 			}
 		case "c":
 			if u := a.inviteURL(); u != "" {
 				s.copied = true
-				return tea.SetClipboard(u)
+				cmd, _ := copyText(u)
+				return cmd
 			}
 		case "p":
 			if a.cfg.Docker {
 				return nil
 			}
 			return a.reset(newPanel())
-		case "enter", "q":
+		case "q":
 			a.quitting = true
 			return tea.Quit
 		}
@@ -266,32 +284,79 @@ func (s *doneScreen) Update(a *App, msg tea.Msg) tea.Cmd {
 }
 
 func (s *doneScreen) Help(a *App) string {
-	return a.t("Comparte el enlace de invitación y el código con tus jugadores. «o» te abre la mesa como DM en el navegador. Para volver a este panel, ejecuta «lantern» otra vez.", "Share the invite link and code with your players. “o” opens the table as DM in the browser. To return to this dashboard, run “lantern” again.")
+	return a.t("Comparte el enlace de invitación y el código con tus jugadores: pueden escribirlo o escanear el QR con el móvil. Enter o «o» te abre la mesa como DM (director de juego) en el navegador. Para volver a este panel, ejecuta «lantern» otra vez.", "Share the invite link and code with your players: they can type it or scan the QR with a phone. Enter or \"o\" opens the table as DM (game master) in the browser. To return to this dashboard, run \"lantern\" again.")
 }
 
 func (s *doneScreen) View(a *App, w, h int) string {
 	if a.cfg.Docker {
-		return a.th.Title.Render(a.t("Archivos listos para tu NAS", "Files ready for your NAS")) + "\n\n" + wrap(s.text, w) + "\n\n" + a.th.Muted.Render(a.t("Enter para salir", "Enter to quit"))
+		dir, rest, _ := strings.Cut(s.text, "\n\n")
+		return a.th.Title.Render("✓ "+a.t("Archivos listos para tu NAS", "Files ready for your NAS")) + "\n\n" +
+			wrap(a.t("He creado «docker-compose.yml» y «lantern.env» en:", "I created \"docker-compose.yml\" and \"lantern.env\" in:"), w) + "\n" + a.th.Link.Render(dir) + "\n\n" +
+			wrap(a.t("Súbelos a tu NAS y sigue los pasos de tu modelo:", "Upload them to your NAS and follow the steps for your model:"), w) + "\n" + wrap(rest, w) + "\n\n" +
+			a.th.Key.Render("o") + " " + a.th.Muted.Render(a.t("abrir la carpeta · ", "open the folder · ")) + a.th.Key.Render("Enter") + " " + a.th.Muted.Render(a.t("salir", "quit"))
 	}
-	inv := a.inviteURL()
-	left := []string{a.th.Title.Render("✓ " + a.t("Lantern está listo", "Lantern is ready")), "",
-		a.th.Accent.Render(a.t("Enlace de invitación", "Invite link")), a.th.Link.Render(inv), "",
-		a.th.Accent.Render(a.t("Código de la mesa", "Table code")) + "  " + a.th.Title.Render(a.result.Code), ""}
-	if a.cfg.Tunnel == "quick" {
-		left = append(left, wrap(a.th.Muted.Render(a.t("Este enlace rápido cambia si el túnel se reinicia; el panel lo actualiza y te da el nuevo.", "This quick link changes if the tunnel restarts; the dashboard refreshes it and shows the new one.")), w/2+8), "")
-	}
-	left = append(left, a.th.Key.Render("o")+" "+a.t("abrir la mesa como DM en el navegador", "open the table as DM in the browser"),
-		a.th.Key.Render("c")+" "+a.t("copiar el enlace", "copy the link")+map[bool]string{true: " ✓", false: ""}[s.copied],
-		a.th.Key.Render("p")+" "+a.t("abrir el panel", "open the dashboard"),
-		a.th.Key.Render("Enter")+" "+a.t("salir", "quit"), "",
-		a.th.Muted.Render(a.t("Para volver aquí más tarde ejecuta «lantern»: estado, registros, actualizar y desinstalar.", "To come back later run “lantern”: status, logs, update and uninstall.")))
-	txt := strings.Join(left, "\n")
+	acts := []string{a.th.Key.Render("Enter") + " " + a.t("abrir la mesa como DM en el navegador", "open the table as DM in the browser"),
+		a.th.Key.Render("c") + " " + a.t("copiar el enlace", "copy the link") + map[bool]string{true: " ✓", false: ""}[s.copied],
+		a.th.Key.Render("p") + " " + a.t("abrir el panel", "open the dashboard"),
+		a.th.Key.Render("q") + " " + a.t("salir", "quit")}
+	foot := a.th.Muted.Render(a.t("Para volver aquí más tarde ejecuta «lantern»: estado, registros, actualizar y desinstalar.", "To come back later run \"lantern\": status, logs, update and uninstall."))
+	return inviteView(a, "✓ "+a.t("Lantern está listo", "Lantern is ready"), a.inviteURL(), a.result.Code, acts, foot, w, h, s.qr)
+}
+
+// inviteView: enlace, código y acciones a la izquierda y el QR a la derecha. Si no cabe, se ofrece con la tecla «v».
+func inviteView(a *App, title, inv, code string, acts []string, foot string, w, h int, onlyQR bool) string {
 	if inv == "" {
-		return txt
+		return a.th.Title.Render(title) + "\n\n" + wrap(a.t("Aún no hay enlace: el servidor no está publicado.", "No link yet: the server is not published."), w)
 	}
 	q := renderQR(inv, a.th.mono, a.th.dark)
-	if w < 70 || strings.Count(q, "\n")+1 > h {
+	qw, qh := lipgloss.Width(q), strings.Count(q, "\n")+1
+	if onlyQR {
+		if qh > h || qw > w {
+			return a.th.Bad.Render(wrap(a.t("Este QR no cabe en la ventana. Agranda el terminal (o reduce la letra) y vuelve a pulsar «v».", "This QR does not fit the window. Enlarge the terminal (or reduce the font) and press \"v\" again."), w)) + "\n\n" + a.th.Key.Render("v") + " " + a.th.Muted.Render(a.t("volver", "back"))
+		}
+		if qh == h { // sin sitio para la leyenda
+			return q
+		}
+		return q + "\n" + a.th.Muted.Render(a.t("Escanéalo con la cámara del móvil · ", "Scan it with the phone camera · ")) + a.th.Key.Render("v") + " " + a.th.Muted.Render(a.t("volver", "back"))
+	}
+	side := w >= qw+3+36 && qh <= h
+	lw := w
+	if side {
+		lw = w - qw - 3
+	}
+	if !side {
+		acts = append([]string{acts[0]}, append([]string{a.th.Key.Render("v") + " " + a.t("ver el QR para escanear con el móvil", "show the QR to scan with a phone")}, acts[1:]...)...)
+	}
+	build := func(level int) string { // 0 completo; 1 sin la nota final; 2 además sin líneas en blanco ni aviso del túnel
+		left := []string{a.th.Title.Render(title), "",
+			a.th.Accent.Render(a.t("Enlace para tus jugadores", "Link for your players")), styled(a.th.Link, wrap(inv, lw)), "",
+			a.th.Accent.Render(a.t("Código de la mesa", "Table code")) + "  " + a.th.Title.Render(code), ""}
+		if a.cfg.Tunnel == "quick" && level < 2 {
+			left = append(left, styled(a.th.Muted, wrap(a.t("Este enlace es temporal: cambia si el túnel se reinicia. El panel te dará el nuevo.", "This link is temporary: it changes if the tunnel restarts. The dashboard will give you the new one."), lw)), "")
+		}
+		for _, x := range acts {
+			left = append(left, wrap(x, lw))
+		}
+		if foot != "" && level < 1 {
+			left = append(left, "", styled(a.th.Muted, wrap(ansi.Strip(foot), lw)))
+		}
+		if level == 2 {
+			var l2 []string
+			for _, l := range left {
+				if l != "" {
+					l2 = append(l2, l)
+				}
+			}
+			left = l2
+		}
+		return strings.Join(left, "\n")
+	}
+	txt := build(0)
+	for lv := 1; lv <= 2 && strings.Count(txt, "\n")+1 > h; lv++ {
+		txt = build(lv)
+	}
+	if !side {
 		return txt
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.NewStyle().Width(w-lipgloss.Width(q)-4).Render(txt), "   ", q)
+	return lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.NewStyle().Width(lw).Render(txt), "   ", q)
 }

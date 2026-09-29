@@ -60,7 +60,7 @@ const headerLines = 3
 func New(o Options) *App {
 	ctx, cancel := context.WithCancel(context.Background())
 	cat, _ := ai.Load()
-	a := &App{o: o, th: newTheme(hasDark(), os.Getenv("NO_COLOR") != ""), cfg: o.Base, ctx: ctx, cancel: cancel, catalog: cat, w: 100, h: 30}
+	a := &App{o: o, th: newTheme(true, os.Getenv("NO_COLOR") != ""), cfg: o.Base, ctx: ctx, cancel: cancel, catalog: cat, w: 100, h: 30}
 	if a.cfg.Lang == "" {
 		a.cfg.Lang = o.Lang
 	}
@@ -86,7 +86,8 @@ func (a *App) Init() tea.Cmd {
 	} else {
 		a.cur = newWelcome(a)
 	}
-	return a.cur.Init(a)
+	// El fondo se consulta sin bloquear: hasta que el terminal responda (o si no lo hace) el tema es oscuro.
+	return tea.Batch(a.cur.Init(a), tea.RequestBackgroundColor)
 }
 
 // goTo apila la pantalla actual y muestra s.
@@ -117,12 +118,18 @@ func (a *App) reset(s screen) tea.Cmd {
 	return a.replace(s)
 }
 
+// avail son las líneas que quedan para el cuerpo de la pantalla (cabecera y pie descontados).
+func (a *App) avail() int { return max(5, a.h-headerLines-2) }
+
 func (a *App) width() int { return max(40, min(a.w-4, 96)) }
 
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
 	case tea.WindowSizeMsg:
 		a.w, a.h = m.Width, m.Height
+	case tea.BackgroundColorMsg:
+		a.th = newTheme(m.IsDark(), a.th.mono)
+		return a, nil
 	case tea.KeyPressMsg:
 		switch k := m.String(); {
 		case k == "ctrl+c":
@@ -182,7 +189,7 @@ func (a *App) View() tea.View {
 	if a.cur.Stage() >= 0 {
 		bar = a.stepBar()
 	}
-	avail := max(5, a.h-headerLines-2)
+	avail := a.avail()
 	var body string
 	if a.help {
 		body = a.th.Title.Render(a.t("Ayuda", "Help")) + "\n\n" + wrap(a.cur.Help(a)+"\n\n"+a.t(
@@ -192,8 +199,8 @@ func (a *App) View() tea.View {
 		body = a.cur.View(a, w, avail)
 	}
 	lines := strings.Split(body, "\n")
-	if len(lines) > avail+1 {
-		lines = lines[:avail+1]
+	if len(lines) > avail {
+		lines = lines[:avail]
 	}
 	for len(lines) < avail {
 		lines = append(lines, "")

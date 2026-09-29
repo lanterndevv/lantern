@@ -142,3 +142,15 @@ func TestValidHost(t *testing.T) {
 		}
 	}
 }
+
+func TestWrap(t *testing.T) {
+	got := wrap("• uno dos tres cuatro\nhttps://ejemplo.com/una/url/larguisima", 12)
+	for _, l := range strings.Split(got, "\n") {
+		if len([]rune(l)) > 12 {
+			t.Errorf("línea de %d columnas: %q", len([]rune(l)), l)
+		}
+	}
+	if !strings.Contains(got, "\n  tres") {
+		t.Errorf("la viñeta no sangra la continuación:\n%s", got)
+	}
+}

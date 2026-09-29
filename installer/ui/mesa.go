@@ -97,7 +97,9 @@ func summaryScreen(a *App) screen {
 		help:  a.t("Nada se instala hasta que pulses Enter.", "Nothing is installed until you press Enter."),
 		render: func(a *App, w int) string {
 			c := a.cfg
-			row := func(k, v string) string { return a.th.Muted.Render(fmt.Sprintf("%-16s", k)) + v }
+			row := func(k, v string) string { // el valor se parte por palabras y las líneas siguientes quedan alineadas
+				return a.th.Muted.Render(fmt.Sprintf("%-16s", k)) + strings.ReplaceAll(wrap(v, w-16), "\n", "\n"+strings.Repeat(" ", 16))
+			}
 			mode := map[string]string{"local": a.t("Mi PC + enlace", "My PC + link"), "oracle": "Oracle Cloud", "vps": "VPS " + c.CloudProvider, "lan": a.t("Red local", "Local network")}[c.Mode]
 			link := map[string]string{"quick": a.t("enlace rápido de Cloudflare", "Cloudflare quick link"), "named": c.Domain, "none": a.t("sin túnel", "no tunnel")}[c.Tunnel]
 			if c.Mode == "oracle" || c.Mode == "vps" {
@@ -111,7 +113,7 @@ func summaryScreen(a *App) screen {
 			if c.Docker {
 				ln = append(ln, row("Docker", a.t("docker-compose para NAS", "docker-compose for NAS")))
 			}
-			ai1 := a.t("sin IA", "no AI")
+			ai1 := a.t("ninguna", "none")
 			if c.LLM != nil {
 				ai1 = c.LLM.ID + " · " + c.LLM.Model + " · " + mask(c.LLM.Key)
 				if c.LLM2 != nil {
@@ -120,7 +122,7 @@ func summaryScreen(a *App) screen {
 			}
 			ln = append(ln, row("IA", ai1))
 			if !c.Docker {
-				ln = append(ln, row("Laya", map[bool]string{true: a.t("sí (local)", "yes (local)"), false: a.t("no", "no")}[c.Laya]),
+				ln = append(ln, row(a.t("Laya (IA local)", "Laya (local AI)"), map[bool]string{true: a.t("sí", "yes"), false: a.t("no", "no")}[c.Laya]),
 					row(a.t("Mesa", "Table"), c.Title+" · DM "+c.DMName))
 				if c.ImportPath != "" {
 					ln = append(ln, row(a.t("Importar", "Import"), c.ImportPath))
