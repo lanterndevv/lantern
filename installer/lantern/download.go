@@ -17,10 +17,10 @@ import (
 // DefaultReleases es la URL base de las descargas si no se indica otra (--releases / LANTERN_RELEASES).
 // Son variables para fijarlas al compilar: -ldflags "-X lantern/installer/lantern.DefaultReleases=<url>" (tools/release/build.mjs --releases-url).
 // Estructura Forgejo/Codeberg: <base>/<versión>/<archivo>; la última es <base sin /download>/latest/download.
-var DefaultReleases = "https://codeberg.org/lantern-vtt/lantern/releases/download"
+var DefaultReleases = "https://github.com/lanterndevv/lantern/releases/download"
 
 // DefaultImage es la imagen Docker del docker-compose generado (-X lantern/installer/lantern.DefaultImage=..., --image).
-var DefaultImage = "codeberg.org/lantern-vtt/lantern"
+var DefaultImage = "ghcr.io/lanterndevv/lantern"
 
 // AssetName es el nombre del binario del servidor para un os/arch de Go.
 func AssetName(goos, goarch string) (string, error) {

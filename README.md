@@ -33,14 +33,13 @@ Límites: 30 mensajes/s por conexión (ráfaga de 60), 20 conexiones por IP, 200
 
 ## Publicar una versión
 
-Todo se compila desde un Linux x64 (sin runners de otras plataformas):
+Todo se compila desde un Linux x64 (sin runners de otras plataformas). Lo normal es subir un tag y dejar que GitHub Actions (`.github/workflows/release.yml`) compile, adjunte los binarios a la release y publique la imagen `ghcr.io/lanterndevv/lantern`:
 
 ```sh
-npm run release -- 1.2.0 [--releases-url https://mi.forja/o/r/releases/download] [--image mi.forja/o/lantern]
-FORGE=forgejo FORGE_URL=https://codeberg.org FORGE_REPO=dueño/repo FORGE_TOKEN=… FORGE_TAG=v1.2.0 node tools/release/publish.mjs 1.2.0
+git tag v1.2.0 && git push origin v1.2.0
 ```
 
-`dist-release/1.2.0/` contiene `lantern-server-*` y `lantern-installer-*` (linux x64/arm64, macOS x64/arm64, windows x64) y `SHA256SUMS`. Los Node oficiales se descargan (verificados) a `~/.cache/lantern-release`. `FORGE=gitlab` también vale. Con Forgejo Actions, `.forgejo/workflows/release.yml` hace lo mismo al subir un tag `v*` (secreto `RELEASE_TOKEN`).
+En local: `npm run release -- v1.2.0` deja en `dist-release/v1.2.0/` los `lantern-server-*` y `lantern-installer-*` (linux x64/arm64, macOS x64/arm64, windows x64) y `SHA256SUMS`; los Node oficiales se descargan verificados a `~/.cache/lantern-release`. Para otra forja (Forgejo/Codeberg o GitLab) están `--releases-url`/`--image` y `tools/release/publish.mjs` (`FORGE=forgejo|gitlab`).
 
 - macOS: firma ad hoc con `rcodesign`; sin Developer ID, Gatekeeper avisa (clic derecho > Abrir, o `xattr -d com.apple.quarantine <archivo>`).
 - Windows: el `.exe` no lleva firma Authenticode; SmartScreen avisa la primera vez.
@@ -84,7 +83,7 @@ Extensión de navegador (Chrome y Firefox) que importa tus personajes de D&D Bey
 Las campañas se exportan e importan como JSON documentado en [apps/server/FORMAT.md](apps/server/FORMAT.md).
 
 ## Licencias
-- Código: **Licencia: pendiente, se propone AGPL-3.0.**
+- Código: [GNU AGPL-3.0](LICENSE). Si ofreces Lantern modificado como servicio en red, debes publicar tus cambios.
 - Contenido de reglas: SRD 5.2.1 bajo [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/). Atribución obligatoria: *This work includes material from the System Reference Document 5.2.1 ("SRD 5.2.1") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2.1 is licensed under the Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0/legalcode).*
 
 ## Nota legal

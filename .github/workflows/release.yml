@@ -1,0 +1,34 @@
+name: release
+# Al subir un tag v*: compila los 10 binarios desde un único runner Linux (npm run release),
+# los adjunta a la release de GitHub y publica la imagen Docker en ghcr.io.
+# La versión es el tag tal cual (vX.Y.Z): coincide con la carpeta de descarga que usa el instalador.
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+  packages: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: installer/go.mod }
+      - run: npm ci
+      - name: Compilar
+        run: npm run release -- "${GITHUB_REF_NAME}"
+      - name: Publicar la release
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist-release/"$GITHUB_REF_NAME"/* --clobber
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: '${{ github.actor }}', password: '${{ github.token }}' }
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/${{ github.repository }}:${{ github.ref_name }},ghcr.io/${{ github.repository }}:latest
