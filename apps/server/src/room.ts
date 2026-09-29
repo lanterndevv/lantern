@@ -5,13 +5,15 @@ import type { Ability, ActionCard, AudioState, C2S, ChatMsg, ClientState, Combat
 import { ABILITY_ES, CONDITIONS, SKILLS, abilityMod, applyCard, applyDamage, autoFailSave, concentrationDC, d20Penalty, deathSave, encounterXP, grantTemp, heal, resolveAction, roll as diceRoll } from '@lantern/rules';
 import { MONSTERS } from '@lantern/srd';
 import { parseCharacter } from './import.ts';
+import { afterTurn, areaError, combatEdit, dist3d, legendary, react, reactionPrompts, spawnCustom } from './combat2.ts';
 import { demoScene } from '@lantern/protocol/demo';
 import { cover, pointInPolygon, sightSegments, visibility } from '@lantern/vision';
+import { canUndo, clockOf, handleWorld, hiddenWhisper } from './world.ts';
 import { MAX_EXTENSIONS, MAX_ITEMS, MAX_JOURNAL, MAX_LAYERS, MAX_LEVELS, MAX_REGIONS, MAX_SCENES, MAX_WALLS, SFX, inScene, inr, num, obj, parseAudio, parseJournal, parseLayer, parseLight, parseManifest, parseRegion, parseToken, parseWall, patchScene, short, str, urlOk } from './validate.ts';
 
 export type MemberRec = { id: Id; name: string; role: Role; keyHashes: string[]; dice: DiceTheme };
 export type Room = { code: string; scene: Scene; scenes: Record<Id, Scene>; activeId: Id; journal: JournalEntry[]; members: Map<Id, MemberRec>; chat: ChatMsg[]; automation: 'assisted' | 'auto'; combat?: Combat; pending: ActionCard[]; settings: TableSettings; view: 'tactical' | 'story'; audio: AudioState; extensions: ExtensionManifest[];
-  safety: { lines: string[]; veils: string[] }; sessionStart: number; maxRound: number; // persistidos
+  safety: { lines: string[]; veils: string[] }; sessionStart: number; maxRound: number; clock?: number; // persistidos (clock: minutos del mundo, 480 por defecto)
   checks?: Map<Id, CheckReq>; xAt?: number; extLog?: Map<Id, number[]> }; // solo en memoria
 type CheckReq = { id: Id; tokenIds: Id[]; kind: 'save' | 'skill' | 'ability'; key: string; dc?: number; blind: boolean; label: string; answers: Map<Id, { name: string; total: number; ok?: boolean }> };
 export type RollFn = (expr: string) => { total: number; detail: string; dice?: Die[] };
@@ -78,7 +80,8 @@ const canRead = (e: JournalEntry, m: MemberRec) => isDM(m) || e.visibleTo === 'a
 const libraryOf = (room: Room): LibraryItem[] => Object.values(room.scenes).map((s) => ({ id: s.id, name: s.name, ...(s.folder && { folder: s.folder }), active: s.id === room.activeId,
   tokens: s.tokens.length, walls: s.walls.length, ...(s.background && { background: s.background }) }));
 
-export function filterFor(room: Room, member: MemberRec, online: ReadonlySet<Id> = new Set()): ClientState {
+export const filterFor = (room: Room, member: MemberRec, online?: ReadonlySet<Id>): ClientState => ({ ...filterBase(room, member, online), clock: clockOf(room), canUndo: canUndo(room, member) });
+function filterBase(room: Room, member: MemberRec, online: ReadonlySet<Id> = new Set()): Omit<ClientState, 'clock' | 'canUndo'> {
   const members: Member[] = [...room.members.values()].map((m) => ({ id: m.id, name: m.name, role: m.role, online: online.has(m.id), dice: m.dice }));
   const s = room.scene;
   const extensions = structuredClone(room.extensions), automation = room.automation, settings = structuredClone(room.settings), view = room.view, audio = structuredClone(room.audio);
@@ -104,7 +107,7 @@ export function filterFor(room: Room, member: MemberRec, online: ReadonlySet<Id>
     .map((t) => {
       const c = structuredClone(t);
       delete c.notes;
-      if (t.faction !== 'ally') { delete c.hp; delete c.ac; }
+      if (t.faction !== 'ally') { delete c.hp; delete c.ac; delete c.legendary; delete c.lair; }
       return c;
     });
   const walls = s.walls.filter((w) => mine.has(flr(s, w.level))).map((w): Wall => {
@@ -136,6 +139,7 @@ export function chatFor(room: Room, m: MemberRec) {
 }
 // Tarjeta para un jugador: lo que no ve sale como '???' y las CD ajenas se ocultan. La CA nunca viaja en la tarjeta.
 export function redact(room: Room, c: ChatMsg, m: MemberRec, vis?: Set<Id>): ChatMsg {
+  if (hiddenWhisper(c, m)) return { id: c.id, from: c.from, at: c.at, text: 'Susurro' };
   if (c.roll?.blind && !isDM(m)) return { id: c.id, from: c.from, at: c.at, text: 'Tirada a ciegas' }; // defensa: canSee ya la filtra
   if (!c.card || m.role === 'dm' || m.role === 'assistant') return c;
   const v = vis ?? new Set(filterFor(room, m).scene.tokens.map((t) => t.id));
@@ -150,8 +154,8 @@ export function redact(room: Room, c: ChatMsg, m: MemberRec, vis?: Set<Id>): Cha
   if (card.detail) for (const h of hide) card.detail = card.detail.replaceAll(h, '???');
   return { ...c, card };
 }
-export const canSee = (c: ChatMsg, m: MemberRec) =>
-  c.roll?.blind ? isDM(m) : !c.roll?.secret || c.from === m.id || m.role === 'dm' || m.role === 'assistant';
+export const canSee = (c: ChatMsg, m: MemberRec) => !hiddenWhisper(c, m) &&
+  (c.roll?.blind ? isDM(m) : !c.roll?.secret || c.from === m.id || m.role === 'dm' || m.role === 'assistant');
 
 // ¿el segmento p1-p2 corta (o toca) q1-q2?
 function cross(p1: Point, p2: Point, q1: Point, q2: Point) {
@@ -178,13 +182,14 @@ export function mergeSettings(cur: TableSettings, patch: unknown): TableSettings
     else if (k === 'layers' || k === 'optional') {
       if (!obj(v)) return null;
       for (const [kk, vv] of Object.entries(v)) { if (!Object.hasOwn(out[k], kk) || typeof vv !== 'boolean') return null; out[k][kk] = vv; }
-    } else return null;
+    } else if (k === 'drawing') { if (v !== 'dm' && v !== 'all') return null; out.drawing = v; } // dibujo persistente de jugadores (TableSettings no lo declara: falta en el contrato)
+    else return null;
   }
   return out;
 }
 
 // ---- reglas automáticas (condiciones, PG, tiradas) ----
-type Ctx = { room: Room; from: Id; now: number; rollFn: RollFn };
+export type Ctx = { room: Room; from: Id; now: number; rollFn: RollFn };
 const ROLES: Role[] = ['dm', 'assistant', 'trusted', 'player', 'spectator'];
 // ponytail: lista corta de conjuros de concentración (por nombre); ampliar o mover a los datos del SRD
 const CONC = new Set(['bendición', 'maldición', 'retener persona', 'telaraña', 'invisibilidad', 'mirada de fuego', 'fuego feérico', 'rayo de luna']);
@@ -269,7 +274,8 @@ function flanked(s: Scene, at: Token, t: Token) {
 const DENY: Effect = { error: 'no permitido' };
 const isDM = (m: MemberRec) => m.role === 'dm' || m.role === 'assistant';
 
-export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now = Date.now()): Effect {
+export const handle = (room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now = Date.now()): Effect => handleWorld(room, m, msg, rollFn, now, handleBase);
+function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now = Date.now()): Effect {
   if (!obj(msg) || typeof msg.t !== 'string') return { error: 'mensaje inválido' };
   const m2 = msg as C2S & Record<string, unknown>;
   const s = room.scene;
@@ -576,9 +582,10 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
     }
     case 'combat': {
       // El dueño del token activo puede pasar su propio turno («Fin de turno»); lo demás es del DM.
-      const own = m2.op === 'next' && !!room.combat && !!s.tokens.find((t) => t.id === room.combat!.order[room.combat!.turn]?.tokenId)?.owners.includes(m.id);
+      const own = (m2.op === 'next' || m2.op === 'delay') && !!room.combat && !!s.tokens.find((t) => t.id === room.combat!.order[room.combat!.turn]?.tokenId)?.owners.includes(m.id);
       if (!isDM(m) && !own) return DENY;
       if (m2.op === 'end') { delete room.combat; return { state: true }; }
+      if (m2.op === 'delay' || m2.op === 'add' || m2.op === 'remove') return combatEdit(ctx, m, m2);
       if (m2.op === 'start') {
         if (!s.tokens.length) return { error: 'sin tokens' };
         // Iniciativa por bandos: un d20 para los aliados y otro para el resto; el bando ganador (empate: aliados) va primero, y dentro de cada bloque por initMod.
@@ -592,7 +599,8 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
         // Público: solo el aviso (el carrusel ya llega filtrado por visión). El orden completo, secreto para DM/asistente.
         const chats = [pushChat(room, { id: randomUUID(), from: m.id, at: now, text: '¡Comienza el combate! Ronda 1' + (side ? ` · Iniciativa por bandos: aliados ${side.ally}, resto ${side.rest}` : '') })];
         chats.push(pushChat(room, { id: randomUUID(), from: m.id, at: now, roll: { expr: 'iniciativa', total: 0, detail: fmt(false) + (rows.some((r) => r.t.hidden) ? ' · ocultos: ' + fmt(true) : ''), secret: true } }));
-        return { state: true, chats };
+        const h0 = afterTurn(ctx, undefined, 0, null);
+        return { state: true, chats: [...chats, ...(h0.chats ?? [])], sends: h0.sends };
       }
       if (m2.op !== 'next' && m2.op !== 'prev') return { error: 'mensaje inválido' };
       const c = room.combat;
@@ -611,9 +619,12 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
         if (n > 1) ended!.condRounds![k] = n - 1;
         else { delCond(ended!, k); chats.push(say(ctx, `${ended!.name} ya no está ${CONDITIONS[k]?.toLowerCase() ?? k}`)); }
       }
+      const oldRound = c.round, oldInit = c.order[c.turn]?.init ?? null;
       c.turn = i; c.round = r; room.maxRound = Math.max(room.maxRound, r);
       c.used[c.order[i].tokenId] = { action: false, bonus: false, reaction: false, moved: 0 };
-      return { state: true, chats };
+      if (m2.op !== 'next') return { state: true, chats };
+      const hk = afterTurn(ctx, ended, oldRound, oldInit); // fin/inicio de turno: áreas persistentes, legendarias, guarida
+      return { state: true, chats: [...chats, ...(hk.chats ?? [])], sends: hk.sends };
     }
     case 'act': {
       if (!str(m2.tokenId, 64) || !str(m2.actionId, 64) || !Array.isArray(m2.targets) || m2.targets.length < 1 || m2.targets.length > 20 || !m2.targets.every((x) => str(x, 64)))
@@ -631,10 +642,11 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
         targets.push(t);
       }
       // distancia en pies entre centros, regla 5-5-5 (la diagonal cuenta como una casilla)
-      const dist = (t: Token) => Math.max(Math.abs(t.x - tk.x), Math.abs(t.y - tk.y)) / s.grid.size * s.grid.feet;
+      const dist = (t: Token) => dist3d(s.grid, tk, t); // 5-5-5 horizontal + elevación
       const reach = act.range + 5 * (tk.size - 1);
       // ponytail: en acciones de área solo se comprueba el alcance al primer objetivo (punto de impacto); sin plantilla de área real
       if ((act.area ? targets.slice(0, 1) : targets).some((t) => dist(t) > reach + 1e-6)) return { error: 'fuera de alcance' };
+      if (act.area) { const ae = areaError(s.grid, act.area, targets); if (ae) return { error: ae }; }
       // cobertura por muros: 'total' invalida al objetivo; ½ y ¾ suman a la CA (ataques) y a las salvaciones de DES
       const segs = sightSegments(s.walls.filter((w) => flr(s, w.level) === flr(s, tk.level))), cov = new Map<Id, 0 | 2 | 5>();
       for (const t of targets) {
@@ -670,8 +682,11 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
       const cardMsg = pushChat(room, { id: randomUUID(), from: m.id, at: now, card: structuredClone(card) });
       const chats = now2 ? applyCardFx(ctx, card, 'full') : [];
       if (opt.fumbles && card.targets.some((x) => x.attack?.d20 === 1)) chats.push(say(ctx, `¡Pifia! ${tk.name} falla estrepitosamente`)); // ponytail: sin tabla de pifias
-      return { state: true, chat: cardMsg, chats };
+      return { state: true, chat: cardMsg, chats, sends: reactionPrompts(room, card, now) };
     }
+    case 'legendary': return legendary(m, s, m2);
+    case 'react': return react(ctx, m, m2);
+    case 'spawnCustom': return isDM(m) ? spawnCustom(ctx, m2) : DENY;
     case 'importCharacter': {
       if (!str(m2.tokenId, 64)) return { error: 'mensaje inválido' };
       const t = s.tokens.find((t) => t.id === m2.tokenId);
@@ -867,7 +882,7 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
   }
 }
 
-function pushChat(room: Room, c: ChatMsg) {
+export function pushChat(room: Room, c: ChatMsg) {
   room.chat.push(c);
   if (room.chat.length > MAX_CHAT) room.chat.splice(0, room.chat.length - MAX_CHAT);
   return c;
@@ -888,29 +903,35 @@ function spawnOne(s: Scene, srd: string, x: number, y: number, hidden: boolean) 
 // Efectos de las regiones al entrar un token (centro nuevo dentro, viejo fuera). `once` marca `fired`.
 function regionFx(c: Ctx, t: Token, from: Point): Pick<Effect, 'chats' | 'sends'> {
   const chats: ChatMsg[] = [], sends: NonNullable<Effect['sends']> = [], s = c.room.scene, to = { x: t.x, y: t.y };
-  const entered = (s.regions ?? []).filter((r) => flr(s, r.level) === flr(s, t.level) && inRegion(r, to) && !inRegion(r, from) && !(r.once && r.fired) && !(r.onlyAllies && t.faction !== 'ally'));
+  const entered = (s.regions ?? []).filter((r) => flr(s, r.level) === flr(s, t.level) && inRegion(r, to) && !inRegion(r, from) && !(r.once && r.fired) && !(r.onlyAllies && t.faction !== 'ally') && (r.trigger ?? 'enter') === 'enter');
   for (const r of entered) {
     if (!['trap', 'teleport', 'sound', 'message'].includes(r.kind) && !r.toLevel) continue;
-    if (r.once) r.fired = true;
-    if (r.sfx) sends.push({ who: () => true, msg: { t: 'sfx', name: r.sfx } });
-    if (r.kind === 'message' && r.text) sends.push({ who: (m) => isDM(m) || t.owners.includes(m.id), msg: { t: 'regionMsg', text: r.text } });
-    if ((r.kind === 'teleport' || r.toLevel) && r.to) { t.x = r.to.x; t.y = r.to.y; }
-    if ((r.kind === 'teleport' || r.toLevel) && r.toLevel) { if (flr(s, r.toLevel)) t.level = r.toLevel; else delete t.level; } // escalera: cambia de planta (la base = sin level)
-    if (r.kind !== 'trap') continue;
-    let ok = false, roll: ReturnType<typeof d20Test> | undefined;
-    if (r.save) { roll = d20Test(c, t, 'save', r.save.ability); ok = roll.total >= r.save.dc; }
-    const dmg = r.damage ? c.rollFn(r.damage) : undefined, full = dmg?.total ?? 0, amount = ok ? Math.floor(full / 2) : full;
-    const card: ActionCard = { actorId: t.id, actorName: t.name, actionName: r.name, kind: 'save', ...(r.damageType && { damageType: r.damageType }),
-      targets: [{ id: t.id, name: t.name, ...(r.save && roll && { save: { total: roll.total, success: ok, ability: r.save.ability, dc: r.save.dc } }), ...(dmg && { amount }) }],
-      detail: [roll?.detail, dmg?.detail].filter(Boolean).join(' · '), dice: [...(roll?.dice ?? []), ...(dmg?.dice ?? [])], applied: true };
-    chats.push(pushChat(c.room, { id: randomUUID(), from: c.from, at: c.now, card }));
-    if (t.hp && amount > 0) {
-      const prev = { ...t.hp }, res = applyDamage(prev, amount, r.damageType ?? '', t.defenses);
-      t.hp = res.hp; chats.push(...damageFx(c, t, prev, res.taken));
-    }
-    if (!ok && r.condition) addCond(t, r.condition);
+    fireRegion(c, t, r, chats, sends);
   }
   return { chats, sends };
+}
+
+// Dispara una región sobre un token (al entrar, o al empezar/terminar turno: combat2). `once` marca `fired`.
+export function fireRegion(c: Ctx, t: Token, r: Region, chats: ChatMsg[], sends: NonNullable<Effect['sends']>) {
+  const s = c.room.scene;
+  if (r.once) r.fired = true;
+  if (r.sfx) sends.push({ who: () => true, msg: { t: 'sfx', name: r.sfx } });
+  if (r.kind === 'message' && r.text) sends.push({ who: (m) => isDM(m) || t.owners.includes(m.id), msg: { t: 'regionMsg', text: r.text } });
+  if ((r.kind === 'teleport' || r.toLevel) && r.to) { t.x = r.to.x; t.y = r.to.y; }
+  if ((r.kind === 'teleport' || r.toLevel) && r.toLevel) { if (flr(s, r.toLevel)) t.level = r.toLevel; else delete t.level; } // escalera: cambia de planta (la base = sin level)
+  if (r.kind !== 'trap') return;
+  let ok = false, roll: ReturnType<typeof d20Test> | undefined;
+  if (r.save) { roll = d20Test(c, t, 'save', r.save.ability); ok = roll.total >= r.save.dc; }
+  const dmg = r.damage ? c.rollFn(r.damage) : undefined, full = dmg?.total ?? 0, amount = ok ? Math.floor(full / 2) : full;
+  const card: ActionCard = { actorId: t.id, actorName: t.name, actionName: r.name, kind: 'save', ...(r.damageType && { damageType: r.damageType }),
+    targets: [{ id: t.id, name: t.name, ...(r.save && roll && { save: { total: roll.total, success: ok, ability: r.save.ability, dc: r.save.dc } }), ...(dmg && { amount }) }],
+    detail: [roll?.detail, dmg?.detail].filter(Boolean).join(' · '), dice: [...(roll?.dice ?? []), ...(dmg?.dice ?? [])], applied: true };
+  chats.push(pushChat(c.room, { id: randomUUID(), from: c.from, at: c.now, card }));
+  if (t.hp && amount > 0) {
+    const prev = { ...t.hp }, res = applyDamage(prev, amount, r.damageType ?? '', t.defenses);
+    t.hp = res.hp; chats.push(...damageFx(c, t, prev, res.taken));
+  }
+  if (!ok && r.condition) addCond(t, r.condition);
 }
 
 // Total esperado de una tirada externa: dados (según `kept`) con el signo de su término + constantes; null si no cuadra la estructura con la expresión.

@@ -21,7 +21,7 @@ const TYPE: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', webp
 
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.woff': 'font/woff', '.txt': 'text/plain; charset=utf-8', '.map': 'application/json', '.wasm': 'application/wasm' };
 // Límites (seguridad). ponytail: contadores en memoria, se pierden al reiniciar; suficiente para un servidor único.
-const WS_RATE = 30, WS_BURST = 60, WS_MAX_EXCESS = 10, MAX_CONN_IP = 20, MAX_ROOMS_IP_DAY = 200, MAX_UPLOADS = 30, UPLOAD_WINDOW = 10 * 60_000, DAY = 86_400_000;
+const WS_RATE = 30, WS_BURST = 60, WS_MAX_EXCESS = 10, MAX_CONN_IP = 20, MAX_ROOMS_IP_DAY = 200, MAX_UPLOADS = 30, MAX_PLAYER_UPLOADS = 10, MAX_PLAYER_ASSET = 5 * 1024 * 1024, UPLOAD_WINDOW = 10 * 60_000, DAY = 86_400_000;
 
 type Conn = { room: Room; member: MemberRec };
 
@@ -31,7 +31,7 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
   const ipOf = (req: IncomingMessage) => (process.env.TRUST_PROXY === '1' && String(req.headers['x-forwarded-for'] ?? '').split(',').at(-1)?.trim()) || req.socket.remoteAddress || '?'; // con proxy, la última entrada la añade el propio proxy
   const connsByIp = new Map<string, number>();
   const roomsByIp = new Map<string, { n: number; reset: number }>();
-  const uploads = new Map<string, { n: number; reset: number }>();
+  const uploads = new Map<string, { n: number; reset: number }>(), playerUploads = new Map<string, { n: number; reset: number }>();
   const hit = (m: Map<string, { n: number; reset: number }>, ip: string, max: number, win: number) => { // true = permitido
     const now = Date.now(); let e = m.get(ip);
     if (!e || e.reset <= now) { for (const [k, v] of m) if (v.reset <= now) m.delete(k); e = { n: 0, reset: now + win }; m.set(ip, e); }
@@ -110,10 +110,12 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
     }
     if (req.method === 'POST' && req.url === '/api/assets') {
       const a = auth(req), type = req.headers['content-type'] ?? '';
-      if (!a || !['dm', 'assistant', 'trusted'].includes(a.who.role)) return fail(req, res, 403);
+      const priv = !!a && ['dm', 'assistant', 'trusted'].includes(a.who.role);
+      if (!a || (!priv && a.who.role !== 'player')) return fail(req, res, 403);
       const ext = EXT[type];
-      if (!ext) return fail(req, res, 415);
-      const body = await readBody(req, res, MAX_ASSET);
+      if (!ext || (!priv && !['image/png', 'image/jpeg', 'image/webp'].includes(type))) return fail(req, res, 415); // jugadores: solo imágenes
+      if (!priv && hit(playerUploads, ipOf(req), MAX_PLAYER_UPLOADS, UPLOAD_WINDOW)) return fail(req, res, 429); // límite propio por IP
+      const body = await readBody(req, res, priv ? MAX_ASSET : MAX_PLAYER_ASSET);
       if (!body) return;
       const name = sha256(body) + '.' + ext;
       mkdirSync(assets, { recursive: true });

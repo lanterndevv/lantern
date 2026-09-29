@@ -194,3 +194,47 @@ export function mapCharacter(json: unknown): ImportedCharacter {
     actions, slots: Object.keys(slots).length ? slots : undefined,
   };
 }
+
+// ---- Monstruos (monster-service: /v1/Monster?ids=…). Solo estadísticas; `actionsDescription` se lee y se descarta. ----
+const cr = (id: number) => id <= 1 ? '0' : id <= 4 ? ['1/8', '1/4', '1/2'][id - 2] : String(id > 28 ? id - 5 : id - 4);   // ids de challengeRatings (el 28 no existe)
+const SIZE: Record<number, number> = { 5: 2, 6: 3, 7: 4 };                                                             // creatureSizes: Tiny/Small/Medium/«Medium or Small» = 1
+// damageAdjustments: pureza de tipo solamente (los «no mágico», «de armas de plata»… no son tipos de daño y se omiten)
+const ADJ: Record<number, ['resist' | 'immune' | 'vuln', string]> = {};
+['bludgeoning', 'piercing', 'slashing', 'lightning', 'thunder', 'poison', 'cold', 'radiant', 'fire', 'necrotic', 'acid', 'psychic', 'force'].forEach((t, i) => {
+  ADJ[i < 12 ? i + 1 : 47] = ['resist', t]; ADJ[i < 12 ? i + 17 : 48] = ['immune', t]; ADJ[i < 12 ? i + 33 : 49] = ['vuln', t];
+});
+const ATTACK = /^([^.]+?)\.\s*(?:Melee|Ranged)(?: or (?:Melee|Ranged))? (?:Weapon|Spell) Attack:\s*([+-]\s*\d+) to hit,\s*(?:reach (\d+)|range (\d+))[^]*?Hit:\s*(\d+)(?: \(([^)]+)\))? (\w+) damage/i;
+
+export function mapMonster(json: unknown): ImportedCharacter & { cr: string; size: number } {
+  let m = json as J;
+  if (Array.isArray(m?.data)) m = m.data[0]; else if (m?.data?.stats) m = m.data;
+  if (!m || typeof m.name !== 'string' || !Array.isArray(m.stats)) throw new Error('JSON de monstruo no válido: faltan name o stats');
+  const score = (i: number): number => m.stats.find((s: J) => s.statId === i + 1)?.value ?? 10;
+  const md = ABIL.map((_, i) => mod(score(i)));
+  const c = cr(m.challengeRatingId);
+  const crn = c.includes('/') ? 0 : Number(c);
+  const prof = crn >= 1 ? 2 + Math.floor((crn - 1) / 4) : 2;
+  const saves: ImportedCharacter['saves'] = {};
+  for (const s of m.savingThrows ?? []) if (s.statId >= 1 && s.statId <= 6) saves[ABIL[s.statId - 1]] = md[s.statId - 1] + prof + (s.bonusModifier ?? 0);
+  const moves: J[] = m.movements ?? [];
+  const speed = moves.find(v => v.movementId === 1)?.speed ?? Math.max(30, ...moves.map(v => v.speed ?? 0));
+  const feet = Math.max(0, ...(m.senses ?? []).filter((s: J) => s.senseId === 2).map((s: J) => parseInt(s.notes) || 0));
+  const defenses: NonNullable<ImportedCharacter['defenses']> = {};
+  for (const id of m.damageAdjustments ?? []) if (ADJ[id]) (defenses[ADJ[id][0]] ??= []).push(ADJ[id][1]);
+  const actions: Action[] = [];
+  for (const p of String(m.actionsDescription ?? '').split(/<\/p>|<br\s*\/?>/i)) {
+    const t = p.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+    const a = t.match(ATTACK);
+    if (!a || actions.some(x => x.id === 'ddb-' + slug(a[1]))) continue;
+    actions.push({
+      id: 'ddb-' + slug(a[1]), name: a[1], cost: 'action', kind: 'attack', range: Number(a[3] ?? a[4]),
+      toHit: Number(a[2].replace(/\s/g, '')), damage: (a[6] ?? a[5]).replace(/\s/g, ''), damageType: a[7].toLowerCase(),
+    });
+  }
+  const hp = m.averageHitPoints ?? 1;
+  return {
+    name: m.name, ddbId: m.id, avatar: m.avatarUrl || undefined, level: 1, classes: '',
+    hp: { max: hp, cur: hp, temp: 0 }, ac: m.armorClass ?? 10, speed, initMod: md[1], saves, darkvision: feet * 12, defenses,
+    abilities: Object.fromEntries(ABIL.map((a, i) => [a, score(i)])) as Record<Ability, number>, prof, actions, cr: c, size: SIZE[m.sizeId] ?? 1,
+  };
+}

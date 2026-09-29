@@ -157,3 +157,4 @@ const EX2014 = [
 export const exhaustion2014Effects = (level: number): string[] => EX2014.slice(0, Math.max(0, Math.min(6, level)));
 export * from './combat.ts';
 export * from './encounter.ts';
+export * from './area.ts';

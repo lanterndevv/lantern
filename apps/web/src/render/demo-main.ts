@@ -25,7 +25,7 @@ const vis = (): Point[][] =>
   scene.tokens.filter((t) => t.faction === 'ally').map((t) => visibility(t, sightSegments(scene.walls), scene.width, scene.height));
 const state = (): ClientState => ({
   code: 'DEMO', members: [{ id: 'yo', name: 'Yo', role: dm ? 'dm' : 'player', online: true, dice: 'linterna' }],
-  scene: structuredClone(scene), automation: 'assisted', view: 'tactical', audio: { layers: [] }, journal: [], extensions: [], safety: { lines: [], veils: [] }, copilot: false, settings: DEFAULT_SETTINGS, visible: dm ? undefined : vis(),
+  scene: structuredClone(scene), automation: 'assisted', view: 'tactical', audio: { layers: [] }, journal: [], extensions: [], safety: { lines: [], veils: [] }, copilot: false, clock: 0, canUndo: false, settings: DEFAULT_SETTINGS, visible: dm ? undefined : vis(),
 });
 
 const marks: Marks = { targets: [] };
@@ -42,6 +42,8 @@ const table = await createTable(document.body, {
     table.setMarks(marks);
   },
   onMapClick(x, y) { marks.area = { x, y, radius: 240, color: '#E0643A' }; table.setMarks(marks); },
+  onDraw(d, persist) { if (persist) { (scene.drawings ??= []).push(d); table.setState(state()); } else table.drawEphemeral(d); },
+  onErase(id) { scene.drawings = scene.drawings?.filter((d) => d.id !== id); table.setState(state()); },
   onTokenContext(id, x, y) { console.log('context', id, x, y); },
   onDoor(id, open) {
     console.log('door', id, open);
@@ -66,12 +68,27 @@ table.setMarks(marks);
 if (qs.get('fixed') === '1') table.setDisplay('fixed');
 const at = (id: string) => ({ x: tk(id).x, y: tk(id).y });
 const KINDS = ['none', 'rain', 'storm', 'snow', 'fog', 'ash', 'leaves', 'embers'] as const;
-let wi = 0;
+let wi = 0, dm_i = 3, ti = 4;
 addEventListener('keydown', (e) => {
   const tools = { e: { tool: 'select' }, m: { tool: 'wall', kind: 'wall' }, l: { tool: 'light', bright: 120, dim: 240, color: '#ffb85c' },
     r: { tool: 'region', kind: 'trap' }, g: { tool: 'grid' }, 0: { tool: 'none' } } as const;
   if (dm && e.key in tools) table.setTool(tools[e.key as keyof typeof tools]);
-  else if (e.key === 'c') table.focus(tk('kael').x, tk('kael').y, 1.5);
+  else if (e.key === 'd') { // dibujo: d alterna persistente / efímero / borrador / fuera
+    dm_i = (dm_i + 1) % 4; console.log('dibujo', ['persistente', 'efímero', 'borrador', 'off'][dm_i]);
+    table.setTool([{ tool: 'draw', color: '#F5C877', width: 4, persist: true }, { tool: 'draw', color: '#8FD3F5', width: 4, persist: false }, { tool: 'erase' }, { tool: 'none' }][dm_i] as never);
+  } else if (e.key === 'k') { // plantilla: cono / línea / cubo / esfera apuntando de kael a trasgo-b
+    ti = (ti + 1) % 5; const a = at('kael'), b = at('trasgo-b');
+    if (ti === 4) marks.template = undefined;
+    else marks.template = { shape: (['cone', 'line', 'cube', 'sphere'] as const)[ti], origin: a, dir: { x: b.x - a.x, y: b.y - a.y }, sizePx: 210, color: '#E0643A' };
+    table.setMarks(marks);
+  } else if (e.key === 'u') { // cursores falsos durante 6 s
+    const t0 = performance.now(), iv = setInterval(() => {
+      const t = (performance.now() - t0) / 1000;
+      table.setCursors(t > 6 ? [] : [{ id: 'a', name: 'Marta', color: '#5B9BE0', x: 300 + 150 * Math.cos(t), y: 250 + 100 * Math.sin(t) },
+        { id: 'b', name: 'Iván', color: '#7cc47f', x: 500 + 80 * Math.sin(t * 1.3), y: 350 + (t < 3 ? 60 * Math.cos(t) : 60) }]);
+      if (t > 6) clearInterval(iv);
+    }, 50);
+  } else if (e.key === 'c') table.focus(tk('kael').x, tk('kael').y, 1.5);
   else if (e.key === 'n') {
     const ids = scene.tokens.map((t) => t.id), i = ids.indexOf(marks.active ?? '');
     marks.active = ids[(i + 1) % ids.length]; table.setMarks(marks);

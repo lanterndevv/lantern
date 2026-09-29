@@ -108,3 +108,25 @@ test('robustez', () => {
   for (const j of [undefined, null, {}, 'x', { classes: [], stats: [], name: 'a' }, { name: 'a', classes: [{}], stats: 5 }])
     assert.throws(() => mapCharacter(j), /no válido/);
 });
+
+// Fixture mínimo construido a mano con la estructura de monster-service (no hay JSON real con licencia que lo permita; AboveVTT es AGPL).
+import { mapMonster } from './index.ts';
+test('monstruo: estadísticas, defensas, cr, tamaño y ataques del HTML', () => {
+  const m = mapMonster({ data: [{
+    id: 17010, name: 'Goblin Boss', armorClass: 17, averageHitPoints: 21, hitPointDice: { diceString: '6d6' }, challengeRatingId: 3, sizeId: 5,
+    stats: [{ statId: 1, value: 10 }, { statId: 2, value: 14 }, { statId: 3, value: 10 }, { statId: 4, value: 10 }, { statId: 5, value: 8 }, { statId: 6, value: 10 }],
+    savingThrows: [{ statId: 2, bonusModifier: 1 }], movements: [{ movementId: 1, speed: 30 }, { movementId: 4, speed: 60 }],
+    senses: [{ senseId: 2, notes: '60 ft.' }, { senseId: 1, notes: '10 ft.' }], damageAdjustments: [9, 28, 33, 47, 13, 57], conditionImmunities: [],
+    actionsDescription: '<p><em><strong>Multiattack.</strong></em> Two attacks.</p>'
+      + '<p><em><strong>Scimitar.</strong></em> <em>Melee Weapon Attack:</em> +4 to hit, reach 5 ft., one target. <em>Hit:</em> 5 (1d6 + 2) slashing damage.</p>'
+      + '<p><strong>Javelin.</strong> <em>Melee or Ranged Weapon Attack:</em> +2 to hit, reach 5 ft. or range 30/120 ft., one target. Hit: 3 (1d6) piercing damage.</p>'
+      + '<p><strong>Claw.</strong> Melee Weapon Attack: +1 to hit, reach 5 ft. Hit: 1 slashing damage.</p>',
+  }] });
+  assert.deepEqual([m.name, m.ac, m.hp!.max, m.speed, m.initMod, m.darkvision, m.cr, m.size], ['Goblin Boss', 17, 21, 30, 2, 720, '1/4', 2]);
+  assert.deepEqual(m.saves, { dex: 5 });                            // 2 + 2 (CR<1) + 1
+  assert.deepEqual(m.defenses, { resist: ['fire', 'force'], immune: ['psychic'], vuln: ['bludgeoning'] });   // 13 y 57 no son tipos puros
+  assert.deepEqual(m.actions!.map(a => [a.name, a.toHit, a.damage, a.damageType, a.range]),
+    [['Scimitar', 4, '1d6+2', 'slashing', 5], ['Javelin', 2, '1d6', 'piercing', 5], ['Claw', 1, '1', 'slashing', 5]]);
+  assert.equal(mapMonster({ name: 'x', stats: [], challengeRatingId: 30, sizeId: 4 }).cr, '25');
+  assert.throws(() => mapMonster({}));
+});

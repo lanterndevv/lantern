@@ -38,7 +38,17 @@ test('e2e: assets, reloj y rtc', async () => {
   assert.equal(ok.status, 200);
   const { url } = await ok.json() as { url: string };
   assert.match(url, /^\/assets\/[0-9a-f]{64}\.png$/);
-  assert.equal((await up(pl, 'image/png', png)).status, 403);
+  // jugadores: solo png/jpeg/webp de hasta 5 MB, con límite propio por IP (10)
+  assert.equal((await up(pl, 'image/png', png)).status, 200);
+  assert.equal((await up(pl, 'audio/mpeg', png)).status, 415);
+  assert.equal((await up(pl, 'image/webp', Buffer.alloc(5 * 1024 * 1024 + 1))).status, 413);
+  assert.equal((await up(dm, 'image/png', Buffer.alloc(6 * 1024 * 1024))).status, 200); // el DM conserva su límite
+  const sp = await open({ code, name: 'Esp', as: 'spectator' });
+  assert.equal((await up(sp, 'image/png', png)).status, 403);
+  sp.ws.close();
+  let last = 0;
+  for (let i = 0; i < 10; i++) last = (await up(pl, 'image/jpeg', Buffer.from('j' + i))).status;
+  assert.equal(last, 429);
   assert.equal((await up(dm, 'text/html', png)).status, 415);
   assert.equal((await up(dm, 'image/png', Buffer.alloc(25 * 1024 * 1024 + 1))).status, 413);
   const g = await fetch(base + url);

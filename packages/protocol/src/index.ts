@@ -80,6 +80,7 @@ export type TableSettings = {
   layers: { lighting: boolean; initiative: boolean; automation: boolean; effects: boolean; story: boolean };
   edition: '2014' | '2024';
   optional: { flanking: boolean; heroPoints: boolean; brutalCrit: boolean; fumbles: boolean; sideInit: boolean };
+  drawing?: 'dm' | 'all';                     // quién puede dibujar de forma persistente (por defecto solo el DM)
 };
 
 export const DEFAULT_SETTINGS: TableSettings = {

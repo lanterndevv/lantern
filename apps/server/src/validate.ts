@@ -61,7 +61,15 @@ export function parseToken(s: Scene, v: unknown): Token | null {
     t.deathSaves = { successes: d.successes, failures: d.failures };
   }
   if (v.level !== undefined) { const l = parseLevel(s, v.level); if (!l) return null; t.level = l; }
+  if (v.carriedBy !== undefined) { if (!str(v.carriedBy, 64)) return null; t.carriedBy = v.carriedBy; }
   if (v.heroPoints !== undefined) { if (!int(v.heroPoints, 0, 20)) return null; t.heroPoints = v.heroPoints; }
+  if (v.elevation !== undefined) { if (!inr(v.elevation, -500, 5000)) return null; t.elevation = v.elevation; }
+  if (v.legendary !== undefined) {
+    const l = v.legendary;
+    if (!obj(l) || !int(l.max, 1, 5) || !int(l.used, 0, l.max)) return null;
+    t.legendary = { max: l.max, used: l.used };
+  }
+  if (v.lair !== undefined) { if (typeof v.lair !== 'boolean') return null; t.lair = v.lair; }
   if (v.ddb !== undefined) {
     const d = v.ddb;
     if (!obj(d) || !int(d.id, 0, Number.MAX_SAFE_INTEGER) || !int(d.level, 1, 20) || !short(d.classes, 60) || !num(d.syncedAt)) return null;
@@ -88,6 +96,8 @@ export function parseLight(s: Scene, v: unknown): Light | null {
   if (!num(v.bright) || !num(v.dim) || v.bright < 0 || v.dim < 0) return null;
   if (typeof v.color !== 'string' || !/^#[0-9a-fA-F]{3,8}$/.test(v.color)) return null;
   const l: Light = { id: v.id, x: v.x as number, y: v.y as number, bright: v.bright, dim: v.dim, color: v.color };
+  if (v.burnUntil !== undefined) { if (!inr(v.burnUntil, 0, 1e9)) return null; l.burnUntil = v.burnUntil; }
+  if (v.follow !== undefined) { if (!str(v.follow, 64)) return null; l.follow = v.follow; }
   if (v.anim !== undefined) { if (v.anim !== 'none' && v.anim !== 'torch' && v.anim !== 'pulse') return null; l.anim = v.anim; }
   if (v.level !== undefined) { const lv = parseLevel(s, v.level); if (!lv) return null; l.level = lv; }
   return l;
@@ -118,6 +128,8 @@ export function parseRegion(s: Scene, v: unknown): Region | null {
   if (v.sfx !== undefined) { if (typeof v.sfx !== 'string' || !SFX.includes(v.sfx)) return null; r.sfx = v.sfx; }
   if (v.text !== undefined) { if (!short(v.text, 400)) return null; r.text = v.text; }
   if (v.level !== undefined) { const l = parseLevel(s, v.level); if (!l) return null; r.level = l; }
+  if (v.trigger !== undefined) { if (v.trigger !== 'enter' && v.trigger !== 'turnStart' && v.trigger !== 'turnEnd') return null; r.trigger = v.trigger; }
+  if (v.untilRound !== undefined) { if (!int(v.untilRound, 1, 9999)) return null; r.untilRound = v.untilRound; }
   if (v.toLevel !== undefined) { const l = parseLevel(s, v.toLevel); if (!l) return null; r.toLevel = l; }
   if (r.kind === 'teleport' && !r.to && !r.toLevel) return null;
   if (r.kind === 'message' && !r.text) return null;
@@ -144,6 +156,18 @@ export function parseAudio(v: unknown): AudioState | null {
   return a;
 }
 
+// Tabla aleatoria: dados parseables, hasta 100 filas, rangos enteros min ≤ max sin solaparse y texto ≤ 200.
+function parseTable(v: unknown): JournalEntry['table'] | null {
+  if (!obj(v) || !diceOk(v.dice) || !Array.isArray(v.rows) || v.rows.length < 1 || v.rows.length > 100) return null;
+  const rows: { min: number; max: number; text: string }[] = [];
+  for (const r of v.rows) {
+    if (!obj(r) || !int(r.min, -1000, 1000) || !int(r.max, -1000, 1000) || r.min > r.max || !str(r.text, 200)) return null;
+    rows.push({ min: r.min, max: r.max, text: r.text });
+  }
+  const sorted = [...rows].sort((a, b) => a.min - b.min);
+  return sorted.some((r, i) => i > 0 && r.min <= sorted[i - 1].max) ? null : { dice: v.dice, rows };
+}
+
 export function parseJournal(v: unknown, members: ReadonlyMap<Id, unknown>): JournalEntry | null {
   if (!obj(v) || !str(v.id, 64) || !str(v.title, 120) || !short(v.body, 20000)) return null;
   const vt = v.visibleTo;
@@ -154,10 +178,11 @@ export function parseJournal(v: unknown, members: ReadonlyMap<Id, unknown>): Jou
   const e: JournalEntry = { id: v.id, title: v.title, body: v.body, visibleTo };
   if (v.image !== undefined) { if (!urlOk(v.image)) return null; e.image = v.image; }
   if (v.folder !== undefined) { if (!str(v.folder, 40)) return null; e.folder = v.folder; }
+  if (v.table !== undefined) { const t = parseTable(v.table); if (!t) return null; e.table = t; }
   return e;
 }
 
-const PATCH_KEYS = ['name', 'background', 'globalLight', 'weather', 'story', 'grid', 'width', 'height'];
+const PATCH_KEYS = ['name', 'background', 'globalLight', 'weather', 'story', 'grid', 'width', 'height', 'outdoor'];
 
 // Valida un patch de escena y lo mezcla sobre `s`. Devuelve false (sin tocar nada) si algo es inválido.
 export function patchScene(s: Scene, patch: unknown): boolean {
@@ -167,6 +192,7 @@ export function patchScene(s: Scene, patch: unknown): boolean {
   if ('name' in p) { if (!str(p.name, 60)) return false; n.name = p.name; }
   if ('background' in p) { if (!urlOk(p.background)) return false; n.background = p.background; }
   if ('globalLight' in p) { if (!inr(p.globalLight, 0, 1)) return false; n.globalLight = p.globalLight; }
+  if ('outdoor' in p) { if (typeof p.outdoor !== 'boolean') return false; n.outdoor = p.outdoor; }
   if ('width' in p) { if (!inr(p.width, 100, 20000)) return false; n.width = p.width; }
   if ('height' in p) { if (!inr(p.height, 100, 20000)) return false; n.height = p.height; }
   if ('weather' in p) {

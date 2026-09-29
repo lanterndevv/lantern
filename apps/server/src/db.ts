@@ -60,7 +60,7 @@ export function openDb(path = process.env.LANTERN_DB ?? 'lantern.db') {
       db.exec('BEGIN');
       try {
         upRoom.run(r.code, 'null', // la columna scene es solo de migración: la biblioteca vive en scenes
-           JSON.stringify(r.chat), r.automation, JSON.stringify(r.combat ?? null), JSON.stringify(r.pending), JSON.stringify(r.settings), r.view, JSON.stringify(r.audio), JSON.stringify(r.scenes), r.activeId, JSON.stringify(r.journal), JSON.stringify(r.extensions), JSON.stringify({ safety: r.safety, sessionStart: r.sessionStart, maxRound: r.maxRound }));
+           JSON.stringify(r.chat), r.automation, JSON.stringify(r.combat ?? null), JSON.stringify(r.pending), JSON.stringify(r.settings), r.view, JSON.stringify(r.audio), JSON.stringify(r.scenes), r.activeId, JSON.stringify(r.journal), JSON.stringify(r.extensions), JSON.stringify({ safety: r.safety, sessionStart: r.sessionStart, maxRound: r.maxRound, clock: r.clock ?? 480 }));
         delMembers.run(r.code); // ponytail: reescribe todos los miembros; incremental si crecen las mesas
         for (const m of r.members.values()) insMember.run(r.code, m.id, m.name, m.role, JSON.stringify(m.keyHashes), m.dice);
         db.exec('COMMIT');
@@ -86,7 +86,7 @@ export function openDb(path = process.env.LANTERN_DB ?? 'lantern.db') {
       const ex2 = parse(row.extra) as any, sl = (v: unknown) => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length >= 1 && x.length <= 60).slice(0, 30) : [];
       return mkRoom({
         safety: { lines: sl(ex2?.safety?.lines), veils: sl(ex2?.safety?.veils) },
-        sessionStart: Number.isFinite(ex2?.sessionStart) ? ex2.sessionStart : Date.now(), maxRound: Number.isInteger(ex2?.maxRound) ? ex2.maxRound : 0,
+        sessionStart: Number.isFinite(ex2?.sessionStart) ? ex2.sessionStart : Date.now(), maxRound: Number.isInteger(ex2?.maxRound) ? ex2.maxRound : 0, ...(Number.isFinite(ex2?.clock) && { clock: ex2.clock }),
         scenes, activeId: Object.hasOwn(scenes, row.active) ? row.active : Object.keys(scenes)[0],
         journal: Array.isArray(j) ? (j as JournalEntry[]).filter((e) => e && typeof e.id === 'string') : [],
         extensions: Array.isArray(ex) ? ex.flatMap((e) => { const m = parseManifest(e); return typeof m === 'string' ? [] : [m]; }).slice(0, MAX_EXTENSIONS) : [], // migración tolerante

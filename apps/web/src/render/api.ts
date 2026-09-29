@@ -1,5 +1,5 @@
 // Contrato entre el shell (main.ts/ui) y el renderer Pixi. Lo implementa ./table.ts.
-import type { ClientState, Id, Role } from '@lantern/protocol';
+import type { ClientState, Drawing, Id, Point, Role } from '@lantern/protocol';
 
 export type TableOptions = {
   role: Role;
@@ -10,6 +10,8 @@ export type TableOptions = {
   onTokenClick?(id: Id, shift: boolean): void;      // clic sin arrastre sobre un token (elegir objetivo, seleccionar)
   onMapClick?(x: number, y: number): void;          // clic en el suelo (colocar monstruo, centro de plantilla); coords de mundo
   onPointer?(x: number, y: number): void;           // movimiento del puntero en coords de mundo (para plantillas que siguen al cursor)
+  onDraw?(d: Drawing, persist: boolean): void;     // al soltar un trazo de la herramienta 'draw' (cualquier rol). Con persist=false, el shell lo difunde y vuelve por drawEphemeral
+  onErase?(id: Id): void;                           // clic con la herramienta 'erase' sobre un dibujo
   onTokenContext?(id: Id, clientX: number, clientY: number): void; // clic derecho o pulsación larga (táctil, 500 ms) sobre un token: menú radial
 };
 
@@ -19,6 +21,9 @@ export type Marks = {
   selected?: Id;               // token seleccionado por el usuario
   targets: Id[];               // objetivos marcados: retícula
   area?: { x: number; y: number; radius: number; color: string }; // plantilla esférica en px de mundo
+  // plantilla con forma; dir = VECTOR de dirección (no hace falta normalizar). sizePx: radio (sphere), lado (cube), largo (cone, line).
+  // cone = 53°; line = ancho grid.size; cube sale de origin hacia dir. Se anima suavemente entre llamadas.
+  template?: { shape: 'sphere' | 'cube' | 'cone' | 'line'; origin: Point; dir: Point; sizePx: number; color: string };
 };
 
 export type Table = {
@@ -27,13 +32,16 @@ export type Table = {
   ping(x: number, y: number, color: string): void;
   floatText(tokenId: Id, text: string, color: string): void; // número flotante (daño/curación) sobre un token
   effect(e: import("./api.ts").Effect): void;       // VFX puntual; el clima sale de scene.weather en setState
-  setTool(t: import("./api.ts").EditTool): void;    // fase 5: herramientas de edición (solo DM)
+  setTool(t: import("./api.ts").EditTool): void;    // fase 5: herramientas de edición (DM); 'draw' y 'erase' valen para todos
   focus(x: number, y: number, zoom?: number): void; // fase 6: mueve la cámara con suavidad (instantáneo con movimiento reducido)
   fitScene(): void;                                  // encuadra la escena entera
   setDisplay(mode: 'normal' | 'fixed'): void;        // fixed: sin pan/zoom del usuario (mesa física, streaming); la cámara la mueve focus/fitScene
   worldToClient(x: number, y: number): { x: number; y: number }; // para anclar menús HTML a un token
   onEdit(cb: (op: import("./api.ts").EditOp) => void): void;
   setLevel(id: string | undefined, o?: { ghostBelow?: boolean }): void; // planta visible (undefined = base); ghostBelow: la inferior, tenue
+  drawEphemeral(d: Drawing): void;                  // trazo que se desvanece a los 5 s
+  showGhost(tokenId: Id, path: Point[]): void;      // ruta fantasma de otro jugador (se desvanece); hoy nadie la llama en tiempo real
+  setCursors(list: { id: Id; name: string; color: string; x: number; y: number }[]): void; // cursores remotos; lista completa cada vez
   destroy(): void;
 };
 
@@ -56,7 +64,9 @@ export type EditTool =
   | { tool: 'wall'; kind: 'wall' | 'door' | 'window' | 'terrain' } // clics encadenados, imán a esquinas de casilla; doble clic/Esc termina
   | { tool: 'light'; bright: number; dim: number; color: string }  // clic coloca; arrastrar fija el radio
   | { tool: 'region'; kind: import('@lantern/protocol').Region['kind'] } // clics = polígono; doble clic cierra
-  | { tool: 'grid' };                                      // calibrar: arrastrar un recuadro sobre 2×2 casillas del dibujo
+  | { tool: 'grid' }
+  | { tool: 'draw'; color: string; width: number; persist: boolean } // TODOS los roles: arrastrar dibuja; al soltar -> onDraw
+  | { tool: 'erase' };                                    // TODOS los roles: clic sobre un dibujo -> onErase                                      // calibrar: arrastrar un recuadro sobre 2×2 casillas del dibujo
 
 export type EditOp =
   | { op: 'upsert'; kind: 'wall'; item: import('@lantern/protocol').Wall }

@@ -1,6 +1,6 @@
 // Capa de edición (fase 5): herramientas del DM. Dibuja en `layer` y emite EditOp; no toca el estado del servidor.
 import type { Container, FederatedPointerEvent, Graphics } from 'pixi.js';
-import type { Id, Light, Point, Region, Scene, Wall } from '@lantern/protocol';
+import type { Drawing, Id, Light, Point, Region, Scene, Wall } from '@lantern/protocol';
 import type { EditOp, EditTool } from './api.ts';
 
 export const REGION_COLOR: Record<Region['kind'], string> = {
@@ -28,14 +28,23 @@ function inside(p: Point, poly: Point[]) {
     if ((poly[i].y > p.y) !== (poly[j].y > p.y) && p.x < ((poly[j].x - poly[i].x) * (p.y - poly[i].y)) / (poly[j].y - poly[i].y) + poly[i].x) c = !c;
   return c;
 }
+/** Traza en `g` (sin stroke) una curva suave por los puntos. */
+export function strokePath(g: Graphics, pts: Point[]) {
+  if (pts.length < 2) { g.circle(pts[0].x, pts[0].y, 0.5); return; }
+  g.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length - 1; i++) g.quadraticCurveTo(pts[i].x, pts[i].y, (pts[i].x + pts[i + 1].x) / 2, (pts[i].y + pts[i + 1].y) / 2);
+  g.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+}
 const mod = (v: number, m: number) => ((v % m) + m) % m;
 
 type Kind = 'wall' | 'light' | 'region' | 'token';
 type Drag =
   | { k: 'wall'; w: Wall; end: 'a' | 'b' } | { k: 'light'; l: Light } | { k: 'vert'; r: Region; i: number }
-  | { k: 'newLight'; at: Point; r: number } | { k: 'grid'; a: Point; b: Point };
+  | { k: 'newLight'; at: Point; r: number } | { k: 'grid'; a: Point; b: Point } | { k: 'draw' };
 
-export function createEdit(world: Container, g: Graphics, scene: () => Scene | undefined, level: () => Id | undefined = () => undefined) {
+export function createEdit(world: Container, g: Graphics, scene: () => Scene | undefined, level: () => Id | undefined = () => undefined,
+  hooks: { me: Id; draw(d: Drawing, persist: boolean): void; erase(id: Id): void } = { me: '', draw() {}, erase() {} }) {
+  let stroke: Point[] | undefined;
   let tool: EditTool = { tool: 'none' }, cb: (op: EditOp) => void = () => {};
   let sel: { kind: Kind; id: string } | undefined, drag: Drag | undefined, moved = false;
   let last: Point | undefined, pts: Point[] = [], hover: Point | undefined, shift = false;
@@ -88,6 +97,12 @@ export function createEdit(world: Container, g: Graphics, scene: () => Scene | u
         return true;
       }
       case 'grid': drag = { k: 'grid', a: p, b: p }; return true;
+      case 'draw': stroke = [p]; drag = { k: 'draw' }; return true;
+      case 'erase': {
+        const d = [...(s.drawings ?? [])].reverse().find((d) => d.points.some((q, i) => segDist(p, q, d.points[i + 1] ?? q) < Math.max(d.width / 2, 8 / k())));
+        if (d) hooks.erase(d.id);
+        return true;
+      }
     }
   }
   function move(e: FederatedPointerEvent) {
@@ -95,6 +110,11 @@ export function createEdit(world: Container, g: Graphics, scene: () => Scene | u
     const p = world.toLocal(e.global); hover = p; shift = e.shiftKey;
     if (!drag) return;
     moved = true;
+    if (drag.k === 'draw') { // suavizado: exponencial hacia el puntero
+      const a = stroke![stroke!.length - 1], q = { x: a.x + (p.x - a.x) * 0.5, y: a.y + (p.y - a.y) * 0.5 };
+      if (dist(a, q) > 2 / k()) stroke!.push(q);
+      return;
+    }
     if (drag.k === 'light') { drag.l.x = p.x; drag.l.y = p.y; }
     else if (drag.k === 'wall') drag.w[drag.end] = snap(p, !shift);
     else if (drag.k === 'vert') drag.r.points[drag.i] = snap(p, shift);
@@ -104,7 +124,10 @@ export function createEdit(world: Container, g: Graphics, scene: () => Scene | u
   function up() {
     const d = drag; drag = undefined;
     if (!d) return;
-    if (d.k === 'light' && moved) cb({ op: 'upsert', kind: 'light', item: { ...d.l } });
+    if (d.k === 'draw') {
+      const pts = stroke; stroke = undefined;
+      if (pts && tool.tool === 'draw') hooks.draw({ id: crypto.randomUUID(), points: pts, color: tool.color, width: tool.width, by: hooks.me, level: level() }, tool.persist);
+    } else if (d.k === 'light' && moved) cb({ op: 'upsert', kind: 'light', item: { ...d.l } });
     else if (d.k === 'wall' && moved) cb({ op: 'upsert', kind: 'wall', item: { ...d.w } });
     else if (d.k === 'vert' && moved) cb({ op: 'upsert', kind: 'region', item: { ...d.r, points: [...d.r.points] } });
     else if (d.k === 'newLight' && tool.tool === 'light') {
@@ -117,7 +140,7 @@ export function createEdit(world: Container, g: Graphics, scene: () => Scene | u
   }
   function key(e: KeyboardEvent) {
     if (tool.tool === 'none' || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-    if (e.key === 'Escape') { last = undefined; pts = []; drag = undefined; }
+    if (e.key === 'Escape') { stroke = undefined; last = undefined; pts = []; drag = undefined; }
     else if (e.key === 'Enter') closeRegion();
     else if ((e.key === 'Delete' || e.key === 'Backspace') && tool.tool === 'select' && sel) {
       e.preventDefault(); cb({ op: 'remove', kind: sel.kind, id: sel.id }); sel = undefined;
@@ -177,13 +200,14 @@ export function createEdit(world: Container, g: Graphics, scene: () => Scene | u
         g.stroke({ width: u, color: '#E8A33D', alpha: 0.6 });
       }
     }
+    if (stroke && tool.tool === 'draw') { strokePath(g, stroke); g.stroke({ width: tool.width, color: tool.color, cap: 'round', join: 'round', alpha: 0.9 }); }
   }
 
   return {
     down, move, up, key, draw,
     tool: () => tool.tool,
     pick: (kind: Kind, id: string) => select(kind, id),
-    setTool(t: EditTool) { tool = t; last = undefined; pts = []; drag = undefined; sel = undefined; },
+    setTool(t: EditTool) { tool = t; stroke = undefined; last = undefined; pts = []; drag = undefined; sel = undefined; },
     onEdit(f: (op: EditOp) => void) { cb = f; },
   };
 }

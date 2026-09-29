@@ -4,10 +4,10 @@ import {
 } from 'pixi.js';
 import type { FederatedPointerEvent } from 'pixi.js';
 import { sightSegments, visibility } from '@lantern/vision';
-import type { ClientState, Id, Light, Point, Scene, Token, Wall } from '@lantern/protocol';
+import type { ClientState, Drawing, Id, Light, Point, Scene, Token, Wall } from '@lantern/protocol';
 import type { CreateTable, Marks } from './api.ts';
 import { createVfx, LITE } from './vfx.ts';
-import { createEdit, dashed, REGION_COLOR } from './edit.ts';
+import { createEdit, dashed, REGION_COLOR, strokePath } from './edit.ts';
 
 const FACTION = { ally: '#5B9BE0', enemy: '#E0643A', neutral: '#BFAE86' };
 const HP = { ok: '#7cc47f', bad: '#d9503a' }; // PG alto / PG bajo
@@ -78,19 +78,22 @@ export const createTable: CreateTable = async (el, opts) => {
   stage.addChild(world);
   const floorL = new Container(), gridG = new Graphics(), wallsG = new Graphics(), doorsL = new Container(),
     tokensL = new Container(), fxL = new Container(), glowL = new Container(), marksG = new Graphics(), uiL = new Container(),
-    regionsL = new Container(), fogRegG = new Graphics(), editG = new Graphics();
+    regionsL = new Container(), fogRegG = new Graphics(), editG = new Graphics(),
+    fadeG = new Graphics(), drawG = new Graphics(), ephL = new Container();
+  tokensL.sortableChildren = true; // los muertos (zIndex -1) quedan bajo los demás
   const lightSprite = new Sprite(), fogSprite = new Sprite();
   lightSprite.blendMode = 'multiply';
   glowL.blendMode = 'add';
   fogRegG.filters = [new BlurFilter({ strength: 6, quality: 2 })]; // fog de región: negro opaco con bordes suaves
-  world.addChild(floorL, gridG, regionsL, wallsG, doorsL, tokensL, fxL, lightSprite, glowL, fogSprite, fogRegG, marksG, editG, uiL);
+  world.addChild(floorL, gridG, regionsL, wallsG, doorsL, fadeG, tokensL, drawG, ephL, fxL, lightSprite, glowL, fogSprite, fogRegG, marksG, editG, uiL);
   // El stage es interactivo y Pixi hereda ese modo a todos sus hijos al buscar el objetivo: sin esto, las capas que cubren
   // el mapa por encima de los tokens (luz, niebla, efectos, marcas) «ganan» el hit test y ningún token recibe clics.
-  for (const l of [fxL, lightSprite, glowL, fogSprite, fogRegG, marksG, editG, uiL]) l.eventMode = 'none';
+  for (const l of [fadeG, drawG, ephL, fxL, lightSprite, glowL, fogSprite, fogRegG, marksG, editG, uiL]) l.eventMode = 'none';
   const stone = stoneTexture();
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const vfx = createVfx(app, world, fxL, reduced);
-  const edit = createEdit(world, editG, () => cur?.scene, () => (raw && level !== raw.scene.levels?.[0]?.id ? level : undefined));
+  const edit = createEdit(world, editG, () => cur?.scene, () => (raw && level !== raw.scene.levels?.[0]?.id ? level : undefined),
+    { me: opts.memberId, draw: (d, p) => opts.onDraw?.(d, p), erase: (id) => opts.onErase?.(id) });
 
   // ---- estado ----
   let cur: ClientState | undefined, raw: ClientState | undefined; // raw = estado del servidor; cur = filtrado a la planta visible
@@ -137,6 +140,8 @@ export const createTable: CreateTable = async (el, opts) => {
     cam = { t0: performance.now(), k0: world.scale.x, x0: world.x, y0: world.y, k1: k, x1: x, y1: y };
   };
   const focus = (x: number, y: number, zoom?: number) => {
+    pan = undefined; // interrumpe el pan del usuario
+    ping(x, y, '#F5C877'); // anillo en el destino
     const k = clampK(zoom ?? world.scale.x);
     camTo(k, app.screen.width / 2 - x * k, app.screen.height / 2 - y * k);
   };
@@ -216,9 +221,24 @@ export const createTable: CreateTable = async (el, opts) => {
     t.position.set(o.c.x + (n % 2 ? 14 : 0), y0);
     uiL.addChild(t); floats.push({ id, t, t0: performance.now(), y0 });
   }
+  // plantilla animada: origen, ángulo y tamaño se acercan al objetivo (salto directo con movimiento reducido)
+  let tpl: { shape: string; x: number; y: number; a: number; z: number } | undefined;
+  function drawTemplate(g: Graphics, t: NonNullable<Marks['template']>, now: number) {
+    const a1 = Math.atan2(t.dir.y, t.dir.x) || 0;
+    if (!tpl || tpl.shape !== t.shape) tpl = { shape: t.shape, x: t.origin.x, y: t.origin.y, a: a1, z: reduced ? t.sizePx : 0 };
+    const f = reduced ? 1 : 0.25, da = ((a1 - tpl.a + 3 * Math.PI) % (2 * Math.PI)) - Math.PI;
+    tpl.x += (t.origin.x - tpl.x) * f; tpl.y += (t.origin.y - tpl.y) * f; tpl.a += da * f; tpl.z += (t.sizePx - tpl.z) * f;
+    const L = tpl.z, w = cur?.scene.grid.size ?? 70, co = Math.cos(tpl.a), si = Math.sin(tpl.a);
+    const P = (u: number, v: number) => [tpl!.x + u * co - v * si, tpl!.y + u * si + v * co]; // u = a lo largo de dir, v = lateral
+    if (t.shape === 'sphere') g.circle(tpl.x, tpl.y, L);
+    else if (t.shape === 'cone') g.poly([...P(0, 0), ...P(L, -L * Math.tan(0.4625)), ...P(L, L * Math.tan(0.4625))]); // 53°
+    else { const h = (t.shape === 'line' ? w : L) / 2; g.poly([...P(0, -h), ...P(L, -h), ...P(L, h), ...P(0, h)]); }
+    g.fill({ color: t.color, alpha: 0.18 }).stroke({ width: 2, color: t.color, alpha: reduced ? 0.9 : 0.7 + 0.2 * Math.sin(now / 300) });
+  }
   function drawMarks(now: number) {
     const g = marksG.clear(), m = marks, s = now / 1000;
     if (m.area) g.circle(m.area.x, m.area.y, m.area.radius).fill({ color: m.area.color, alpha: 0.18 }).stroke({ width: 2, color: m.area.color });
+    if (m.template) drawTemplate(g, m.template, now); else tpl = undefined;
     const at = (id?: Id) => { const o = id ? tokens.get(id) : undefined; return o && { x: o.c.x, y: o.c.y, r: tokR(o.t) }; };
     const a = at(m.active);
     if (a) g.circle(a.x, a.y, a.r + 8).stroke({ width: 6, color: AMBER, alpha: reduced ? 0.75 : 0.55 + 0.35 * Math.sin(s * 4) });
@@ -345,11 +365,26 @@ export const createTable: CreateTable = async (el, opts) => {
   type Fx = { main: Container; ring?: Graphics; wob?: boolean; phase: number };
   const statusKey = (t: Token) =>
     `${t.conditions.join()}|${JSON.stringify(t.condRounds)}|${t.exhaustion}|${t.concentration}|${JSON.stringify(t.deathSaves)}`;
+  function deadLabel(c: Container, t: Token, r: number, fx: Fx): Fx {
+    const lab = new Text({ text: t.name, style: { fontFamily: SERIF, fontSize: 12, fill: TEXT, stroke: { color: '#000', width: 3 } } });
+    lab.anchor.set(0.5, 0); lab.y = r * 0.35; lab.alpha = 0.7; c.addChild(lab); return fx;
+  }
   function drawToken(c: Container, t: Token, g: Scene['grid']): Fx {
     c.removeChildren().forEach((x) => x.destroy({ children: true }));
     const r = (t.size * g.size * 0.84) / 2, mine = t.owners.includes(opts.memberId);
     const has = (id: string) => t.conditions.includes(id), dead = has('dead'), ko = has('unconscious') || !!t.deathSaves;
     const main = new Container(), fx: Fx = { main, phase: Math.random() * 10 };
+    if (dead) { // marca en el suelo: X roja tenue y aplanada
+      const x = new Graphics(), m = r * 0.5;
+      x.moveTo(-m, -m).lineTo(m, m).moveTo(m, -m).lineTo(-m, m).stroke({ width: 5, color: 0xd9503a, cap: 'round' });
+      x.scale.y = 0.55; x.alpha = 0.6; main.addChild(x); c.addChild(main); fx.main = main;
+      return deadLabel(c, t, r, fx);
+    }
+    if (t.elevation) { // sombra desplazada + etiqueta
+      c.addChild(new Graphics().ellipse(r * 0.25, r * 0.55, r * 0.9, r * 0.5).fill({ color: 0x000000, alpha: 0.35 }));
+      const e = new Text({ text: `${t.elevation > 0 ? '↑' : '↓'}${Math.abs(t.elevation)}`, style: { fontFamily: SERIF, fontSize: 13, fontWeight: 'bold', fill: '#8FD3F5', stroke: { color: '#000', width: 3 } } });
+      e.anchor.set(0, 0.5); e.position.set(r + 4, -r * 0.4); c.addChild(e);
+    }
     const body = new Graphics();
     body.circle(0, 0, r).fill('#1a1410'); // ponytail: degradado = 3 discos concéntricos, no FillGradient
     body.circle(-r * 0.15, -r * 0.15, r * 0.75).fill({ color: '#3a2d22', alpha: 0.7 });
@@ -365,6 +400,14 @@ export const createTable: CreateTable = async (el, opts) => {
     }
     const ini = new Text({ text: [...t.name][0]?.toUpperCase() ?? '?', style: { fontFamily: SERIF, fontSize: r * 1.1, fontWeight: 'bold', fill: TEXT } });
     ini.anchor.set(0.5); main.addChild(ini);
+    if (t.img) {
+      Assets.load<Texture>(t.img).then((tex) => {
+        if (main.destroyed) return;
+        const sp = new Sprite(tex), mk = new Graphics().circle(0, 0, r - 1.5).fill(0xffffff);
+        sp.anchor.set(0.5); sp.scale.set((2 * r) / Math.min(tex.width, tex.height)); sp.mask = mk;
+        main.addChildAt(sp, 1); main.addChild(mk); ini.visible = false;
+      }).catch(() => { /* ponytail: sin imagen queda la inicial */ });
+    }
     if (has('poisoned')) main.tint = 0xb4e8b4;
     if (has('petrified') || dead) main.filters = [new ColorMatrixFilter()], (main.filters[0] as ColorMatrixFilter).desaturate();
     else if (ko) (main.filters = [new ColorMatrixFilter()], (main.filters[0] as ColorMatrixFilter).saturate(-0.75));
@@ -405,6 +448,18 @@ export const createTable: CreateTable = async (el, opts) => {
     }
     const lab = new Text({ text: t.name, style: { fontFamily: SERIF, fontSize: 13, fill: TEXT, stroke: { color: '#000', width: 3 } } });
     lab.anchor.set(0.5, 0); lab.y = r + 10; c.addChild(lab);
+    if (t.carriedBy) { // cadena: dos eslabones entrelazados
+      const ch = new Graphics().roundRect(-9, -4, 11, 8, 4).stroke({ width: 2, color: 0xd3c3a6 }).roundRect(-2, -4, 11, 8, 4).stroke({ width: 2, color: 0xd3c3a6 });
+      ch.position.set(-r * 0.75, -r * 0.75); ch.rotation = -0.6; c.addChild(ch);
+    }
+    if (t.legendary && t.legendary.max > 0) { // pips bajo el nombre (o bajo las salvaciones)
+      const lg = new Graphics(), y3 = r + (t.deathSaves ? 46 : 32);
+      for (let i = 0; i < t.legendary.max; i++) {
+        const x = (i - (t.legendary.max - 1) / 2) * 11, on = i < t.legendary.max - t.legendary.used;
+        lg.circle(x, y3, 3.5).fill({ color: 0xc29cf5, alpha: on ? 1 : 0.15 }).stroke({ width: 1, color: 0xc29cf5 });
+      }
+      c.addChild(lg);
+    }
     if (t.deathSaves) { // 3 éxitos (verdes) + 3 fallos (rojos) bajo el nombre
       const ds = new Graphics(), y2 = r + 32;
       for (let i = 0; i < 6; i++) {
@@ -418,11 +473,16 @@ export const createTable: CreateTable = async (el, opts) => {
 
   let press: { id?: Id; x: number; y: number; wx: number; wy: number } | undefined; // pulsación candidata a clic
   let drag: { id: Id; c: Container; from: Point; off: Point; to: Point } | undefined;
+  let fadeOn = false;
+  const tweens = new Map<Id, { x0: number; y0: number; x1: number; y1: number; t0: number; dur: number; last: number }>();
+  const dots: { x: number; y: number; t0: number; r: number; color: string }[] = [];
+  const fades: { pts: Point[]; t0: number; life: number; color: string }[] = [];
   function syncTokens(s: Scene) {
     const ids = new Set(s.tokens.map((t) => t.id));
-    for (const [id, o] of tokens) if (!ids.has(id)) { o.c.destroy({ children: true }); tokens.delete(id); if (drag?.id === id) endDrag(false); }
+    for (const [id, o] of tokens) if (!ids.has(id)) { tweens.delete(id); o.c.destroy({ children: true }); tokens.delete(id); if (drag?.id === id) endDrag(false); }
     for (const t of s.tokens) {
       let o = tokens.get(t.id);
+      const fresh = !o;
       if (!o) {
         const c = new Container();
         c.on('pointerdown', (e) => {
@@ -446,19 +506,28 @@ export const createTable: CreateTable = async (el, opts) => {
           }
           if (!canDrag(t2)) return;
           drag = { id: t.id, c, from: { x: t2.x, y: t2.y }, off: { x: t2.x - p.x, y: t2.y - p.y }, to: { x: t2.x, y: t2.y } };
-          c.zIndex = 1e6; tokensL.sortableChildren = true;
+          c.zIndex = 1e6; tweens.delete(t.id);
         });
         tokensL.addChild(c);
         o = { c, key: '', t };
         tokens.set(t.id, o);
       }
       o.t = t;
-      const k = `${t.name}|${t.faction}|${t.size}|${t.owners.includes(opts.memberId)}|${t.hp?.cur}/${t.hp?.max}|${s.grid.size}|${statusKey(t)}|${paletteKey()}`;
+      const k = `${t.name}|${t.faction}|${t.size}|${t.owners.includes(opts.memberId)}|${t.hp?.cur}/${t.hp?.max}|${s.grid.size}|${statusKey(t)}|${paletteKey()}|${t.elevation}|${t.carriedBy}|${t.img}|${JSON.stringify(t.legendary)}`;
       if (k !== o.key) { o.key = k; o.fx = drawToken(o.c, t, s.grid); }
       o.c.eventMode = 'static'; // también los no movibles: reciben clic
       o.c.cursor = canDrag(t) ? 'grab' : 'pointer';
-      o.c.alpha = t.conditions.includes('dead') ? 0.5 : t.conditions.includes('invisible') ? 0.45 : t.hidden ? 0.55 : 1;
-      if (drag?.id !== t.id) o.c.position.set(t.x, t.y);
+      o.c.alpha = t.conditions.includes('dead') ? 0.8 : t.conditions.includes('invisible') ? 0.45 : t.hidden ? 0.55 : 1;
+      if (drag?.id !== t.id) {
+        o.c.zIndex = t.conditions.includes('dead') ? -1 : 0;
+        const tw = tweens.get(t.id);
+        if (fresh || reduced || (!tw && o.c.x === t.x && o.c.y === t.y)) { tweens.delete(t.id); o.c.position.set(t.x, t.y); }
+        else if (!tw || tw.x1 !== t.x || tw.y1 !== t.y) { // movimiento ajeno o corrección del servidor: tween ~250 ms/casilla (máx. 900) + ruta que se desvanece
+          const cells = Math.max(Math.abs(t.x - o.c.x), Math.abs(t.y - o.c.y)) / s.grid.size, now = performance.now();
+          tweens.set(t.id, { x0: o.c.x, y0: o.c.y, x1: t.x, y1: t.y, t0: now, dur: Math.min(900, Math.max(120, 250 * cells)), last: 0 });
+          fades.push({ pts: [{ x: o.c.x, y: o.c.y }, { x: t.x, y: t.y }], t0: now, life: 1000, color: FACTION[t.faction] });
+        }
+      }
     }
     retarget();
   }
@@ -600,12 +669,41 @@ export const createTable: CreateTable = async (el, opts) => {
     app.renderer.render({ container: fogRoot, target: fogRT!, clear: true, clearColor: [0, 0, 0, 0] });
   }
 
+  // ---- dibujos, cursores ----
+  let drawKey = '';
+  const paintStroke = (g: Graphics, d: Drawing) => { strokePath(g, d.points); g.stroke({ width: d.width, color: d.color, cap: 'round', join: 'round', alpha: 0.9 }); };
+  const ephs: { g: Graphics; t0: number }[] = [];
+  function drawEphemeral(d: Drawing) {
+    const g = new Graphics(); paintStroke(g, d); ephL.addChild(g); ephs.push({ g, t0: performance.now() });
+  }
+  function showGhost(id: Id, path: Point[]) {
+    const o = tokens.get(id);
+    if (path.length > 1) fades.push({ pts: path, t0: performance.now(), life: 1500, color: o ? FACTION[o.t.faction] : AMBER });
+  }
+  type Cur = { c: Container; tx: number; ty: number; t: number; key: string };
+  const cursors = new Map<Id, Cur>();
+  function setCursors(list: { id: Id; name: string; color: string; x: number; y: number }[]) {
+    const now = performance.now(), ids = new Set(list.map((l) => l.id));
+    for (const [id, q] of cursors) if (!ids.has(id)) { q.c.destroy({ children: true }); cursors.delete(id); }
+    for (const l of list) {
+      let q = cursors.get(l.id);
+      if (q && q.key !== l.name + l.color) { q.c.destroy({ children: true }); cursors.delete(l.id); q = undefined; }
+      if (!q) {
+        const c = new Container(), arrow = new Graphics().poly([0, 0, 0, 16, 4, 12.5, 7, 19, 9.5, 18, 6.5, 11.5, 12, 11.5]).fill(l.color).stroke({ width: 1, color: 0x000000 });
+        const n = new Text({ text: l.name, style: { fontFamily: SERIF, fontSize: 11, fill: TEXT, stroke: { color: '#000', width: 3 } } });
+        n.position.set(13, 15); c.addChild(arrow, n); c.position.set(l.x, l.y); uiL.addChild(c);
+        cursors.set(l.id, q = { c, tx: l.x, ty: l.y, t: now, key: l.name + l.color });
+      }
+      if (q.tx !== l.x || q.ty !== l.y) { q.tx = l.x; q.ty = l.y; q.t = now; }
+    }
+  }
+
   // ---- setState ----
   function setState(st0: ClientState) {
     raw = st0;
     const os = st0.scene, base = os.levels?.[0]?.id, here = level ?? base, on1 = (x?: Id) => (x ?? base) === here;
     const st: ClientState = { ...st0, scene: { ...os, walls: os.walls.filter((w) => on1(w.level)), lights: os.lights.filter((l) => on1(l.level)),
-      tokens: os.tokens.filter((t) => on1(t.level)), regions: os.regions?.filter((r) => on1(r.level)) } };
+      tokens: os.tokens.filter((t) => on1(t.level)), regions: os.regions?.filter((r) => on1(r.level)), drawings: os.drawings?.filter((d) => on1(d.level)) } };
     cur = st;
     ghostG.clear(); // ponytail: la planta inferior es solo muros y fichas en gris; sin suelo ni luces
     const i = ghost ? (os.levels ?? []).findIndex((l) => l.id === here) : -1;
@@ -637,6 +735,8 @@ export const createTable: CreateTable = async (el, opts) => {
     if (rk !== regKey || changed) { regKey = rk; drawRegions(s); lmDirty = true; }
     syncDoors(s.walls);
     syncTokens(s);
+    const dk = (s.drawings ?? []).map((d) => `${d.id}${d.points.length}${d.color}${d.width}`).join();
+    if (dk !== drawKey) { drawKey = dk; drawG.clear(); for (const d of s.drawings ?? []) paintStroke(drawG, d); }
     // la clave de caché de luces incluye los muros que bloquean vista (wallsKey); se recalcula solo si cambia algo
     syncLights(s);
     const lk = s.globalLight + '|' + isDM();
@@ -671,6 +771,40 @@ export const createTable: CreateTable = async (el, opts) => {
       f.t.y = f.y0 - (reduced ? 0 : 40 * k); f.t.alpha = k < 0.6 ? 1 : (1 - k) / 0.4;
     }
     drawMarks(now); edit.draw();
+    for (const [id, w] of tweens) {
+      const o = tokens.get(id), k = Math.min(1, (now - w.t0) / w.dur);
+      if (!o) { tweens.delete(id); continue; }
+      const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2; // ease in-out
+      o.c.position.set(w.x0 + (w.x1 - w.x0) * e, w.y0 + (w.y1 - w.y0) * e);
+      if (now - w.last > 40) { w.last = now; dots.push({ x: o.c.x, y: o.c.y, t0: now, r: tokR(o.t) * 0.6, color: FACTION[o.t.faction] }); }
+      if (k >= 1) tweens.delete(id);
+    }
+    if (dots.length || fades.length || fadeOn) { // estela y rutas
+      fadeOn = dots.length + fades.length > 0; fadeG.clear();
+      for (let i = dots.length - 1; i >= 0; i--) {
+        const d = dots[i], k = (now - d.t0) / 450;
+        if (k >= 1) { dots.splice(i, 1); continue; }
+        fadeG.circle(d.x, d.y, d.r * (1 - 0.5 * k)).fill({ color: d.color, alpha: 0.3 * (1 - k) });
+      }
+      for (let i = fades.length - 1; i >= 0; i--) {
+        const f = fades[i], k = (now - f.t0) / f.life;
+        if (k >= 1) { fades.splice(i, 1); continue; }
+        for (let j = 1; j < f.pts.length; j++) dashed(fadeG, f.pts[j - 1], f.pts[j], 10, 7);
+        fadeG.stroke({ width: 3, color: f.color, alpha: 0.6 * (1 - k) });
+      }
+    }
+    for (let i = ephs.length - 1; i >= 0; i--) {
+      const k = (now - ephs[i].t0) / 5000;
+      if (k >= 1) { ephs[i].g.destroy(); ephs.splice(i, 1); continue; }
+      ephs[i].g.alpha = k < 0.8 ? 1 : (1 - k) / 0.2;
+    }
+    for (const q of cursors.values()) {
+      const f = reduced ? 1 : 0.3;
+      q.c.x += (q.tx - q.c.x) * f; q.c.y += (q.ty - q.c.y) * f; q.c.scale.set(1 / world.scale.x);
+      const idle = now - q.t - 3000; q.c.alpha = idle < 0 ? 1 : Math.max(0, 1 - idle / 500); // se desvanece tras 3 s quieto
+    }
+    for (const [id, o] of tokens) if (o.fx && !reduced && !LITE) // respiración en reposo
+      o.fx.main.scale.set(tweens.has(id) || drag?.id === id ? 1 : 1 + 0.015 * Math.sin(now / 900 + o.fx.phase));
     for (const o of tokens.values()) if (o.fx && !reduced) {
       if (o.fx.ring) o.fx.ring.rotation = now / 4000;
       if (o.fx.wob) o.fx.main.x = 2.5 * Math.sin(now / 350 + o.fx.phase);
@@ -726,6 +860,7 @@ export const createTable: CreateTable = async (el, opts) => {
     setLevel, focus, fitScene, worldToClient,
     setDisplay: (m) => { fixed = m === 'fixed'; pan = undefined; if (fixed) { endDrag(false); cam = undefined; } if (cur) syncTokens(cur.scene); },
     previewWalls, setState, setMarks, ping, floatText, effect: vfx.effect, destroy,
-    setTool: (t) => edit.setTool(isDM() ? t : { tool: 'none' }), onEdit: edit.onEdit,
+    setTool: (t) => edit.setTool(isDM() || t.tool === 'draw' || t.tool === 'erase' ? t : { tool: 'none' }), onEdit: edit.onEdit,
+    drawEphemeral, showGhost, setCursors,
   };
 };
