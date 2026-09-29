@@ -122,6 +122,16 @@ export type Scene = {
   lights: Light[];
   tokens: Token[];
   globalLight: number;         // 0 = oscuridad total, 1 = pleno día
+  weather?: Weather;
+  story?: { image?: string; title?: string; subtitle?: string }; // ilustración del modo Historia
+};
+
+export type Weather = { kind: 'none' | 'rain' | 'snow' | 'fog' | 'ash' | 'storm' | 'leaves' | 'embers'; intensity: number; wind: number }; // intensity 0–1, wind −1…1
+
+// Audio compartido: el servidor marca los tiempos con su reloj; cada cliente calcula dónde va la pista.
+export type AudioState = {
+  track?: { url: string; name: string; startedAt: number; pausedAt?: number; loop: boolean }; // ms del servidor
+  layers: { id: Id; url: string; name: string; volume: number; x?: number; y?: number; radius?: number }[]; // ambiente; con x/y = posicional en el mapa
 };
 
 // Un dado individual de una tirada (para animarlo en 3D en todos los clientes).
@@ -142,6 +152,8 @@ export type ClientState = {
   combat?: Combat;             // filtrado: sin tokens que el miembro no pueda ver
   automation: 'assisted' | 'auto';
   settings: TableSettings;
+  view: 'tactical' | 'story';
+  audio: AudioState;
 };
 
 export type ChatMsg = {
@@ -179,6 +191,16 @@ export type C2S =
   | { t: 'concentration'; tokenId: Id; spell: string | null }        // dueño o DM
   | { t: 'deathSave'; tokenId: Id }                                   // dueño en su turno (o DM)
   | { t: 'check'; tokenId: Id; kind: 'save' | 'skill' | 'ability'; key: string; secret?: boolean } // tirada desde la hoja: el servidor aplica mods, agotamiento y condiciones
+  | { t: 'scene'; patch: Partial<Pick<Scene, 'name' | 'background' | 'globalLight' | 'weather' | 'story' | 'grid' | 'width' | 'height'>> } // DM
+  | { t: 'view'; value: 'tactical' | 'story' }                         // DM: cambia la vista de todos
+  | { t: 'npcSay'; name: string; text: string; portrait?: string }     // DM: un PNJ habla (modo Historia o encima del mapa)
+  | { t: 'transition'; title: string; subtitle?: string }              // DM: tarjeta de título para todos
+  | { t: 'audio'; op: 'play'; url: string; name: string; loop?: boolean }  // DM (y trusted)
+  | { t: 'audio'; op: 'pause' | 'resume' | 'stop' }
+  | { t: 'audio'; op: 'layer'; layer: AudioState['layers'][number] }  // añade/actualiza capa de ambiente
+  | { t: 'audio'; op: 'unlayer'; id: Id }
+  | { t: 'sfx'; name: string }                                         // DM/trusted: efecto puntual (nombre de efecto sintetizado)
+  | { t: 'rtc'; to: Id; data: unknown };                              // señalización WebRTC de voz, se reenvía tal cual al destinatario
 
 // Servidor → cliente
 export type S2C =
@@ -186,6 +208,11 @@ export type S2C =
   | { t: 'state'; state: ClientState }   // ponytail: estado completo filtrado en cada cambio; diffs cuando pese
   | { t: 'chat'; msg: ChatMsg }
   | { t: 'ping'; from: Id; x: number; y: number }
+  | { t: 'npcSay'; name: string; text: string; portrait?: string }
+  | { t: 'transition'; title: string; subtitle?: string }
+  | { t: 'sfx'; name: string }
+  | { t: 'rtc'; from: Id; data: unknown }
+  | { t: 'clock'; now: number }                                        // reloj del servidor (ms) para sincronizar audio; se envía tras welcome
   | { t: 'error'; msg: string };
 
 export const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // sin 0/O/1/I/L
