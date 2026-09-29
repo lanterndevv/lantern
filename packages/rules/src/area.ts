@@ -27,3 +27,13 @@ export function inArea(shape: AreaShape, origin: P, dir: P, sizeFeet: number, gr
   if (shape === 'line') return across <= 2.5 + eps;
   return across <= along * Math.tan((53 / 2) * Math.PI / 180) + eps; // cone: semiángulo 26,5°
 }
+
+/** ¿Queda la criatura en la plantilla? Basta con el centro de cualquiera de las casillas que ocupa (una Grande ocupa 2×2). */
+export function tokenInArea(shape: AreaShape, origin: P, dir: P, sizeFeet: number, grid: { size: number; feet: number }, t: P & { size: number }): boolean {
+  const n = Math.max(1, Math.round(t.size));
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const p = { x: t.x + (i - (n - 1) / 2) * grid.size, y: t.y + (j - (n - 1) / 2) * grid.size };
+    if (inArea(shape, origin, dir, sizeFeet, grid, p)) return true;
+  }
+  return false;
+}

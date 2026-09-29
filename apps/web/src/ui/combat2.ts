@@ -1,7 +1,7 @@
 // Fase 9 B: combate 2 (legendarias, retrasar, reacciones, plantillas con forma, elevación, monturas).
 import type { Action, C2S, ClientState, Id, MoveMode, Point, Role, S2C, Token, TurnEffect } from '@lantern/protocol';
 import { opportunities, routeCost, speedFor } from '@lantern/protocol/move';
-import { ABILITY_ES, CONDITIONS, inArea } from '@lantern/rules';
+import { ABILITY_ES, CONDITIONS, inArea, tokenInArea } from '@lantern/rules';
 import { cover, sightSegments } from '@lantern/vision';
 import type { Marks, Table } from '../render/api.ts';
 import type { RadialItem } from './radial.ts';
@@ -216,7 +216,7 @@ export function templateTargeting(a: Action, c: TemplateCtx) {
     const s = c.state(), { origin, dir } = geom(p), o = caster(), g = s.scene.grid;
     const lv = (l?: Id) => l === s.scene.levels?.[0]?.id ? undefined : l;
     const segs = sightSegments(s.scene.walls.filter(w => lv(w.level) === lv(o?.level)), origin);
-    return s.scene.tokens.filter(tk => (!fromCaster || tk.id !== c.caster) && lv(tk.level) === lv(o?.level) && inArea(shape, origin, dir, area.size, g, tk)
+    return s.scene.tokens.filter(tk => (!fromCaster || tk.id !== c.caster) && lv(tk.level) === lv(o?.level) && tokenInArea(shape, origin, dir, area.size, g, tk)
       && cover(origin, tk, tk.size * g.size / 2, segs) !== 'total');
   };
   const paint = () => {

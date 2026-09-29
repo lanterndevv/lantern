@@ -2,7 +2,7 @@
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { CODE_ALPHABET, DEFAULT_SETTINGS, DICE_THEMES, blocksMove } from '@lantern/protocol';
 import type { Ability, ActionCard, AudioState, C2S, ChatMsg, ClientState, Combat, DiceTheme, Die, ExtensionManifest, Hp, Id, JournalEntry, LibraryItem, Member, MoveMode, Point, Region, Role, S2C, Scene, SessionSummary, TableSettings, Token, Wall } from '@lantern/protocol';
-import { ABILITY_ES, CONDITIONS, SKILLS, abilityMod, applyCard, applyDamage, autoFailSave, concentrationDC, d20Penalty, deathSave, editionOf, encounterXP, grantTemp, heal, inArea, resolveAction, roll as diceRoll } from '@lantern/rules';
+import { ABILITY_ES, CONDITIONS, SKILLS, abilityMod, applyCard, applyDamage, autoFailSave, concentrationDC, d20Penalty, deathSave, editionOf, encounterXP, grantTemp, heal, inArea, resolveAction, tokenInArea, roll as diceRoll } from '@lantern/rules';
 import { MONSTERS, SPELL_INDEX } from '@lantern/srd';
 import { spellRegions } from './areas.ts';
 import { livekitOn, livekitToken } from './livekit.ts';
@@ -728,7 +728,7 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
         const toward = fromCaster ? (aim ?? at) : shape === 'cube' ? (aim ?? { x: at.x + (at.x < tk.x ? -1 : 1), y: at.y + (at.y < tk.y ? -1 : 1) }) : at;
         if (!fromCaster && act.range > 0 && dist3d(s.grid, tk, { ...tk, x: at.x, y: at.y }) > act.range + 5 * (tk.size - 1) + 1e-6) return { error: 'fuera de alcance' };
         const so = sightSegments(lvlWalls, origin);
-        targets = s.tokens.filter((t) => flr(s, t.level) === flr(s, tk.level) && (!fromCaster || t.id !== tk.id) && inArea(shape, origin, toward, act.area!.size, s.grid, t)
+        targets = s.tokens.filter((t) => flr(s, t.level) === flr(s, tk.level) && (!fromCaster || t.id !== tk.id) && tokenInArea(shape, origin, toward, act.area!.size, s.grid, t)
           && cover(origin, t, t.size * s.grid.size / 2, so) !== 'total');
         from = origin;
       } else {
