@@ -10,6 +10,7 @@ export type TableOptions = {
   onTokenClick?(id: Id, shift: boolean): void;      // clic sin arrastre sobre un token (elegir objetivo, seleccionar)
   onMapClick?(x: number, y: number): void;          // clic en el suelo (colocar monstruo, centro de plantilla); coords de mundo
   onPointer?(x: number, y: number): void;           // movimiento del puntero en coords de mundo (para plantillas que siguen al cursor)
+  onTokenContext?(id: Id, clientX: number, clientY: number): void; // clic derecho o pulsación larga (táctil, 500 ms) sobre un token: menú radial
 };
 
 // Marcas visuales que el shell controla (fase de combate).
@@ -27,6 +28,10 @@ export type Table = {
   floatText(tokenId: Id, text: string, color: string): void; // número flotante (daño/curación) sobre un token
   effect(e: import("./api.ts").Effect): void;       // VFX puntual; el clima sale de scene.weather en setState
   setTool(t: import("./api.ts").EditTool): void;    // fase 5: herramientas de edición (solo DM)
+  focus(x: number, y: number, zoom?: number): void; // fase 6: mueve la cámara con suavidad (instantáneo con movimiento reducido)
+  fitScene(): void;                                  // encuadra la escena entera
+  setDisplay(mode: 'normal' | 'fixed'): void;        // fixed: sin pan/zoom del usuario (mesa física, streaming); la cámara la mueve focus/fitScene
+  worldToClient(x: number, y: number): { x: number; y: number }; // para anclar menús HTML a un token
   onEdit(cb: (op: import("./api.ts").EditOp) => void): void;
   destroy(): void;
 };
