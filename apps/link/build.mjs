@@ -5,4 +5,5 @@ import { readFileSync, writeFileSync } from 'node:fs';
 const here = new URL('.', import.meta.url), src = (p) => readFileSync(new URL(p, here), 'utf8');
 const strip = (code) => stripTypeScriptTypes(code, { mode: 'strip' });
 writeFileSync(new URL('srd.js', here), strip(src('../../packages/srd/src/index.ts')));
+writeFileSync(new URL('gamelog.js', here), strip(src('../../packages/ddb/src/gamelog.ts')));
 writeFileSync(new URL('ddb.js', here), strip(src('../../packages/ddb/src/index.ts')).replace("'@lantern/srd'", "'./srd.js'"));

@@ -568,6 +568,18 @@ test('scene patch: válido se mezcla; malicioso se rechaza sin tocar nada', () =
   assert.equal(JSON.stringify(room.scene), before);
 });
 
+test('scene patch: capas de parallax de Historia', () => {
+  const { room, dm } = withRoles();
+  const L = (n: number) => Array.from({ length: n }, (_, i) => ({ image: `/assets/${i}.png`, depth: i / 4 }));
+  assert.equal(Hd(room, dm, { t: 'scene', patch: { story: { layers: L(4) } } }).state, true);
+  assert.equal(room.scene.story?.layers?.length, 4);
+  const before = JSON.stringify(room.scene);
+  for (const layers of [L(5), [{ image: 'javascript:x', depth: 0 }], [{ image: '/assets/a.png', depth: 2 }], [{ image: '/assets/a.png' }], 'x', [null]])
+    assert.ok(Hd(room, dm, { t: 'scene', patch: { story: { layers } } }).error, JSON.stringify(layers));
+  assert.equal(JSON.stringify(room.scene), before);
+  assert.equal(Hd(room, dm, { t: 'scene', patch: { story: { layers: [] } } }).state, true); assert.equal(room.scene.story?.layers?.length, 0);
+});
+
 test('un jugador no puede usar scene, view, npcSay, transition, audio ni sfx', () => {
   const { room, player } = withRoles();
   for (const m of [{ t: 'scene', patch: { name: 'x' } }, { t: 'view', value: 'story' }, { t: 'npcSay', name: 'A', text: 'b' }, { t: 'transition', title: 'x' },

@@ -12,8 +12,8 @@ const int = (v: unknown, a: number, b: number): v is number => Number.isInteger(
 export const inScene = (s: Scene, x: unknown, y: unknown): x is number => num(x) && num(y) && x >= 0 && x <= s.width && y >= 0 && y <= s.height;
 export const pt = (s: Scene, p: unknown): Point | null =>
   obj(p) && inScene(s, p.x, p.y) ? { x: p.x as number, y: p.y as number } : null;
-// URL de recurso: https o ruta /assets/ propia (sin subdirectorios)
-export const urlOk = (v: unknown): v is string => typeof v === 'string' && v.length <= 512 && (/^https:\/\/[^\s"'<>]+$/.test(v) || /^\/assets\/[\w.-]+$/.test(v));
+// URL de recurso: https o ruta /assets/ (subidas) o /audio/ (paquete incluido) propia (sin subdirectorios)
+export const urlOk = (v: unknown): v is string => typeof v === 'string' && v.length <= 512 && (/^https:\/\/[^\s"'<>]+$/.test(v) || /^\/(assets|audio)\/[\w.-]+$/.test(v));
 
 // Planta: debe existir en scene.levels; ausente = planta base. null = inválida.
 export const parseLevel = (s: Scene, v: unknown): Id | undefined | null =>
@@ -256,7 +256,10 @@ export function patchScene(s: Scene, patch: unknown): boolean {
   if ('story' in p) {
     const t = p.story;
     if (!obj(t) || (t.image !== undefined && !urlOk(t.image)) || (t.title !== undefined && !short(t.title, 80)) || (t.subtitle !== undefined && !short(t.subtitle, 80))) return false;
-    n.story = { ...s.story, ...(t.image !== undefined && { image: t.image as string }), ...(t.title !== undefined && { title: t.title }), ...(t.subtitle !== undefined && { subtitle: t.subtitle }) };
+    const ly = t.layers;
+    if (ly !== undefined && (!Array.isArray(ly) || ly.length > 4 || !ly.every((l) => obj(l) && urlOk(l.image) && inr(l.depth, 0, 1)))) return false;
+    n.story = { ...s.story, ...(t.image !== undefined && { image: t.image as string }), ...(t.title !== undefined && { title: t.title }), ...(t.subtitle !== undefined && { subtitle: t.subtitle }),
+      ...(ly !== undefined && { layers: (ly as { image: string; depth: number }[]).map((l) => ({ image: l.image, depth: l.depth })) }) };
   }
   if ('grid' in p) {
     const g = p.grid;

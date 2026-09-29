@@ -1,6 +1,7 @@
 // Modo Historia, PNJ que habla, transiciones y panel DM «Escena y ambiente».
-import type { AudioState, C2S, ClientState, Role, Weather } from '@lantern/protocol';
+import type { AudioState, C2S, ClientState, Role, StoryLayer, Weather } from '@lantern/protocol';
 import { SFX_LIST } from './sfx.ts';
+import { AUDIO_PACK, packOptions } from '../audio-pack.ts';
 
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 const typing = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.('input,textarea,select,dialog');
@@ -11,6 +12,7 @@ export function mountStory(root: HTMLElement, mapa: HTMLElement, o: { isDm: bool
   // Capa de historia: va ANTES del mapa en el DOM para que los dados 3D (dentro del mapa) queden encima.
   const hist = div('historia', '<img alt="" hidden><div class="vineta"></div><div class="h-tit"><h2></h2><p></p></div>');
   hist.hidden = true; mapa.before(hist);
+  const caps = div('hcapas'); hist.querySelector('img')!.after(caps); // capas de parallax entre la imagen base y la viñeta
   const img = hist.querySelector('img')!, h2 = hist.querySelector('h2')!, sub = hist.querySelector('p')!;
 
   const ctl = div('hctl', `${o.isDm ? '<button type="button" data-a="tac">Táctico</button>' : ''}<button type="button" data-a="ui" aria-pressed="false">Ocultar interfaz</button>`);
@@ -42,6 +44,20 @@ export function mountStory(root: HTMLElement, mapa: HTMLElement, o: { isDm: bool
     else if (e.key.toLowerCase() === 'h' && !e.ctrlKey && !e.altKey && !e.metaKey && !typing(e.target) && root.classList.contains('historia-on')) toggleUi();
   });
 
+  // Parallax: ratón, inclinación del dispositivo y vaivén lento; nada con movimiento reducido
+  let px = 0, py = 0, tk = 0, key = '';
+  const move = (x: number, y: number) => { px = x; py = y; };
+  document.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') move(e.clientX / innerWidth * 2 - 1, e.clientY / innerHeight * 2 - 1); });
+  addEventListener('deviceorientation', e => { if (e.gamma != null && e.beta != null) move(Math.max(-1, Math.min(1, e.gamma / 30)), Math.max(-1, Math.min(1, (e.beta - 45) / 30))); });
+  const tick = (t: number) => {
+    const sway = Math.sin(t / 5000) * 0.35;
+    for (const c of caps.children as Iterable<HTMLElement>) {
+      const d = +c.dataset.d!;
+      c.style.transform = `translate(${(px + sway) * d * -28}px, ${(py + sway / 2) * d * -18}px) scale(${1 + d * 0.1})`;
+    }
+    tk = requestAnimationFrame(tick);
+  };
+
   let tt = 0;
   return {
     update(s: ClientState) {
@@ -50,6 +66,12 @@ export function mountStory(root: HTMLElement, mapa: HTMLElement, o: { isDm: bool
       if (!on) { root.classList.remove('sin-ui'); ctl.querySelector('[data-a=ui]')!.setAttribute('aria-pressed', 'false'); }
       hist.hidden = ctl.hidden = !on;
       h2.textContent = st?.title ?? ''; sub.textContent = st?.subtitle ?? '';
+      const ly = st?.layers ?? [], k = on ? JSON.stringify(ly) : '';
+      if (k !== key) {
+        key = k; cancelAnimationFrame(tk);
+        caps.replaceChildren(...(k ? ly : []).map(l => { const c = div('hcapa'); c.dataset.d = String(l.depth); const i = new Image(); i.alt = ''; i.src = l.image; c.append(i); return c; }));
+        if (ly.length && on && !reduced()) tk = requestAnimationFrame(tick);
+      }
       if (st?.image !== (img.hidden ? undefined : img.getAttribute('src'))) {
         img.hidden = !st?.image;
         if (st?.image) { img.src = st.image; img.style.animation = 'none'; void img.offsetWidth; img.style.animation = ''; }
@@ -112,6 +134,8 @@ export function mountScenePanel(el: HTMLElement, o: { role: Role; code: string; 
       <div class="dmbtns"><button type="button" id="e-vs">Modo Historia</button><button type="button" id="e-vt">Modo Táctico</button></div></section>
     <section aria-labelledby="e-h2"><h3 id="e-h2">Imágenes</h3>
       ${file('Fondo del mapa', 'bg', 'image')}${file('Imagen de historia', 'si', 'image')}
+      ${file('Capa de parallax (atrás → delante, máx. 4)', 'pf', 'image')}${rng('Profundidad de la capa', 'pd', 0, 100)}
+      <button type="button" id="e-pa">Añadir capa</button><ul class="capas" id="e-pl"></ul>
       ${inp('Título de la historia', 'stt', 'maxlength="100"')}${inp('Subtítulo de la historia', 'sts', 'maxlength="160"')}
       <button type="button" id="e-sta">Aplicar título</button></section>
     <section aria-labelledby="e-h3"><h3 id="e-h3">PNJ habla</h3>
@@ -120,12 +144,12 @@ export function mountScenePanel(el: HTMLElement, o: { role: Role; code: string; 
     <section aria-labelledby="e-h4"><h3 id="e-h4">Transición</h3>
       ${inp('Título', 'tt', 'maxlength="100"')}${inp('Subtítulo', 'ts', 'maxlength="160"')}<button type="button" id="e-tg">Lanzar transición</button></section>` : '') + `
     <section aria-labelledby="e-h5"><h3 id="e-h5">Música</h3><p class="det" id="e-cur">Nada suena</p>
-      ${file('Archivo de audio', 'mf', 'audio')}${inp('o URL', 'mu', 'type="url" placeholder="https://…"')}
+      <label>Paquete incluido<select id="e-mk">${packOptions('musica')}</select></label>${file('Archivo de audio', 'mf', 'audio')}${inp('o URL', 'mu', 'type="url" placeholder="https://…"')}
       <label class="chk"><input type="checkbox" id="e-ml" checked> Repetir</label>
       <div class="dmbtns3"><button type="button" class="primary" id="e-mp">Reproducir</button><button type="button" id="e-mpa">Pausa</button><button type="button" id="e-mr">Reanudar</button></div>
       <button type="button" id="e-ms">Parar</button></section>
     <section aria-labelledby="e-h6"><h3 id="e-h6">Capas de ambiente</h3>
-      ${file('Archivo de audio', 'lf', 'audio')}${inp('o URL', 'lu', 'type="url" placeholder="https://…"')}${rng('Volumen', 'lv', 0, 100)}
+      <label>Paquete incluido<select id="e-lk">${packOptions('ambiente')}</select></label>${file('Archivo de audio', 'lf', 'audio')}${inp('o URL', 'lu', 'type="url" placeholder="https://…"')}${rng('Volumen', 'lv', 0, 100)}
       <button type="button" id="e-la">Añadir capa</button><ul class="capas" id="e-ls"></ul></section>` + (dm ? `
     <section aria-labelledby="e-h7"><h3 id="e-h7">Tablero de efectos</h3><div class="sfxg">${SFX_LIST.map(([n, l], i) =>
       `<button type="button" data-s="${n}">${l}${i < 9 ? ` <kbd>F${i + 1}</kbd>` : ''}</button>`).join('')}</div></section>` : '');
@@ -142,7 +166,9 @@ export function mountScenePanel(el: HTMLElement, o: { role: Role; code: string; 
     try { const u = await upload(o.code, f); st(''); return u; } catch (e) { st((e as Error).message); }
   };
   // archivo o URL para audio; devuelve {url,name} o undefined con el aviso en pantalla
-  const audioSrc = async (fid: string, uid: string) => {
+  const audioSrc = async (fid: string, uid: string, kid: string) => {
+    const k = AUDIO_PACK.find(p => p.id === q<HTMLSelectElement>(kid).value); // paquete incluido: tiene prioridad
+    if (k) return { url: k.url, name: k.nombre };
     const f = q<HTMLInputElement>(fid).files?.[0], u = val(uid);
     if (!f && !u) { st('Elige un archivo o escribe una URL'); return; }
     if (!f && !isUrl(u)) { st('La URL debe empezar por http:// o https://'); return; }
@@ -160,6 +186,19 @@ export function mountScenePanel(el: HTMLElement, o: { role: Role; code: string; 
     q('vt').onclick = () => o.send({ t: 'view', value: 'tactical' });
     q('bg').onchange = async () => { const u = await pick('bg', 'image'); if (u) scene({ background: u }); };
     q('si').onchange = async () => { const u = await pick('si', 'image'); if (u) scene({ story: { ...cur?.scene.story, image: u } }); };
+    const layers = () => cur?.scene.story?.layers ?? [];
+    const setLayers = (l: StoryLayer[]) => scene({ story: { ...cur?.scene.story, layers: l } });
+    q('pa').onclick = async () => {
+      if (layers().length >= 4) return st('Máximo 4 capas');
+      const u = await pick('pf', 'image'); if (u) setLayers([...layers(), { image: u, depth: +q<HTMLInputElement>('pd').value / 100 }]);
+    };
+    q('pl').addEventListener('change', e => { const i = e.target as HTMLInputElement; setLayers(layers().map((l, n) => n === +i.dataset.n! ? { ...l, depth: +i.value / 100 } : l)); });
+    q('pl').addEventListener('click', e => {
+      const b = (e.target as HTMLElement).closest('button'), n = +(b?.dataset.n ?? -1), l = [...layers()];
+      if (!b || n < 0) return;
+      if (b.dataset.a === 'up' && n > 0) [l[n - 1], l[n]] = [l[n], l[n - 1]]; else if (b.dataset.a === 'rm') l.splice(n, 1); else return;
+      setLayers(l);
+    });
     q('sta').onclick = () => scene({ story: { ...cur?.scene.story, title: val('stt'), subtitle: val('sts') } });
     q('ns').onclick = async () => {
       if (!val('nn') || !val('nt')) return st('Escribe el nombre y el texto');
@@ -170,14 +209,14 @@ export function mountScenePanel(el: HTMLElement, o: { role: Role; code: string; 
     q('tg').onclick = () => { if (!val('tt')) return st('Escribe un título'); o.send({ t: 'transition', title: val('tt'), ...(val('ts') ? { subtitle: val('ts') } : {}) }); };
   }
   q('mp').onclick = async () => {
-    const s = await audioSrc('mf', 'mu');
+    const s = await audioSrc('mf', 'mu', 'mk');
     if (s) o.send({ t: 'audio', op: 'play', ...s, loop: q<HTMLInputElement>('ml').checked });
   };
   q('mpa').onclick = () => o.send({ t: 'audio', op: 'pause' });
   q('mr').onclick = () => o.send({ t: 'audio', op: 'resume' });
   q('ms').onclick = () => o.send({ t: 'audio', op: 'stop' });
   q('la').onclick = async () => {
-    const s = await audioSrc('lf', 'lu');
+    const s = await audioSrc('lf', 'lu', 'lk');
     if (s) o.send({ t: 'audio', op: 'layer', layer: { id: rid(), ...s, volume: +q<HTMLInputElement>('lv').value / 100 } });
   };
   const layer = (id: string) => cur?.audio.layers.find(l => l.id === id);
@@ -210,6 +249,9 @@ export function mountScenePanel(el: HTMLElement, o: { role: Role; code: string; 
         const w = s.scene.weather;
         set('name', s.scene.name); set('luz', String(Math.round(s.scene.globalLight * 100)));
         set('wk', w?.kind ?? 'none'); set('wi', String(Math.round((w?.intensity ?? 0.5) * 100))); set('ww', String(Math.round((w?.wind ?? 0) * 100)));
+        if (!q('pl').contains(document.activeElement)) q('pl').innerHTML = (s.scene.story?.layers ?? []).map((l, n) =>
+          `<li><span>Capa ${n + 1}</span><input type="range" min="0" max="100" value="${Math.round(l.depth * 100)}" data-n="${n}" aria-label="Profundidad de la capa ${n + 1}">
+          <button type="button" data-a="up" data-n="${n}" aria-label="Subir capa ${n + 1} hacia delante">↑</button><button type="button" data-a="rm" data-n="${n}">Quitar<span class="sr"> capa ${n + 1}</span></button></li>`).join('') || '<li class="det">Sin capas de parallax</li>';
         set('stt', s.scene.story?.title ?? ''); set('sts', s.scene.story?.subtitle ?? '');
       }
       const t = s.audio.track;

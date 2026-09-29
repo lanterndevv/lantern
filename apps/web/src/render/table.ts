@@ -10,6 +10,7 @@ import { createVfx, LITE } from './vfx.ts';
 import { createEdit, dashed, REGION_COLOR, segDist, strokePath } from './edit.ts';
 import { clipCone, gridCells, gridType, hexCenter, hexToPx, hueShift } from './geom.ts';
 import { createPost } from './post.ts';
+import { createMinimap } from './minimap.ts';
 
 const FACTION = { ally: '#5B9BE0', enemy: '#E0643A', neutral: '#BFAE86' };
 const HP = { ok: '#7cc47f', bad: '#d9503a' }; // PG alto / PG bajo
@@ -903,8 +904,16 @@ export const createTable: CreateTable = async (el, opts) => {
   }
 
   // ---- ticker: solo animaciones ----
+  // minimapa (oculto en ?vista=): lo que ve el jugador, sin fichas del mundo (van como puntos)
+  const mm = new URLSearchParams(location.search).has('vista') ? undefined : createMinimap(el, {
+    app, world, hide: [tokensL, uiL, marksG, editG, routeG, ephL, ghostG], lite: LITE, scene: () => cur?.scene,
+    level: () => raw?.scene.levels?.find((l) => l.id === (level ?? raw!.scene.levels![0].id))?.name ?? '',
+    color: (t) => (t.owners.length ? MINE : FACTION[t.faction]),
+    moveTo: (x, y) => { if (fixed) return; stopCam(); pan = undefined; world.position.set(app.screen.width / 2 - x * world.scale.x, app.screen.height / 2 - y * world.scale.x); },
+  });
   app.ticker.add(() => {
     const now = performance.now(), dt = Math.min(50, app.ticker.deltaMS);
+    mm?.frame();
     if (cam) {
       const k = Math.min(1, (now - cam.t0) / 450), e = 1 - (1 - k) ** 3, m = (a: number, b: number) => a + (b - a) * e;
       world.scale.set(m(cam.k0, cam.k1)); world.position.set(m(cam.x0, cam.x1), m(cam.y0, cam.y1));
@@ -1031,7 +1040,7 @@ export const createTable: CreateTable = async (el, opts) => {
     for (const [n, f] of [['pointerdown', tDown], ['pointermove', tMove], ['pointerup', tUp], ['pointercancel', tUp]] as const) app.canvas.removeEventListener(n, f);
     removeEventListener('keydown', kd); removeEventListener('keydown', ek); removeEventListener('keyup', ku); removeEventListener('lantern:a11y', onA11y);
     for (const m of memories.values()) m.destroy(true);
-    vfx.destroy(); post.destroy(); dropVideo(); noiseTex.destroy(true);
+    mm?.destroy(); vfx.destroy(); post.destroy(); dropVideo(); noiseTex.destroy(true);
     lmRT?.destroy(true); fogRT?.destroy(true);
     for (const t of grads.values()) t.destroy(true);
     grads.clear();

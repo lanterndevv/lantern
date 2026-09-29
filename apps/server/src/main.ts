@@ -22,7 +22,7 @@ const MAX_IMPORT = 250 * 1024 * 1024, MAX_UVTT = 60 * 1024 * 1024;
 const EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/webm': 'webm', 'video/webm': 'webm', 'video/mp4': 'mp4', 'application/pdf': 'pdf' };
 const TYPE: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', mp3: 'audio/mpeg', ogg: 'audio/ogg', webm: 'video/webm', mp4: 'video/mp4', pdf: 'application/pdf' };
 
-const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.woff': 'font/woff', '.txt': 'text/plain; charset=utf-8', '.map': 'application/json', '.wasm': 'application/wasm' };
+const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.woff': 'font/woff', '.txt': 'text/plain; charset=utf-8', '.map': 'application/json', '.wasm': 'application/wasm', '.ogg': 'audio/ogg' };
 // Límites (seguridad). ponytail: contadores en memoria, se pierden al reiniciar; suficiente para un servidor único.
 const WS_RATE = 30, WS_BURST = 60, WS_MAX_EXCESS = 10, MAX_CONN_IP = 20, MAX_ROOMS_IP_DAY = 200, MAX_UPLOADS = 30, MAX_PLAYER_UPLOADS = 10, MAX_PLAYER_ASSET = 5 * 1024 * 1024, UPLOAD_WINDOW = 10 * 60_000, DAY = 86_400_000;
 
@@ -104,7 +104,7 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
     let data = await readFile(file).catch(() => null);
     if (!data && !p.startsWith('/static/') && !extname(p)) { file = join(webRoot, 'index.html'); data = await readFile(file).catch(() => null); } // SPA
     if (!data) { res.statusCode = 404; res.end(); return; }
-    res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream', 'content-length': data.length, 'x-content-type-options': 'nosniff', 'cache-control': p.startsWith('/static/') ? 'public, max-age=31536000, immutable' : 'no-cache' });
+    res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream', 'content-length': data.length, 'x-content-type-options': 'nosniff', 'cache-control': p.startsWith('/static/') ? 'public, max-age=31536000, immutable' : p.startsWith('/audio/') ? 'public, max-age=604800' : 'no-cache' });
     res.end(req.method === 'HEAD' ? undefined : data);
   };
   const accounts = createAccounts(db.raw, { getRoom, dirty });

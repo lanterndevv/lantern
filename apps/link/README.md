@@ -15,3 +15,10 @@ Sin build de la extensión; solo hay que regenerar `ddb.js`/`srd.js` si cambia `
 - El token nunca sale de la extensión (ni a la página ni al servidor de Lantern).
 - A la página solo le entrega estadísticas de juego (`ImportedCharacter`): nada de texto de reglas ni descripciones.
 - El content script solo actúa en páginas con `<meta name="lantern" content="1">`.
+
+## Relé al Game Log de D&D Beyond (opcional)
+- **Desactivado por defecto.** Cada jugador lo activa con la casilla «Enviar mis tiradas al Game Log de D&D Beyond» (pestaña Mesa, se guarda en el navegador). Solo aparece con Link conectado y un personaje tuyo vinculado a DDB.
+- Solo se reenvían tus tiradas públicas hechas como ese personaje (`gameLogRoll`): nunca las secretas, a ciegas, susurradas ni las que ya vienen de DDB (Beyond20). Las tarjetas de ataque/daño no se reenvían.
+- El background abre un WebSocket a `wss://game-log-api-live.dndbeyond.com/v1?gameId=…&userId=…&stt=<token>` con tu sesión (gameId = campaña del personaje, userId = del token) y envía un `dice/roll/fulfilled`. Es el mismo canal que usa AboveVTT; no se inyecta nada en las páginas de DDB.
+- Si DDB cambia el formato del Game Log, puede dejar de funcionar sin aviso (el mensaje se arma en `packages/ddb/src/gamelog.ts`; `node apps/link/build.mjs` regenera `gamelog.js`).
+- Va contra los términos de servicio de D&D Beyond: úsalo bajo tu propia responsabilidad.

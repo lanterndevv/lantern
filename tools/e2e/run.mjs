@@ -196,6 +196,20 @@ async function main() {
     await v.shot('h-vista-mesa');
   });
 
+  await check('(h2) paneles acoplables: mover Hoja a la zona izquierda con el menú y reponer', async () => {
+    const r = await player.eval(`(async () => {
+      const q = (s) => document.querySelector(s), w = () => new Promise(r => setTimeout(r, 150));
+      q('#t-hoja').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      [...document.querySelectorAll('.dock-menu button')].find(b => /izquierda/.test(b.textContent)).click(); await w();
+      const movida = !!q('#lado-izq #t-hoja') && !q('#lado-izq').classList.contains('vacia') && !!q('#lado-izq #p-hoja') && !q('#lado-izq #p-hoja').hidden;
+      const guardado = /"izq":\\["hoja"\\]/.test(localStorage.getItem('lantern:dock2') || '');
+      q('#t-hoja').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      [...document.querySelectorAll('.dock-menu button')].find(b => /Restablecer/.test(b.textContent)).click(); await w();
+      return movida && guardado && !!q('#lado #t-hoja') && q('#lado-izq').classList.contains('vacia');
+    })()`);
+    must(r === true, 'el menú Mover a… no movió/guardó/restableció la pestaña');
+  });
+
   await check('(i) un susurro del DM a Ana no lo recibe otro jugador', async () => {
     const [ana, bruno] = [wsClient(sp), wsClient(sp)];
     await Promise.all([ana.opened, bruno.opened]);

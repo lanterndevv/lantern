@@ -1,5 +1,6 @@
 // Contrato compartido cliente ↔ servidor. Todo en píxeles de mapa salvo que se diga.
 
+export type StoryLayer = { image: string; depth: number }; // parallax de Historia: de atrás adelante; depth 0 = fija, 1 = la que más se mueve (máx. 4)
 export type Id = string;
 export type Point = { x: number; y: number };
 
@@ -167,7 +168,7 @@ export type Scene = {
   folder?: string;             // carpeta en la biblioteca
   audioPreset?: AudioState;    // música/ambiente que se activan con la escena
   dmNotes?: string;            // notas del DM de la escena (solo DM)
-  story?: { image?: string; title?: string; subtitle?: string }; // ilustración del modo Historia
+  story?: { image?: string; title?: string; subtitle?: string; layers?: StoryLayer[] }; // ilustración del modo Historia
   pins?: { id: Id; x: number; y: number; entryId: Id }[]; // marcadores enlazados a entradas del diario (el jugador solo recibe los de entradas que puede leer)
 };
 

@@ -1,19 +1,19 @@
 import type { ImportedCharacter } from '@lantern/protocol';
-import type { LinkMonsterHit, LinkReq, LinkReq2, LinkRes, LinkRes2 } from '@lantern/protocol/link';
+import type { LinkMonsterHit, LinkReq, LinkReq2, LinkReq3, LinkRes, LinkRes2, LinkRes3, LinkRoll } from '@lantern/protocol/link';
 
 // Puente con la extensión Lantern Link (window.postMessage). Solo se aceptan respuestas de esta misma ventana.
-function ask<T extends (LinkRes | LinkRes2)['t']>(req: { t: 'ping' } | { t: 'getCharacter'; id: number } | { t: 'searchMonsters'; query: string } | { t: 'getMonster'; id: number }, ms: number): Promise<Extract<LinkRes | LinkRes2, { t: T | 'error' }>> {
+function ask<T extends (LinkRes | LinkRes2 | LinkRes3)['t']>(req: { t: 'ping' } | { t: 'gameLogRoll'; characterId: number; roll: LinkRoll } | { t: 'getCharacter'; id: number } | { t: 'searchMonsters'; query: string } | { t: 'getMonster'; id: number }, ms: number): Promise<Extract<LinkRes | LinkRes2 | LinkRes3, { t: T | 'error' }>> {
   const rid = crypto.randomUUID();
   return new Promise((ok, ko) => {
     const done = () => { clearTimeout(to); removeEventListener('message', on); };
     const on = (e: MessageEvent) => {
-      const d = e.data as LinkRes | LinkRes2;
+      const d = e.data as LinkRes | LinkRes2 | LinkRes3;
       if (e.source !== window || d?.lantern !== 'link' || d.dir !== 'res' || d.rid !== rid) return;
       done(); ok(d as never);
     };
     const to = setTimeout(() => { done(); ko(new Error('La extensión Lantern Link no responde.')); }, ms);
     addEventListener('message', on);
-    postMessage({ lantern: 'link', dir: 'req', rid, ...req } satisfies LinkReq | LinkReq2, location.origin);
+    postMessage({ lantern: 'link', dir: 'req', rid, ...req } satisfies LinkReq | LinkReq2 | LinkReq3, location.origin);
   });
 }
 
@@ -41,4 +41,10 @@ export const getMonster = async (id: number) => {
   const r = await ask<'monster'>({ t: 'getMonster', id }, 15000);
   if (r.t === 'error') throw new Error(r.msg);
   return r.data;
+};
+
+// Opt-in: reenvía una tirada propia al Game Log de D&D Beyond del usuario. Lanza con el motivo si no se pudo.
+export const sendGameLogRoll = async (characterId: number, roll: LinkRoll): Promise<void> => {
+  const r = await ask<'gameLogOk'>({ t: 'gameLogRoll', characterId, roll }, 15000);
+  if (r.t === 'error') throw new Error(r.msg);
 };

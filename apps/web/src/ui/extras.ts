@@ -12,6 +12,7 @@ import { mountDmTools } from './dmtools.ts';
 import { PENDING_CHAR } from './join.ts';
 import { showHandout, syncDoc } from './journal.ts';
 import { openRest } from './sheetx.ts';
+import { selectTab } from './dock.ts';
 
 type Welcome = Extract<S2C, { t: 'welcome' }>;
 const esc = (s: string) => s.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
@@ -28,23 +29,15 @@ export function mountExtras(root: HTMLElement, w: Welcome, table: Promise<Table>
   const mine = () => state.scene.tokens.filter(t => t.owners.includes(me));
 
   // ---- pestañas ----
-  const tablist = $('[role=tablist]'), body = $('#cuerpo'), own: { tab: HTMLElement; panel: HTMLElement }[] = [];
+  const tablist = $('[role=tablist]'), body = $('#cuerpo');
   const addTab = (id: string, label: string) => {
     const tab = Object.assign(document.createElement('button'), { id: 't-' + id, textContent: label }), panel = Object.assign(document.createElement('div'), { id: 'p-' + id, className: 'ajustes' });
     tab.setAttribute('role', 'tab'); tab.setAttribute('aria-selected', 'false'); tab.setAttribute('aria-controls', panel.id);
     panel.setAttribute('role', 'tabpanel'); panel.setAttribute('aria-labelledby', tab.id); panel.hidden = true;
     tablist.append(tab); body.append(panel);
-    tab.onclick = () => {
-      tablist.querySelectorAll('[role=tab]').forEach(t => t.setAttribute('aria-selected', String(t === tab)));
-      body.querySelectorAll<HTMLElement>(':scope > [role=tabpanel]').forEach(p => { p.hidden = p !== panel; });
-    };
-    own.push({ tab, panel });
+    tab.onclick = () => selectTab(id); // la zona (izq/der/abajo) donde esté la pestaña la gestiona dock.ts
     return panel;
   };
-  tablist.addEventListener('click', e => { // otra pestaña de la mesa: las nuestras se recogen
-    const b = (e.target as HTMLElement).closest('[role=tab]');
-    if (b && !own.some(o => o.tab === b)) for (const o of own) { o.tab.setAttribute('aria-selected', 'false'); o.panel.hidden = true; }
-  });
   mountCompendium(addTab('comp', 'Compendio'), { send, state: () => state, role: w.role, code: w.state.code, key, toast, table, mapEl: mapa });
   const tools = staff && w.role === 'dm' ? mountDmTools(addTab('dmx', 'Herramientas'), { send, state: () => state, code: w.state.code, key, toast, viewAs: id => viewAs(id), viewing: () => viewing }) : undefined;
 

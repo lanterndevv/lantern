@@ -39,7 +39,7 @@ export function mountDraw(bar: HTMLElement, c: DrawCtx) {
       <button type="button" id="dr-me">Borrar mío</button>
       ${dm ? '<button type="button" id="dr-all">Borrar todo</button><button type="button" id="dr-focus">Mostrar a todos aquí</button>' : ''}
     </div>
-    <label class="chk dr-cur"><input type="checkbox" id="dr-cur" role="switch"> Ver cursores</label>`;
+    <label class="chk dr-cur" title="Ver cursores de los demás"><input type="checkbox" id="dr-cur" role="switch"><span aria-hidden="true">↖</span><span class="sr"> Ver cursores</span></label>`;
   bar.append(box);
   const q = <T extends HTMLElement>(id: string) => box.querySelector<T>('#' + id)!;
   const on = q('dr-on'), panel = q('dr-panel'), persist = q<HTMLInputElement>('dr-p'), cur = q<HTMLInputElement>('dr-cur');

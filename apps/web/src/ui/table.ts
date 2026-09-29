@@ -4,7 +4,7 @@ import type { Table, TableOptions } from '../render/api.ts';
 import { net } from '../net.ts';
 import { DICE } from '../dice/themes.ts';
 import { ddbCharacterId } from '@lantern/protocol/link';
-import { getCharacter, linkAvailable } from '../link.ts';
+import { getCharacter, linkAvailable, sendGameLogRoll } from '../link.ts';
 import { mountSheet, deathSavesHtml } from './sheet.ts';
 import { mountSettings } from './settings.ts';
 import { mountAudio, mountMixer, getVolume } from './audio.ts';
@@ -23,7 +23,7 @@ import { mountClock, torchButton } from './clock.ts';
 import { mountDmScreen } from './dmscreen.ts';
 import { mountDdbMonsters } from './ddbmonsters.ts';
 import { mountLasso } from './select.ts';
-import { isPopout, mountDock } from './dock.ts';
+import { isPopout, mountDock, selectTab } from './dock.ts';
 import { legendaryPips, bindLegendary, bindReorder, combatExtras, combatOptions, combat2RadialItems, pickToken, reactionPrompt, spellBanner, templateTargeting, tokenBar, turnReminder, moveRuler, acOf, hpText, type C2Ctx } from './combat2.ts';
 import { mountExtensions, openInstaller } from '../ext/host.ts';
 import { mountLevels } from './levels.ts';
@@ -147,6 +147,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
             <h2 id="sets-t">Tus dados</h2>
             <ul id="sets" class="sets" role="radiogroup" aria-labelledby="sets-t"></ul>
             <button id="d3d" type="button" role="switch" aria-checked="true">Ver dados 3D</button>
+            <label id="glw" hidden><input id="gl" type="checkbox"> Enviar mis tiradas al Game Log de D&amp;D Beyond</label>
           </section>
           <section id="dm" class="dm" aria-label="Controles del DM" hidden>
             <div class="dmbtns" id="cbt">
@@ -292,7 +293,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   const render = (s: ClientState) => {
     voz.onState(s.members); exts?.update(s); copilot?.update(); chat2.update(s); drawApi?.update(s); clock.update(s); extras.update(); lasso?.update();
     co?.update(s); ed?.update(s); jr.update(s); lib?.update(s); enc?.update(s); lv?.update(s); lobby?.update(); cr?.render();
-    state = s;
+    state = s; paintGl();
     $('escena').textContent = s.scene.name;
     $('cod').textContent = `${s.code.slice(0, 3)}-${s.code.slice(3)}`;
     $('miembros').innerHTML = s.members.map((m: Member) =>
@@ -528,6 +529,23 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     show3d = !show3d; paint3d();
     try { localStorage.setItem('lantern.dados3d', show3d ? '1' : '0'); } catch { /* sin almacenamiento */ }
   };
+  // Relé opt-in al Game Log de DDB: solo con Link conectado y un personaje propio vinculado; nunca por defecto
+  let linkOk = false, glOn = false;
+  try { glOn = localStorage.getItem('lantern.gamelog') === '1'; } catch { /* sin almacenamiento */ }
+  const glTok = (as?: string) => mine().find(t => t.ddb && (!as || t.name === as));
+  const paintGl = () => { $('glw').hidden = !(linkOk && glTok()); $<HTMLInputElement>('gl').checked = glOn; };
+  void linkAvailable().then(l => { linkOk = l.ok && l.loggedIn; paintGl(); });
+  $('gl').onchange = () => {
+    glOn = $<HTMLInputElement>('gl').checked;
+    try { localStorage.setItem('lantern.gamelog', glOn ? '1' : '0'); } catch { /* sin almacenamiento */ }
+  };
+  const glSent = new Set<Id>();
+  const relay = (m: ChatMsg) => {
+    const r = m.roll, t = r && glTok(m.as);
+    if (!glOn || !linkOk || !r || !t?.ddb || m.from !== w.memberId || m.to || r.secret || r.blind || r.external || r.expr === 'iniciativa' || !r.dice?.length || glSent.has(m.id)) return;
+    glSent.add(m.id);
+    sendGameLogRoll(t.ddb.id, { expr: r.expr, total: r.total, dice: r.dice }).catch(e => say(`Game Log: ${(e as Error).message}`, 3500));
+  };
   const fxDone = new Set<Id>(); // efectos de tarjeta: una vez por mensaje
   const cardFx = (c: ActionCard) => {
     const A = tok(c.actorId), act = A?.actions?.find(a => a.name === c.actionName), melee = (act?.range ?? 5) <= 5;
@@ -579,6 +597,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       el.className = x?.cls ?? 'msg';
       el.innerHTML = x?.html ?? `<span class="quien">${who}</span> ${esc(m.text ?? '')}`;
     }
+    if (live) relay(m);
     const dice = m.card?.dice ?? m.roll?.dice;
     if (live && show3d && dice?.length && !rolled.has(m.id)) {
       rolled.add(m.id);
@@ -620,10 +639,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
 
   // Pestañas y plegado
   const tab = (a: 'reg' | 'hoja' | 'mesa' | 'esc' | 'aj' | 'dia' | 'biblioteca' | 'encuentros' | 'pantalla' | 'cuenta') => {
-    for (const k of ['reg', 'hoja', 'mesa', 'esc', 'aj', 'dia', 'biblioteca', 'encuentros', 'pantalla', 'cuenta'] as const) {
-      $('t-' + k).setAttribute('aria-selected', String(k === a));
-      $('p-' + k).hidden = k !== a;
-    }
+    selectTab(a); // solo afecta a las pestañas de su zona (dock.ts)
   };
   $('t-reg').onclick = () => tab('reg');
   $('t-mesa').onclick = () => tab('mesa');

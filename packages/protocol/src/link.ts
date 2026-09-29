@@ -25,3 +25,8 @@ export type LinkReq2 =
 export type LinkRes2 =
   | { lantern: 'link'; dir: 'res'; rid: string; t: 'monsters'; list: LinkMonsterHit[] }
   | { lantern: 'link'; dir: 'res'; rid: string; t: 'monster'; data: import('./index.ts').ImportedCharacter & { cr: string; size: number } };
+
+// Relé opcional (opt-in) de tiradas propias al Game Log de D&D Beyond del usuario, con su sesión.
+export type LinkRoll = { expr: string; total: number; dice: { sides: number; value: number; kept: boolean }[] };
+export type LinkReq3 = { lantern: 'link'; dir: 'req'; rid: string; t: 'gameLogRoll'; characterId: number; roll: LinkRoll };
+export type LinkRes3 = { lantern: 'link'; dir: 'res'; rid: string; t: 'gameLogOk' };   // los fallos llegan como `error` con msg

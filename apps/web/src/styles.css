@@ -47,15 +47,19 @@ label { display: grid; gap: 6px; color: var(--txt2); font-size: .9rem; }
 .conn::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--ambar); }
 .conn.online::before { background: var(--exito); }
 .lado { position: absolute; top: 12px; right: 12px; bottom: 12px; width: 340px; display: flex; flex-direction: column; overflow: hidden; }
-.lado header { display: flex; justify-content: space-between; align-items: flex-start; padding: 8px; border-bottom: 1px solid var(--borde); }
-[role=tablist] { display: flex; gap: 4px; flex-wrap: wrap; min-width: 0; } /* 8 pestañas: pasan a varias filas en vez de salirse */
+.lado header { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 2px 4px; padding: 4px 8px 8px; border-bottom: 1px solid var(--borde); }
+/* botones de zona en una tira fina arriba a la derecha; las pestañas usan todo el ancho debajo (2 filas en vez de 3) */
+.lado header > [role=tablist] { order: 2; width: 100%; }
+.lado header > .dock-btns { margin-left: 0; }
+.lado header > .dock-btns button, .lado header > #plegar, .lado header > .dock-fold { min-height: 32px; min-width: 32px; padding: 0 6px; }
+[role=tablist] { display: flex; gap: 4px; flex-wrap: wrap; min-width: 0; }
 [role=tab] { background: transparent; border-color: transparent; color: var(--txt2); }
 [role=tab][aria-selected=true] { background: var(--relieve); color: var(--txt); border-color: var(--borde); }
 #plegar { background: transparent; border-color: transparent; }
-#cuerpo { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#cuerpo, .cuerpo { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 #p-reg { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .lado.plegado { bottom: auto; }
-.lado.plegado #cuerpo { display: none; }
+.lado.plegado #cuerpo, .lado.plegado .cuerpo { display: none; }
 .lado.plegado header { border-bottom: 0; }
 .log { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .quien { color: var(--ambar-claro); font-weight: 700; margin-right: 4px; }
@@ -85,6 +89,11 @@ label { display: grid; gap: 6px; color: var(--txt2); font-size: .9rem; }
 .toast { bottom: 130px; }
 .init { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 16px; padding: 8px 20px 10px; max-width: calc(100% - 24px); overflow-x: auto; }
 .init ol { list-style: none; display: flex; align-items: center; gap: 10px; margin: 0; padding: 0; }
+/* en combate el título baja bajo el carrusel (como en móvil): centrado, el carrusel lo pisaba */
+@media (min-width: 700px) {
+  .mesa:has(.init:not([hidden])) > .tl { top: 96px; }
+  .mesa:has(.init:not([hidden])) > :is(.ed-bar, .ed-insp, .lv) { top: 160px; }
+}
 .init li { display: grid; gap: 4px; justify-items: center; width: 44px; }
 .init li.act { width: 62px; }
 .ronda { font: 700 .95rem var(--serif); color: var(--ambar-claro); white-space: nowrap; }
@@ -419,9 +428,28 @@ span.c2-pips { cursor: default; }
 .sel-bar { position: absolute; z-index: 5; left: 50%; bottom: 84px; transform: translateX(-50%); display: flex; gap: 8px; align-items: center; padding: 8px 12px; }
 .dock-btns { display: flex; gap: 4px; margin-left: auto; }
 .dock-btns button { background: transparent; border-color: transparent; }
-.mesa.dock-izq .lado { right: auto; left: 12px; }
-.mesa.dock-izq .tl { left: auto; right: 12px; }
-.mesa.dock-izq .hud { max-width: calc(100% - 380px); left: calc(50% + 176px); }
+/* zonas acoplables (dock.ts): der = #lado; izq y abajo se crean vacías y solo se ven con pestañas */
+.mesa:not(.dock-narrow) .lado[data-z=der] { width: var(--zs, 340px); }
+.mesa:not(.dock-narrow) .lado[data-z=izq] { right: auto; left: 12px; width: var(--zs, 340px); }
+.mesa:not(.dock-narrow) .lado[data-z=aba] { top: auto; right: 12px; left: 12px; bottom: 12px; width: auto; height: var(--zs, 240px); }
+.mesa:not(.dock-narrow) .lado[data-z=aba].plegado { height: auto; bottom: 12px; }
+.lado.vacia { display: none !important; }
+.dock-drag .lado.vacia { display: flex !important; min-width: 120px; min-height: 64px; outline: 2px dashed var(--ambar); }
+.dock-drag .lado.vacia::before { content: 'Suelta la pestaña aquí'; padding: 12px; color: var(--txt2); }
+.mesa.dock-aba .lado:not([data-z=aba]):not(.plegado) { bottom: var(--ab-h); }
+.mesa.dock-aba .hud { bottom: var(--ab-h); }
+.mesa.dock-izq .tl { left: var(--izq-w); }
+.mesa.dock-izq .hud { max-width: calc(100% - 380px - var(--izq-w)); left: calc(50% + var(--izq-w) / 2); }
+.dock-res { position: absolute; z-index: 2; background: transparent; }
+.dock-res:hover, .dock-res:focus-visible { background: var(--ambar); }
+.lado[data-z=izq] .dock-res { top: 0; bottom: 0; right: 0; width: 6px; cursor: ew-resize; }
+.lado[data-z=der] .dock-res { top: 0; bottom: 0; left: 0; width: 6px; cursor: ew-resize; }
+.lado[data-z=aba] .dock-res { left: 0; right: 0; top: 0; height: 6px; cursor: ns-resize; }
+.lado.plegado .dock-res, .dock-narrow .dock-res { display: none; }
+.dock-fold { background: transparent; border-color: transparent; }
+.dock-menu { position: fixed; z-index: 60; display: grid; padding: 4px; min-width: 200px; }
+.dock-menu button { text-align: left; background: transparent; border-color: transparent; }
+.dock-menu button:hover, .dock-menu button:focus-visible { background: var(--relieve); }
 .mesa.popout > :not(.lado):not(#toast):not(.c2-react) { display: none !important; }
 .mesa.popout .lado { inset: 0; width: auto; border-radius: 0; }
 .mesa.popout #plegar, .mesa.popout .dock-btns, .mesa.popout [role=tablist] { display: none; }
@@ -443,7 +471,7 @@ span.c2-pips { cursor: default; }
 .dr-col input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
 .dr-col:has(input:checked) { outline: 3px solid var(--txt); outline-offset: 2px; }
 .dr-col:has(input:focus-visible) { outline: 3px solid var(--ambar-claro); outline-offset: 3px; }
-.dr-cur { font-size: .75rem; min-height: 0; }
+.dr-cur { font-size: 1rem; min-height: 0; gap: 4px; } /* compacto: el minimapa va justo a su derecha */
 .rl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .rl-t { font-variant-numeric: tabular-nums; } .rl-i[data-sun=true] { color: var(--ambar-claro); }
 .rl-b, .rl-f { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; } .rl-f[hidden] { display: none; }
@@ -467,3 +495,20 @@ span.c2-pips { cursor: default; }
 .dm-lista li button { margin-left: auto; min-height: 44px; }
 .dm-lista small { color: var(--txt2); }
 #sh-img:empty { display: none; }
+
+/* Minimapa (render/minimap.ts) */
+.minimapa { position: absolute; left: 68px; bottom: 12px; z-index: 6; width: 200px; background: var(--cristal); backdrop-filter: blur(18px); border: 1px solid var(--borde); border-radius: var(--r-panel); overflow: hidden; }
+.minimapa canvas { display: block; width: 100%; touch-action: none; cursor: crosshair; }
+.minimapa small { display: block; padding: 2px 8px; color: var(--txt3); }
+.minimapa small:empty { display: none; }
+.mm-tog { position: absolute; top: 2px; right: 2px; z-index: 1; min-width: 28px; min-height: 28px; padding: 0; line-height: 1; }
+.mm-tog::before { content: '–'; }
+.minimapa.plegado { width: 32px; height: 32px; }
+.minimapa.plegado canvas, .minimapa.plegado small { display: none; }
+.minimapa.plegado .mm-tog::before { content: '+'; }
+.mesa.historia-on .minimapa { display: none; }
+
+/* Parallax de Historia: capas entre la imagen base y la viñeta */
+.hcapas, .hcapa { position: absolute; inset: 0; pointer-events: none; }
+.hcapa { will-change: transform; }
+.hcapa img { width: 100%; height: 100%; object-fit: cover; animation: none; }
