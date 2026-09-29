@@ -64,7 +64,7 @@ export function mountJoin(app: HTMLElement) {
     const c = clean(code.value);
     if (c.length !== 6) return fail(t('El código tiene 6 caracteres.')), code.focus();
     err.hidden = true; keep();
-    net.send({ t: 'join', code: c, name: name.value.trim() });
+    net.send({ t: 'join', code: c, name: name.value.trim(), key: savedKey(c) ?? undefined }); // con key recupera el miembro (si no vale, net reintenta como nuevo)
   };
   $('new').onclick = () => {
     if (!name.reportValidity()) return;

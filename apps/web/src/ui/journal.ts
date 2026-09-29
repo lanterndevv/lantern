@@ -7,6 +7,7 @@
 //   // S2C 'handout':   showHandout(m.entry);      S2C 'regionMsg':   showRegionMsg(m.text);
 import type { C2S, ClientState, JournalEntry, Role } from '@lantern/protocol';
 import { lang, t, tsrv } from '../i18n.ts';
+import { net } from '../net.ts';
 import { tableEditor, tableView } from './tables.ts';
 
 export type JrCtx = { send(m: C2S): void; state(): ClientState; role: Role; memberId: string; toast(msg: string): void };
@@ -34,7 +35,7 @@ const pdfFrame = (url: string, zoom: number, page = 1) => Object.assign(document
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 async function upload(code: string, f: File): Promise<string> {
-  const key = localStorage.getItem(`lantern:key:${code}`) ?? '';
+  const key = net.key(code) ?? '';
   const r = await fetch('/api/assets', { method: 'POST', headers: { 'content-type': f.type, 'x-lantern-code': code, 'x-lantern-key': key }, body: f });
   const txt = await r.text();
   if (!r.ok) throw new Error(txt ? tsrv(txt) : t('Error {n}', { n: r.status }));

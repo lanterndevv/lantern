@@ -3,6 +3,7 @@ import type { AudioState, C2S, ClientState, Role, StoryLayer, TransitionKind, We
 import { playTransition } from './transiciones.ts';
 import { SFX_LIST } from './sfx.ts';
 import { t, tsrv } from '../i18n.ts';
+import { net } from '../net.ts';
 import { AUDIO_PACK, packOptions } from '../audio-pack.ts';
 
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -116,7 +117,7 @@ const rid = () => Math.random().toString(36).slice(2, 10);
 const MAX_UPLOAD = 30e6;
 
 async function upload(code: string, f: File): Promise<string> {
-  const key = localStorage.getItem(`lantern:key:${code}`) ?? '';
+  const key = net.key(code) ?? '';
   const r = await fetch('/api/assets', { method: 'POST', headers: { 'content-type': f.type, 'x-lantern-code': code, 'x-lantern-key': key }, body: f });
   const txt = await r.text();
   if (!r.ok) throw new Error(txt ? tsrv(txt) : t('Error {n}', { n: r.status }));

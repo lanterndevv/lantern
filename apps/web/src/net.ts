@@ -3,12 +3,16 @@ import type { C2S, S2C } from '@lantern/protocol';
 export type Conn = 'online' | 'reconnecting';
 // La key del espectador (pantalla de mesa/streaming) va aparte: no debe pisar la del jugador en el mismo navegador.
 const keyOf = (code: string, as?: 'spectator') => `lantern:key:${code}${as ? ':' + as : ''}`;
-export const savedKey = (code: string, as?: 'spectator') => localStorage.getItem(keyOf(code, as));
-export const saveKey = (code: string, key: string) => localStorage.setItem(keyOf(code), key);
+// localStorage puede lanzar (bloqueado, iframe, modo privado): sin él, la sesión sigue con la key en memoria.
+const load = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
+const store = (k: string, v: string | null) => { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* sin almacenamiento */ } };
+export const savedKey = (code: string, as?: 'spectator') => load(keyOf(code, as));
+export const saveKey = (code: string, key: string) => store(keyOf(code), key);
 /** Mesas con key guardada (no las de espectador) para «Mesas recientes». */
 export const recentCodes = () => { try { return Object.keys(localStorage).map(k => /^lantern:key:([A-Z0-9]{6})$/.exec(k)?.[1]).filter((c): c is string => !!c); } catch { return []; } };
-export const forgetKey = (code: string) => localStorage.removeItem(keyOf(code));
-export const savedName = () => localStorage.getItem('lantern:name') ?? '';
+export const forgetKey = (code: string) => store(keyOf(code), null);
+export const savedName = () => load('lantern:name') ?? '';
+export const saveName = (name: string) => store('lantern:name', name);
 
 let ws: WebSocket | undefined;
 let delay = 1000;
@@ -45,7 +49,7 @@ function open() {
     if (m.t === 'welcome') {
       welcomed = true;
       session = { code: m.state.code, name: session?.name ?? '', as: session?.as, key: m.key };
-      localStorage.setItem(keyOf(m.state.code, session?.as), m.key);
+      store(keyOf(m.state.code, session?.as), m.key);
       // Reenvía lo que no llegó (s > seq) y después lo encolado sin conexión.
       const since = Date.now() - 30000;
       sent = sent.filter(x => x.m.s > (m.seq ?? seq) && x.at > since);
@@ -53,7 +57,7 @@ function open() {
       while (queue.length) numbered(queue.shift()!);
     } else if (m.t === 'error' && session?.code && (m.msg === 'key inválida' || m.msg === 'mesa inexistente')) {
       // Key caducada o mesa borrada: olvidarla. Con key inválida se reintenta como jugador nuevo.
-      localStorage.removeItem(keyOf(session.code, session.as));
+      store(keyOf(session.code, session.as), null);
       session.key = undefined;
       sent = []; // el miembro nuevo no hereda acciones del anterior
       if (m.msg === 'key inválida' && session.name) raw({ t: 'join', code: session.code, name: session.name, as: session.as, sid });
@@ -72,7 +76,7 @@ export const net = {
   send(m: C2S) {
     if (m.t === 'join') {
       session = { code: m.code, name: m.name, as: m.as, key: m.key };
-      if (!m.as) localStorage.setItem('lantern:name', m.name);
+      if (!m.as) saveName(m.name);
       sent = []; // otra mesa u otro miembro: no se reenvía nada de la anterior
       if (ws?.readyState === WebSocket.OPEN) raw({ ...m, sid });
       return; // si no hay conexión, onopen enviará el join
@@ -86,4 +90,6 @@ export const net = {
   /** Un solo filtro: si devuelve true el mensaje no llega a los manejadores. */
   setFilter(f: typeof filter) { filter = f; },
   get conn() { return conn; },
+  /** Key de la mesa actual: la de la sesión en memoria (vale sin almacenamiento) o la guardada. */
+  key(code: string) { return (session?.code === code ? session.key : undefined) ?? savedKey(code); },
 };

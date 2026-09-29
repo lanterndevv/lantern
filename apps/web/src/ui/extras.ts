@@ -34,7 +34,7 @@ function addTabTo(root: HTMLElement, id: string, label: string) {
 /** Ventana aparte (?popout=comp|dmx): solo el Compendio o las Herramientas del DM, sin mapa ni dados (table.ts no monta el resto). */
 export function mountPopoutExtras(root: HTMLElement, w: Welcome, id: 'comp' | 'dmx') {
   let state: ClientState = w.state;
-  const send = (m: C2S) => net.send(m), key = () => localStorage.getItem(`lantern:key:${w.state.code}`);
+  const send = (m: C2S) => net.send(m), key = () => net.key(w.state.code);
   const toast = (m: string) => { const t = root.querySelector<HTMLElement>('#toast'); if (t) { t.textContent = m; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3500); } };
   let tools: ReturnType<typeof mountDmTools> | undefined;
   if (id === 'comp') mountCompendium(addTabTo(root, id, t('Compendio')), { send, state: () => state, role: w.role, code: w.state.code, key, toast, table: new Promise(() => {}), mapEl: root.querySelector<HTMLElement>('#mapa')! });
@@ -50,7 +50,7 @@ export function mountExtras(root: HTMLElement, w: Welcome, table: Promise<Table>
   let state: ClientState = w.state, viewing: string | null = null, tableRef: Table | undefined;
   void table.then(t => { tableRef = t; });
   const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
-  const mapa = $('#mapa'), key = () => localStorage.getItem(`lantern:key:${w.state.code}`);
+  const mapa = $('#mapa'), key = () => net.key(w.state.code);
   const toast = (m: string, ms = 3500) => { const t = $('#toast'); t.textContent = m; t.classList.remove('sel'); t.classList.add('show'); setTimeout(() => t.classList.remove('show'), ms); };
   const mine = () => state.scene.tokens.filter(t => t.owners.includes(me));
 
