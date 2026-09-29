@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chatFor, createRoom, filterFor, handle, joinRoom, redact, type Room } from './room.ts';
+import { chatFor, createRoom, d20Test, filterFor, handle, joinRoom, redact, type Room } from './room.ts';
 
 const fakeRoll = (e: string) => { if (e === 'bad') throw new Error('x'); return { total: 7, detail: e }; };
 function setup() {
@@ -662,4 +662,13 @@ test('unirse como espectador: ve lo del grupo, no controla tokens', () => {
   assert.ok(!room.scene.tokens.some((t) => t.owners.includes(r.member.id)), 'no se le asigna personaje');
   assert.ok(!filterFor(room, r.member).scene.tokens.some((t) => t.hidden));
   assert.ok('error' in joinRoom(room, 'X', undefined, 'dm'));
+});
+
+test('d20Test usa la edición de la criatura, no solo la de la mesa', () => {
+  const { room, dm } = setup();
+  const exprs: string[] = [], rollFn = (e: string) => { exprs.push(e); return { total: 10, detail: e, dice: [] }; };
+  const t = { ...tok(room, 'kael'), edition: '2014' as const, exhaustion: 3 };
+  const r = d20Test({ room, from: dm.id, now: 0, rollFn }, t, 'save', 'dex');
+  assert.deepEqual(exprs, ['2d20kl1']);
+  assert.equal(r.mod, d20Test({ room, from: dm.id, now: 0, rollFn }, { ...t, exhaustion: 0 }, 'save', 'dex').mod); // sin el −6 de 2024
 });

@@ -2,7 +2,7 @@
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { CODE_ALPHABET, DEFAULT_SETTINGS, DICE_THEMES, blocksMove } from '@lantern/protocol';
 import type { Ability, ActionCard, AudioState, C2S, ChatMsg, ClientState, Combat, DiceTheme, Die, ExtensionManifest, Hp, Id, JournalEntry, LibraryItem, Member, MoveMode, Point, Region, Role, S2C, Scene, SessionSummary, TableSettings, Token, Wall } from '@lantern/protocol';
-import { ABILITY_ES, CONDITIONS, SKILLS, abilityMod, applyCard, applyDamage, autoFailSave, concentrationDC, d20Penalty, deathSave, encounterXP, grantTemp, heal, inArea, resolveAction, roll as diceRoll } from '@lantern/rules';
+import { ABILITY_ES, CONDITIONS, SKILLS, abilityMod, applyCard, applyDamage, autoFailSave, concentrationDC, d20Penalty, deathSave, editionOf, encounterXP, grantTemp, heal, inArea, resolveAction, roll as diceRoll } from '@lantern/rules';
 import { MONSTERS, SPELL_INDEX } from '@lantern/srd';
 import { spellRegions } from './areas.ts';
 import { livekitOn, livekitToken } from './livekit.ts';
@@ -248,7 +248,7 @@ const say = (c: Ctx, text: string) => pushChat(c.room, { id: randomUUID(), from:
 
 // Tirada de d20 de un token con modificador, agotamiento (según edición) y condiciones.
 export function d20Test(c: Ctx, t: Token, kind: 'save' | 'skill' | 'ability', key: string) {
-  const ed = c.room.settings.edition, ex = t.exhaustion ?? 0;
+  const ed = editionOf(t, c.room.settings.edition), ex = t.exhaustion ?? 0;
   const ab = (kind === 'skill' ? SKILLS[key].ability : key) as Ability;
   const base = kind === 'save' ? t.saves?.[ab] : kind === 'skill' ? t.skills?.[key] : undefined;
   const mod = (base ?? abilityMod(t.abilities?.[ab] ?? 10)) + d20Penalty(ex, ed);
@@ -766,13 +766,12 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       // resolveAction solo aplica la cobertura a la CA: en salvaciones de DES se suma al bono de la salvación del objetivo
       const manual = room.automation === 'manual';
       const sv = act.save?.ability;
-      // copias con la CA efectiva (Escudo), Esquivar (desventaja = «invisible» para el atacante) y, en manual, sin comparar CA ni CD
+      // copias con la CA efectiva (Escudo) y, en manual, sin comparar CA ni CD
       const rt = targets.map((t) => ({ ...t, ac: manual ? -999 : acOf(t),
-        ...(act.kind === 'attack' && cb?.used[t.id]?.dodge && { conditions: [...t.conditions, 'invisible'] }),
         ...((dexSave || (manual && sv)) && { saves: { ...t.saves, ...(dexSave && { dex: (t.saves?.dex ?? 0) + cov.get(t.id)! }), ...(manual && sv && { [sv]: (t.saves?.[sv] ?? 0) + (dexSave && sv === 'dex' ? cov.get(t.id)! : 0) - 999 }) } }) }));
       const opt = room.settings.optional;
       const card = resolveAction(tk, act, rt, undefined, { within5ft: (t) => dist(t) <= 5 + 5 * (tk.size - 1), cover: (t) => cov.get(t.id) ?? 0,
-        edition: room.settings.edition, brutalCrit: opt.brutalCrit, flank: opt.flanking && act.range <= 5 ? (t) => flanked(s, tk, t) : undefined });
+        edition: room.settings.edition, brutalCrit: opt.brutalCrit, dodge: (t) => !!cb?.used[t.id]?.dodge, flank: opt.flanking && act.range <= 5 ? (t) => flanked(s, tk, t) : undefined });
       if (act.kind === 'attack' || dexSave) for (const ct of card.targets) { const c = cov.get(ct.id); if (c) ct.cover = c; }
       if (manual) { card.manual = true; for (const ct of card.targets) if (ct.save) ct.save.total += 999; }
       const brk: ChatMsg[] = [];

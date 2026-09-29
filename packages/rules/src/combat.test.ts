@@ -67,3 +67,20 @@ test('brutalCrit: dados al máximo más una tirada normal; agotamiento 2024/2014
   assert.equal(resolveAction({ ...actor, exhaustion: 3 }, act, [tgt], seq(0.5, 0.5), { edition: '2014' }).targets[0].attack!.mode, 'dis');
   assert.equal(resolveAction(actor, act, [tgt], seq(0.5, 0.5), { flank: () => true }).targets[0].attack!.mode, 'adv');
 });
+
+test('edición por criatura, desventaja 2014 en salvaciones, sentidos contra invisible y Esquivar', () => {
+  const fb: Action = { id: 'f', name: 'Bola', cost: 'action', kind: 'save', range: 150, damage: '1d6', save: { ability: 'dex', dc: 10, half: true } };
+  // criatura 2014 con agotamiento 3 en mesa 2024: dos d20 y se queda el menor, sin el −6 de 2024
+  const s = resolveAction(tok(), fb, [tok({ edition: '2014', exhaustion: 3 })], seq(face(1, 6), face(15, 20), face(4, 20)));
+  assert.deepEqual(s.dice!.slice(1).map((d) => [d.value, d.kept]), [[15, false], [4, true]]);
+  assert.equal(s.targets[0].save!.total, 4);
+  // atacante 2014 con agotamiento 3 en mesa 2024: desventaja y sin penalizador
+  const a = resolveAction(tok({ edition: '2014', exhaustion: 3 }), sword, [tok()], seq(face(10, 20), face(10, 20), face(1, 8)));
+  assert.deepEqual([a.targets[0].attack!.mode, a.targets[0].attack!.total], ['dis', 14]);
+  // visión ciega al alcance anula la invisibilidad del objetivo; fuera de alcance, no
+  const inv = tok({ conditions: ['invisible'], x: 60 });
+  assert.equal(resolveAction(tok({ senses: { blindsight: 60 } }), sword, [inv], seq(0.5, 0.5, 0.5)).targets[0].attack!.mode, 'normal');
+  assert.equal(resolveAction(tok({ senses: { blindsight: 30 } }), sword, [inv], seq(0.5, 0.5, 0.5)).targets[0].attack!.mode, 'dis');
+  // Esquivar es desventaja real: la visión ciega no la anula
+  assert.equal(resolveAction(tok({ senses: { blindsight: 60 } }), sword, [tok()], seq(0.5, 0.5, 0.5), { dodge: () => true }).targets[0].attack!.mode, 'dis');
+});

@@ -57,6 +57,8 @@ test('applyDamage con temporales y resistencia', () => {
   assert.equal(x.taken, 7);
   assert.deepEqual(x.hp, { cur: 7, max: 20, temp: 0 });
   assert.equal(r.applyDamage({ cur: 10, max: 20, temp: 0 }, 9, 'fire', { immune: ['fire'] }).taken, 0);
+  // resistencia y vulnerabilidad no se anulan: se aplican en orden (SRD 5.2.1), 3 → 1 → 2
+  assert.equal(r.applyDamage({ cur: 10, max: 20, temp: 0 }, 3, 'fire', { resist: ['fire'], vuln: ['fire'] }).taken, 2);
   assert.equal(r.applyDamage({ cur: 10, max: 20, temp: 0 }, 5, 'cold', { vuln: ['cold'] }).hp.cur, 0);
   assert.equal(r.applyDamage({ cur: 3, max: 20, temp: 0 }, 99, 'x').hp.cur, 0);
 });
