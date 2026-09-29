@@ -6,6 +6,7 @@ import { ABILITY_ES, CONDITIONS, SKILLS, abilityMod, applyCard, applyDamage, aut
 import { MONSTERS, SPELL_INDEX } from '@lantern/srd';
 import { spellRegions } from './areas.ts';
 import { livekitOn, livekitToken } from './livekit.ts';
+import { copilotOn } from './laya.ts';
 import { parseCharacter } from './import.ts';
 import { acOf, afterTurn, answerSave, areaError, breakConcentration, budget, combatEdit, dist3d, effectOp, endCombat, forceInit, forceSaves, holdSaves, legendary, oppChats, react, reactionPrompts, rollInit, saveEndEffect, seenBy, snapshotTurn, spawnCustom, startCombat, sweepSaves, turnAction, undoTurn } from './combat2.ts';
 import { routeCost, speedFor } from '@lantern/protocol/move';
@@ -95,11 +96,11 @@ function filterBase(room: Room, member: MemberRec, online: ReadonlySet<Id> = new
   const extensions = structuredClone(room.extensions), automation = room.automation, settings = structuredClone(room.settings), view = room.view, audio = structuredClone(room.audio);
   const journal = structuredClone(room.journal.filter((e) => canRead(e, member)));
   const safety = structuredClone(room.safety), sessionStart = room.sessionStart;
-  if (isDM(member)) return { code: room.code, members, scene: structuredClone(s), automation, settings, view, audio, journal, extensions, safety, sessionStart, copilot: !!process.env.LANTERN_LLM_URL, livekit: livekitOn(), library: libraryOf(room), ...(room.combat && { combat: structuredClone(room.combat) }) };
+  if (isDM(member)) return { code: room.code, members, scene: structuredClone(s), automation, settings, view, audio, journal, extensions, safety, sessionStart, copilot: copilotOn(), copilotLlm: !!process.env.LANTERN_LLM_URL, livekit: livekitOn(), library: libraryOf(room), ...(room.combat && { combat: structuredClone(room.combat) }) };
 
   if (!canSeeScene(s, member)) { // escena reservada a otros: mapa en blanco, sin fichas, paredes ni historia
     const blank: Scene = { id: s.id, name: '', width: s.width, height: s.height, grid: structuredClone(s.grid), walls: [], lights: [], tokens: [], globalLight: 0 };
-    return { code: room.code, members, visible: [], scene: blank, automation, settings, view, audio, journal, extensions, safety, sessionStart, copilot: !!process.env.LANTERN_LLM_URL, livekit: livekitOn() };
+    return { code: room.code, members, visible: [], scene: blank, automation, settings, view, audio, journal, extensions, safety, sessionStart, copilot: copilotOn(), copilotLlm: !!process.env.LANTERN_LLM_URL, livekit: livekitOn() };
   }
   // ponytail: las capas de audio posicionales NO se filtran por visión: el sonido atraviesa paredes (y el jugador ve x/y de capas ajenas)
   // Plantas: el jugador recibe las entidades de las plantas donde tiene algún token (o la base); la visión usa solo los muros de cada planta.
@@ -151,7 +152,7 @@ function filterBase(room: Room, member: MemberRec, online: ReadonlySet<Id> = new
   }
   const { dmNotes: _d, regions: _r, tokens: _t, walls: _w, lights: _l, visibleTo: _v, ...pub } = structuredClone(s);
   if (pub.pins) pub.pins = pub.pins.filter((p) => room.journal.some((e) => e.id === p.entryId && canRead(e, member))); // solo marcadores de entradas legibles
-  return { code: room.code, members, visible, scene: { ...pub, walls, lights, tokens, ...(regions.length && { regions }) }, automation, settings, view, audio, journal, extensions, safety, sessionStart, copilot: !!process.env.LANTERN_LLM_URL, livekit: livekitOn(), ...(combat && { combat }) };
+  return { code: room.code, members, visible, scene: { ...pub, walls, lights, tokens, ...(regions.length && { regions }) }, automation, settings, view, audio, journal, extensions, safety, sessionStart, copilot: copilotOn(), copilotLlm: !!process.env.LANTERN_LLM_URL, livekit: livekitOn(), ...(combat && { combat }) };
 }
 
 export function chatFor(room: Room, m: MemberRec) {

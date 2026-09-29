@@ -1,7 +1,10 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
-import { copilot, extractJson } from './copilot.ts';
+import { writeFileSync, chmodSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { copilot, deps } from './copilot.ts';
+import { askLaya, stopLaya } from './laya.ts';
 import { createRoom, joinRoom, type Room, type MemberRec } from './room.ts';
 
 // LLM falso: guarda los prompts recibidos y responde con lo que diga `reply` (undefined = no responde nunca).
@@ -20,7 +23,7 @@ beforeEach(async () => {
   process.env.LANTERN_LLM_URL = `http://127.0.0.1:${(srv.address() as { port: number }).port}/v1`;
   delete process.env.LANTERN_LLM_TIMEOUT_MS;
 });
-afterEach(() => { srv.closeAllConnections(); srv.close(); delete process.env.LANTERN_LLM_URL; });
+afterEach(() => { srv.closeAllConnections(); srv.close(); delete process.env.LANTERN_LLM_URL; delete process.env.LANTERN_LAYA_PYTHON; delete process.env.LANTERN_LAYA; });
 
 function setup() {
   const c = createRoom('Master', 'ABC234');
@@ -36,46 +39,61 @@ let n = 0;
 const ask = (room: Room, m: MemberRec, msg: Record<string, unknown>) => copilot(room, m, { rid: `r${n++}`, ...msg });
 const turn = (r: Awaited<ReturnType<typeof ask>>) => { assert.ok(r.msg.t === 'copilot' && r.msg.ok, JSON.stringify(r.msg)); return (r.msg as { turn: any }).turn; };
 
-test('extractJson: primer objeto bien formado', () => {
-  assert.deepEqual(extractJson('claro: {mal} luego ```{"a":"}{","b":{"c":1}}``` y {"z":1}'), { a: '}{', b: { c: 1 } });
-  assert.equal(extractJson('nada'), undefined);
-});
-
 test('sin URL: Copiloto no configurado', async () => {
   const { room, dm } = setup(); delete process.env.LANTERN_LLM_URL;
   assert.deepEqual((await ask(room, dm, { op: 'npc', prompt: 'x' })).msg, { t: 'copilot', rid: `r${n - 1}`, ok: false, error: 'Copiloto no configurado' });
 });
 
-test('monsterTurn válido', async () => {
-  const { room, dm } = setup();
-  reply = () => 'Aquí: {"moveTo":{"x":570,"y":570},"actionId":"scimitar","targets":["kael"],"rationale":"Ataca a Kael."}';
-  const t = turn(await ask(room, dm, { op: 'monsterTurn', tokenId: 'trasgo-a' }));
-  assert.deepEqual(t, { tokenId: 'trasgo-a', moveTo: { x: 570, y: 570 }, actionId: 'scimitar', targets: ['kael'], rationale: 'Ataca a Kael.' });
-  assert.match(prompts[0], /<datos:situacion>/);
-});
+// Laya simulada: guarda lo que se le pregunta y elige por índice (o undefined = no disponible).
+let asked: { state: string; criteria: Record<string, string> }[] = [];
+const fakeLaya = (pick: (keys: string[]) => string | undefined) => { asked = []; deps.ask = async (state, q) => { const c = (q.pick as any).criteria; asked.push({ state, criteria: c }); return pick(Object.keys(c)); }; };
+afterEach(() => { deps.ask = askLaya; });
 
-test('monsterTurn con moveTo imposible, objetivo invisible y acción falsa → corregido', async () => {
-  const { room, dm } = setup();
-  reply = () => '{"moveTo":{"x":1300,"y":800},"actionId":"scimitar","targets":["kael","hobgoblin-2","nadie"],"rationale":"Carga."}';
-  const t = turn(await ask(room, dm, { op: 'monsterTurn', tokenId: 'trasgo-a' }));
-  assert.equal(t.moveTo, undefined);
-  assert.deepEqual(t.targets, ['kael']); // el oculto y el inexistente caen
-  assert.match(t.rationale, /Corregido/);
-  reply = () => '{"actionId":"lanzarplanetas","targets":["kael"],"rationale":"x"}';
+test('monsterTurn con Laya: opciones legales, una frase en inglés, elige su respuesta', async () => {
+  const { room, dm } = setup(); delete process.env.LANTERN_LLM_URL;
+  process.env.LANTERN_LAYA_PYTHON = '/bin/true'; // layaOn() sin arrancar nada (ask está simulada)
+  fakeLaya((k) => k[1]);
+  const t = turn(await ask(room, dm, { op: 'monsterTurn', tokenId: 'trasgo-c' })); // oculto y lejos: sin nadie a la vista
+  assert.equal(t.actionId, undefined);
   const t2 = turn(await ask(room, dm, { op: 'monsterTurn', tokenId: 'trasgo-a' }));
-  assert.equal(t2.actionId, undefined); assert.deepEqual(t2.targets, []);
-  reply = () => '{"moveTo":{"x":690,"y":690},"targets":[],"rationale":"Sale por el muro."}'; // cruza w4 (x=600)
-  assert.equal(turn(await ask(room, dm, { op: 'monsterTurn', tokenId: 'trasgo-a' })).moveTo, undefined);
+  assert.equal(asked.length, 1);
+  assert.ok(Object.keys(asked[0].criteria).length >= 2 && Object.keys(asked[0].criteria).length <= 6);
+  assert.match(asked[0].state, /20% health.*Kael/s); assert.ok(!asked[0].state.includes('\n'));
+  assert.match(t2.rationale, /^Laya:/);
+  assert.ok(t2.actionId || t2.turnOp || t2.moveTo);
+  for (const id of t2.targets) assert.ok(room.scene.tokens.some((x) => x.id === id && !x.hidden));
+  assert.ok(!JSON.stringify(asked).includes('hobgoblin-2') && !JSON.stringify(asked).includes('Trasgo C'));
 });
 
-test('monsterTurn: JSON inválido se reintenta una vez', async () => {
+test('monsterTurn sin Laya: heurística (huir si PG < 25 %, si no el objetivo más cercano y más herido)', async () => {
+  const { room, dm } = setup(); delete process.env.LANTERN_LLM_URL;
+  process.env.LANTERN_LAYA_PYTHON = '/bin/true'; fakeLaya(() => undefined);
+  const flee = turn(await ask(room, dm, { op: 'monsterTurn', tokenId: 'trasgo-a' })); // 2/10 PG
+  assert.match(flee.rationale, /^Heurística: huir/); assert.ok(flee.moveTo && !flee.actionId);
+  room.scene.tokens.find((x) => x.id === 'trasgo-a')!.hp!.cur = 10;
+  const atk = turn(await ask(room, dm, { op: 'monsterTurn', tokenId: 'trasgo-a' }));
+  assert.equal(atk.actionId, 'scimitar'); assert.deepEqual(atk.targets, ['kael']); assert.match(atk.rationale, /Heurística/);
+});
+
+test('monsterTurn: sin Laya ni LLM → no configurado; con LLM pero sin Laya sigue funcionando', async () => {
   const { room, dm } = setup();
-  reply = (k) => k === 1 ? 'no sé' : '{"targets":[],"rationale":"Espera."}';
-  assert.equal(turn(await ask(room, dm, { op: 'monsterTurn', tokenId: 'trasgo-a' })).rationale, 'Espera.');
-  assert.equal(prompts.length, 2);
-  reply = () => 'siempre mal';
+  process.env.LANTERN_LAYA = '0'; delete process.env.LANTERN_LLM_URL;
   const r = await ask(room, dm, { op: 'monsterTurn', tokenId: 'trasgo-a' });
-  assert.equal(prompts.length, 4); assert.ok(r.msg.t === 'copilot' && !r.msg.ok);
+  assert.ok(r.msg.t === 'copilot' && !r.msg.ok && /no configurado/.test(r.msg.error));
+  process.env.LANTERN_LLM_URL = 'http://127.0.0.1:1/v1'; // LLM caído: el turno de monstruo no lo usa
+  assert.match(turn(await ask(room, dm, { op: 'monsterTurn', tokenId: 'trasgo-a' })).rationale, /Heurística/);
+  delete process.env.LANTERN_LAYA;
+});
+
+test('sidecar: pregunta/respuesta por líneas, y si tarda más de 3 s devuelve undefined', async () => {
+  const dir = mkdtempSync(`${tmpdir()}/laya-`), fake = `${dir}/py`;
+  // «python» falso: ignora sidecar.py, dice ready y contesta o1 con el mismo id (o se duerme si el estado dice slow)
+  writeFileSync(fake, '#!/bin/bash\necho \'{"ready":true}\'\nwhile read l; do id=${l#*\\"id\\": }; id=${l#*\\"id\\":}; id=${id%%,*}; [[ $l == *slow* ]] && sleep 5; echo "{\\"id\\":$id,\\"answers\\":{\\"pick\\":{\\"choice\\":\\"o1\\"}}}"; done\n'); chmodSync(fake, 0o755);
+  process.env.LANTERN_LAYA_PYTHON = fake; delete process.env.LANTERN_LAYA;
+  try {
+    assert.equal(await askLaya('hi', { pick: {} }), 'o1');
+    assert.equal(await askLaya('slow', { pick: {} }), undefined);
+  } finally { stopLaya(); }
 });
 
 test('rules de un jugador: los prompts no filtran nada oculto', async () => {

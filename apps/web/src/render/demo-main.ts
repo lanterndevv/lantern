@@ -41,7 +41,7 @@ const vis = (): Point[][] =>
   scene.tokens.filter((t) => t.faction === 'ally').map((t) => visibility(t, sightSegments(scene.walls), scene.width, scene.height));
 const state = (): ClientState => ({
   code: 'DEMO', members: [{ id: 'yo', name: 'Yo', role: dm ? 'dm' : 'player', online: true, dice: 'linterna' }],
-  scene: structuredClone(scene), automation: 'assisted', view: 'tactical', audio: { layers: [] }, journal: [], extensions: [], safety: { lines: [], veils: [] }, copilot: false, clock: 0, canUndo: false, settings: DEFAULT_SETTINGS, visible: dm ? undefined : vis(),
+  scene: structuredClone(scene), automation: 'assisted', view: 'tactical', audio: { layers: [] }, journal: [], extensions: [], safety: { lines: [], veils: [] }, copilot: false, copilotLlm: false, clock: 0, canUndo: false, settings: DEFAULT_SETTINGS, visible: dm ? undefined : vis(),
 });
 
 const marks: Marks = { targets: [] };

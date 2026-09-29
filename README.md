@@ -50,10 +50,18 @@ Modo dev (key `devkey`, secret `secret`):
 
 (o `livekit-server --dev` si lo tienes instalado). El servidor firma un token de 6 h por miembro (sala = código de mesa); los espectadores solo escuchan. En producción usa claves propias y `wss://`.
 
-## Copiloto IA (opcional)
-Se activa solo con variables de entorno del servidor (el cliente nunca elige el endpoint): `LANTERN_LLM_URL` (API compatible con OpenAI, p. ej. `http://localhost:8080/v1`), `LANTERN_LLM_KEY` (Bearer, opcional), `LANTERN_LLM_MODEL` (opcional) y `LANTERN_LLM_TIMEOUT_MS` (60000 por defecto).
-Operaciones: `monsterTurn` (propone movimiento, acción y objetivos de un monstruo; validado con visión, velocidad, muros y alcance), `npc` y `recap` (crónica en el diario), solo DM/asistente (recap solo DM), y `rules` (duda de reglas, cualquier miembro no espectador).
-Seguridad: a un miembro la IA solo le llega lo que ese miembro ve (estado y chat filtrados); el recap usa el chat como lo vería un jugador; las entradas van delimitadas como datos; las salidas se truncan a 4000 caracteres y nunca se ejecutan solas (el DM confirma); límite de 6 llamadas/min por mesa y 1 simultánea por miembro.
+## Copiloto (opcional)
+Nunca actúa solo: sugiere y el DM confirma. Configuración solo por entorno del servidor (el cliente nunca elige el endpoint).
+
+1. **Turno de monstruo (Laya, local).** `tools/laya/setup.sh` (o `--cuda`) crea `tools/laya/.venv` con torch y el paquete público [`laya`](https://huggingface.co/convaiinnovations/laya) (~1,2 GB). El servidor lo arranca en el primer uso: genera 2–6 opciones legales con el motor de reglas y Laya elige una (~0,3 s en CPU tras la carga inicial de ~4 s). Si Laya no está, falla o tarda más de 3 s, usa una heurística determinista y lo dice («Heurística»). `LANTERN_LAYA_DEVICE` (`cpu` por defecto, para no competir por VRAM), `LANTERN_LAYA_PYTHON` (otro intérprete), `LANTERN_LAYA=0` (desactivar).
+2. **Reglas, PNJ y crónica (LLM).** Cualquier API compatible con OpenAI, p. ej. un gateway con el modelo mimo:
+
+       LANTERN_LLM_URL=https://gateway.example/v1 LANTERN_LLM_KEY=… LANTERN_LLM_MODEL=mimo \
+       LANTERN_LLM_HEADERS='{"x-session":"…"}' npm start
+
+   `LANTERN_LLM_HEADERS` (JSON, cabeceras extra) y `LANTERN_LLM_TIMEOUT_MS` (60000) son opcionales. Sin LLM esas operaciones responden «no configurado» y el turno de monstruo sigue funcionando.
+
+Seguridad: a un miembro la IA solo le llega lo que ese miembro ve (estado y chat filtrados); el recap usa el chat como lo vería un jugador; las entradas van delimitadas como datos; las salidas se truncan a 4000 caracteres; límite de 6 llamadas/min por mesa y 1 simultánea por miembro.
 
 ## Lantern Link
 Extensión de navegador (Chrome y Firefox) que importa tus personajes de D&D Beyond. Usa solo la sesión del propio usuario. Instalación y detalles en [apps/link/README.md](apps/link/README.md).

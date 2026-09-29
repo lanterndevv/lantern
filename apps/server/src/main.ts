@@ -14,6 +14,7 @@ import { createAccounts } from './accounts.ts';
 import { MAX_SCENES } from './validate.ts';
 import { MAX_ASSET, exportCampaign, importCampaign, parseUvtt, sha256 } from './campaign.ts';
 import { copilot } from './copilot.ts';
+import { stopLaya, warmLaya } from './laya.ts';
 import { asPlayer, finishState } from './extras.ts';
 import { createBackups, mergeInto, parsePick, restoreInto } from './backup.ts';
 import { canSeeScene } from './perms.ts';
@@ -327,11 +328,12 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
   // salvaciones de jugadores: caducan a su hora aunque nadie escriba
   const sweep = setInterval(() => { for (const r of rooms.values()) { const fx = sweepHolds(r, rollFn); if (fx) deliver(r, fx); } }, 1000).unref();
   http.listen(port, process.env.HOST ?? '0.0.0.0');
+  warmLaya();
   return {
     port: () => (http.address() as { port: number }).port,
     ready: new Promise<void>((ok) => http.once('listening', ok)),
     close: () => new Promise<void>((done) => {
-      clearInterval(bk); clearInterval(sweep);
+      clearInterval(bk); clearInterval(sweep); stopLaya();
       for (const [code, t] of timers) { clearTimeout(t); const r = rooms.get(code); if (r) db.save(r); }
       timers.clear();
       for (const ws of wss.clients) ws.terminate();

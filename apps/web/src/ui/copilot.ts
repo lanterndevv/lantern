@@ -86,7 +86,7 @@ export function mountCopilot(root: HTMLElement, ctx: Ctx) {
     };
     panel.append(rb, ro);
   }
-  const sync = () => { panel.hidden = !enabled(); };
+  const sync = () => { panel.hidden = !ctx.state().copilotLlm; }; // el panel es de texto (LLM); el turno de monstruo va por el radial
   root.append(panel); sync();
 
   // ---- turno de monstruo ----
@@ -98,7 +98,7 @@ export function mountCopilot(root: HTMLElement, ctx: Ctx) {
     if (!tok) return ctx.toast(t('Copiloto: el token ya no existe'));
     const act = tok.actions?.find(a => a.id === tu.actionId);
     const names = tu.targets.map(id => s.scene.tokens.find(x => x.id === id)?.name ?? '?');
-    const desc = `${tok.name}: ${tu.moveTo ? (act ? t('moverse aquí y') + ' ' : t('moverse aquí')) : ''}${act ? t('atacar a {a} con {b}', { a: names.join(', ') || t('nadie'), b: act.name }) : tu.moveTo ? '' : t('sin acción')} — ${tu.rationale}`;
+    const desc = `${tok.name}: ${tu.moveTo ? (act ? t('moverse aquí y') + ' ' : t('moverse aquí')) : ''}${act ? t('atacar a {a} con {b}', { a: names.join(', ') || t('nadie'), b: act.name }) : tu.turnOp ? t(tu.turnOp === 'dodge' ? 'esquivar' : 'esconderse') : tu.moveTo ? '' : t('sin acción')} — ${tu.rationale}`;
     void ctx.table.then(tb => tb.setMarks({ active: activeId(), targets: tu.targets, ...(tu.moveTo ? { area: { ...tu.moveTo, radius: s.scene.grid.size / 2, color: '#D4AD4A' } } : {}) }));
     card?.remove();
     card = document.createElement('div'); card.className = 'cop-card'; card.setAttribute('role', 'dialog'); card.setAttribute('aria-label', t('Turno sugerido por la IA'));
@@ -107,6 +107,7 @@ export function mountCopilot(root: HTMLElement, ctx: Ctx) {
     ok.onclick = () => {
       // El servidor procesa los mensajes en orden y valida cada uno; si rechaza el movimiento o la acción, sale su error.
       if (tu.moveTo) ctx.send({ t: 'moveToken', id: tu.tokenId, x: tu.moveTo.x, y: tu.moveTo.y });
+      if (tu.turnOp) ctx.send({ t: 'turnAction', tokenId: tu.tokenId, op: tu.turnOp });
       if (tu.actionId) ctx.send({ t: 'act', tokenId: tu.tokenId, actionId: tu.actionId, targets: tu.targets });
       closeCard();
     };

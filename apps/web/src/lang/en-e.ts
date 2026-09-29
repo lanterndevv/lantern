@@ -159,6 +159,8 @@ export default {
   'atacar a {a} con {b}': 'attack {a} with {b}',
   'nadie': 'nobody',
   'sin acción': 'no action',
+  'esquivar': 'dodge',
+  'esconderse': 'hide',
   'Turno sugerido por la IA': 'Turn suggested by the AI',
   'Aplicar': 'Apply',
   'Descartar': 'Dismiss',

@@ -215,7 +215,7 @@ export type JournalEntry = {
 export type LibraryItem = { id: Id; name: string; folder?: string; visibleTo?: Id[]; active: boolean; tokens: number; walls: number; background?: string };
 
 // Turno propuesto por el copiloto; el cliente del DM lo aplica con los C2S normales (moveToken + act) si lo acepta.
-export type CopilotTurn = { tokenId: Id; moveTo?: Point; actionId?: Id; targets: Id[]; rationale: string };
+export type CopilotTurn = { tokenId: Id; moveTo?: Point; actionId?: Id; turnOp?: 'dodge' | 'hide'; targets: Id[]; rationale: string };
 
 export type SessionSummary = {
   started: number; ended: number; rounds: number;
@@ -261,7 +261,8 @@ export type ClientState = {
   extensions: ExtensionManifest[]; // instaladas en la mesa (todos las cargan)
   safety: { lines: string[]; veils: string[] }; // líneas y velos de la mesa (anónimos)
   sessionStart?: number;       // ms del servidor en que empezó la sesión actual
-  copilot: boolean;            // hay un modelo configurado en el servidor
+  copilot: boolean;            // hay Laya o un LLM en el servidor (turno de monstruo)
+  copilotLlm: boolean;         // hay un LLM (reglas, PNJ, crónica)
   livekit?: boolean;           // el servidor ofrece voz SFU (LiveKit); si no, la voz es malla WebRTC
   clock: number;               // reloj del mundo en minutos desde el inicio de la campaña (día = floor(/1440))
   canUndo: boolean;            // hay algo que deshacer para este miembro
@@ -362,7 +363,7 @@ export type C2S =
   | { t: 'answerCheck'; requestId: Id; tokenId: Id }                  // dueño responde a una prueba pedida
   | { t: 'sessionEnd' }                                               // DM: cierra la sesión → resumen
   | { t: 'externalRoll'; source: 'beyond20'; name: string; expr: string; total: number; dice: Die[]; kind?: string } // tirada hecha en la hoja de DDB vía Beyond20
-  // Copiloto IA (opcional; el servidor necesita LANTERN_LLM_URL). Nunca actúa solo: sugiere y alguien confirma.
+  // Copiloto IA (opcional; Laya para el turno de monstruo, LANTERN_LLM_URL para el texto). Nunca actúa solo: sugiere y alguien confirma.
   | { t: 'copilot'; op: 'monsterTurn'; tokenId: Id; rid: string }     // DM: propone el turno de un monstruo
   | { t: 'copilot'; op: 'rules'; question: string; rid: string }      // cualquiera: duda de reglas (contexto = lo que ve quien pregunta)
   | { t: 'copilot'; op: 'npc'; prompt: string; rid: string }          // DM: nombre/descripción/voz de un PNJ

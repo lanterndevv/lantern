@@ -5,3 +5,4 @@ dist
 packages/ddb/src/fixtures/*.json
 !packages/ddb/src/fixtures/rogue1-willie.json
 tools/e2e/out/
+tools/laya/.venv/
