@@ -6,7 +6,7 @@ import { sightSegments, visibility } from '@lantern/vision';
 import type { Marks } from './api.ts';
 import { createTable } from './table.ts';
 
-const dm = new URLSearchParams(location.search).get('dm') === '1';
+const qs = new URLSearchParams(location.search), dm = qs.get('dm') === '1';
 const scene = demoScene();
 scene.tokens.find((t) => t.id === 'kael')!.owners = ['yo'];
 const tk = (id: string) => scene.tokens.find((t) => t.id === id)!;
@@ -42,6 +42,7 @@ const table = await createTable(document.body, {
     table.setMarks(marks);
   },
   onMapClick(x, y) { marks.area = { x, y, radius: 240, color: '#E0643A' }; table.setMarks(marks); },
+  onTokenContext(id, x, y) { console.log('context', id, x, y); },
   onDoor(id, open) {
     console.log('door', id, open);
     scene.walls.find((w) => w.id === id)!.open = open;
@@ -62,6 +63,7 @@ table.onEdit((op) => {
 });
 table.setState(state());
 table.setMarks(marks);
+if (qs.get('fixed') === '1') table.setDisplay('fixed');
 const at = (id: string) => ({ x: tk(id).x, y: tk(id).y });
 const KINDS = ['none', 'rain', 'storm', 'snow', 'fog', 'ash', 'leaves', 'embers'] as const;
 let wi = 0;
@@ -69,6 +71,7 @@ addEventListener('keydown', (e) => {
   const tools = { e: { tool: 'select' }, m: { tool: 'wall', kind: 'wall' }, l: { tool: 'light', bright: 120, dim: 240, color: '#ffb85c' },
     r: { tool: 'region', kind: 'trap' }, g: { tool: 'grid' }, 0: { tool: 'none' } } as const;
   if (dm && e.key in tools) table.setTool(tools[e.key as keyof typeof tools]);
+  else if (e.key === 'c') table.focus(tk('kael').x, tk('kael').y, 1.5);
   else if (e.key === 'n') {
     const ids = scene.tokens.map((t) => t.id), i = ids.indexOf(marks.active ?? '');
     marks.active = ids[(i + 1) % ids.length]; table.setMarks(marks);

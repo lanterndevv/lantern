@@ -12,7 +12,10 @@ const TYPE: Record<string, number> = {
 const col = (t?: string) => TYPE[t ?? ''] ?? 0xe4dacb; // slashing/piercing/bludgeoning y desconocidos
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
 const ease = (t: number) => 1 - (1 - t) ** 3;
-const MAX_P = 600, MAX_W = 400;
+// ponytail: móvil/equipo modesto = mitad de partículas y mapas de luz/niebla a ⅓; umbrales fijos, sin medir FPS
+export const LITE = (navigator.hardwareConcurrency || 8) <= 4 || (matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 900);
+const F = LITE ? 0.5 : 1;
+const MAX_P = 600 * F, MAX_W = 400;
 
 type P = { x: number; y: number; vx: number; vy: number; age: number; life: number; r: number; c: number; add: boolean; g: number; d: number; a: number; upd?: (p: P, dt: number) => void };
 type Anim = (dt: number, add: Graphics, nrm: Graphics) => boolean; // false = terminada
@@ -201,7 +204,7 @@ export function createVfx(app: Application, world: Container, fxL: Container, re
     wKey = k;
     if (k === 'none') { clearWeather(); wx = { kind: 'none', intensity: 0, wind: 0 }; return; }
     wx = w!;
-    const I = Math.min(1, Math.max(0.05, wx.intensity)), n = Math.round(N_MAX[wx.kind] * I), { width: W0, height: H0 } = scr();
+    const I = Math.min(1, Math.max(0.05, wx.intensity)), n = Math.round(N_MAX[wx.kind] * I * F), { width: W0, height: H0 } = scr();
     if (kindChanged || ws.length === 0 && wx.kind !== 'fog') {
       clearWeather();
       nextBolt = rnd(6000, 14000);

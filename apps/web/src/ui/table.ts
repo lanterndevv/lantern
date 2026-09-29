@@ -1,4 +1,4 @@
-import type { Action, ImportedCharacter, ActionCard, Ability, ChatMsg, ClientState, DiceTheme, Id, Member, Point, Role, S2C, Token } from '@lantern/protocol';
+import type { C2S, Action, ImportedCharacter, ActionCard, Ability, ChatMsg, ClientState, DiceTheme, Id, Member, Point, Role, S2C, Token } from '@lantern/protocol';
 import { MONSTERS } from '@lantern/srd';
 import { createTable } from '../render/table.ts';
 import { net } from '../net.ts';
@@ -16,6 +16,10 @@ import { mountJournal, showHandout, showRegionMsg } from './journal.ts';
 import { mountLibrary, type UiCtx } from './library.ts';
 import { mountEncounter } from './encounter.ts';
 import { maybeStartTutorial } from './tutorial.ts';
+import { openRadial, tokenRadialItems } from './radial.ts';
+import { mountPalette, defaultCommands } from './palette.ts';
+import { applyDisplayMode, displayModeFromUrl } from './display.ts';
+import { mountA11y, mountScreenReaderMirror, matchesShortcut } from './a11y.ts';
 
 const ROLES: Record<Role, string> = { dm: 'DM', assistant: 'Asistente', trusted: 'De confianza', player: 'Jugador', spectator: 'Espectador' };
 const PALETTE = ['#F5C877', '#5B9BE0', '#7FCB8A', '#E0643A', '#C79BF0', '#6FD3D3', '#F08AB4', '#E8E27A'];
@@ -200,6 +204,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     onPointer: (x, y) => { pointer = { x, y }; if (armed?.a.area) marks(); },
     onMoveToken: (id, x, y) => net.send({ t: 'moveToken', id, x, y }),
     onPing: (x, y) => net.send({ t: 'ping', x, y }),
+    onTokenContext: (id, x, y) => { const t = tok(id); if (t) openRadial(x, y, tokenRadialItems(t, radialCtx), t.name); },
     onDoor: (id, open) => net.send({ t: 'door', id, open }),
   });
 
@@ -269,15 +274,19 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     setTimeout(() => { a.classList.remove('show'); a.textContent = ''; }, 1600);
   };
 
-  const pick = (i: number) => {
-    const t = hudTok(), a = t?.actions?.[i];
-    if (!t || !a || $('hud').hidden) return;
+  const armAction = (tokenId: Id, actionId: Id) => {
+    const t = tok(tokenId), a = t?.actions?.find(x => x.id === actionId);
+    if (!t || !a) return;
     if (armed?.a.id === a.id) return cancel();
     spawn = undefined; renderMonsters();
     if (!a.area && targets.length) return fire(t.id, a.id, targets);
     armed = { tok: t.id, a };
     renderHud(); marks();
     say(a.area ? `${a.name}: haz clic en el mapa` : `${a.name}: elige un objetivo`);
+  };
+  const pick = (i: number) => {
+    const t = hudTok(), a = t?.actions?.[i];
+    if (t && a && !$('hud').hidden) armAction(t.id, a.id);
   };
 
   const renderHud = () => {
@@ -317,9 +326,9 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   };
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') return cancel();
-    if (e.ctrlKey || e.altKey || e.metaKey || !/^[0-9]$/.test(e.key)) return;
     if ((e.target as HTMLElement).closest('input,textarea,select,dialog')) return;
-    pick((+e.key + 9) % 10);
+    for (let i = 1; i <= 10; i++) if (matchesShortcut(e, 'accion' + i)) return pick(i - 1); // atajos editables en Accesibilidad
+    if (matchesShortcut(e, 'fin') && state.combat) net.send({ t: 'combat', op: 'next' });
   });
 
   // DM: combate, automatización, monstruos
@@ -541,6 +550,30 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   $('t-dia').onclick = () => tab('dia');
   $('t-biblioteca').onclick = () => tab('biblioteca');
   $('t-encuentros').onclick = () => tab('encuentros');
+  // ---- fase 6: menú radial, paleta, modos de pantalla, accesibilidad ----
+  const radialCtx = {
+    role: w.role, memberId: w.memberId,
+    send: (m: C2S) => net.send(m),
+    arm: armAction,
+    openSheet: (tokenId: Id) => { selected = tokenId; sheet.render(); tab('hoja'); $('lado').classList.remove('plegado'); },
+    ping: (x: number, y: number) => net.send({ t: 'ping', x, y }),
+    lit: (id: Id) => state.scene.lights.some(l => l.id === `luz-${id}`),
+    grid: state.scene.grid.size,
+  };
+  mountPalette({ commands: q => defaultCommands({
+    role: w.role, memberId: w.memberId, send: m => net.send(m), state: () => state,
+    center: () => ({ x: state.scene.width / 2, y: state.scene.height / 2 }), // ponytail: centro de la escena, no de la vista
+    mine: () => hudTok(), tab, focus: (x, y) => void table.then(t => t.focus(x, y)),
+  }, q) });
+  applyDisplayMode(displayModeFromUrl(), { table, root, state: w.state });
+  // Móvil: el mapa entero no se lee en 390 px → al entrar, cámara sobre tu personaje.
+  if (matchMedia('(max-width: 700px)').matches && displayModeFromUrl() === 'normal') {
+    const own = mine()[0]; if (own) void table.then(t => t.focus(own.x, own.y, 1));
+  }
+  if (import.meta.env.DEV) (window as unknown as { __lantern: unknown }).__lantern = { table, state: () => state }; // para pruebas E2E
+  mountA11y($('p-mesa'));
+  mountScreenReaderMirror(root, () => state);
+
   $('plegar').onclick = () => {
     const c = $('lado').classList.toggle('plegado');
     $('plegar').setAttribute('aria-expanded', String(!c));

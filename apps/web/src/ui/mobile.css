@@ -1,0 +1,86 @@
+/* Menú radial (radial.ts) */
+.rad-fondo { position: fixed; inset: 0; z-index: 100; background: rgba(14,11,8,.35); }
+.rad { position: fixed; z-index: 101; width: 0; height: 0; }
+.rad-centro { position: absolute; left: 0; top: 0; transform: translate(-50%,-50%); width: 84px; height: 84px; border-radius: 50%; display: grid; place-items: center; padding: 8px; text-align: center; pointer-events: none;
+  font: 700 .8rem/1.15 var(--serif); color: var(--ambar-claro); background: var(--cristal); border: 1px solid var(--borde); backdrop-filter: blur(18px); }
+.rad-item { position: absolute; transform: translate(-50%,-50%); width: 56px; height: 56px; min-height: 56px; padding: 0; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  background: var(--cristal); backdrop-filter: blur(18px); color: var(--txt); box-shadow: var(--brillo); }
+.rad-item span { font-size: 10px; line-height: 1; white-space: nowrap; }
+.rad-item:hover:not(:disabled), .rad-item:focus-visible { background: var(--ambar); color: var(--sobre-ambar); border-color: transparent; }
+
+/* Paleta de comandos (palette.ts) */
+dialog.pal { position: fixed; top: 12vh; margin: 0 auto; width: min(560px, calc(100% - 32px)); padding: 12px; color: var(--txt); background: var(--sombra); border: 1px solid var(--borde); border-radius: var(--r-panel); box-shadow: var(--brillo), 0 20px 60px rgba(0,0,0,.6); }
+dialog.pal::backdrop { background: rgba(14,11,8,.6); }
+.pal ul { list-style: none; margin: 8px 0 0; padding: 0; max-height: 50vh; overflow-y: auto; }
+.pal li { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: var(--r-btn); border-left: 3px solid transparent; cursor: pointer; }
+.pal li small { color: var(--txt3); white-space: nowrap; }
+.pal li[aria-selected=true] { background: var(--relieve); border-left-color: var(--ambar); font-weight: 700; }
+.pal li.vacio { color: var(--txt3); cursor: default; }
+
+@media (pointer: coarse) {
+  .mesa button, .mesa input:not([type=checkbox]), .mesa select, .conf button { min-height: 44px; }
+  .mesa input[type=checkbox] { width: 24px; height: 24px; }
+  .mesa .chk { min-height: 44px; }
+}
+
+/* Móvil: «Jugador en móvil» 390×844. Prefijo .mesa para ganar en especificidad a styles.css */
+@media (max-width: 700px), (pointer: coarse) and (max-width: 1024px) {
+  :root { --sa-t: env(safe-area-inset-top, 0px); --sa-r: env(safe-area-inset-right, 0px); --sa-b: env(safe-area-inset-bottom, 0px); --sa-l: env(safe-area-inset-left, 0px); }
+
+  /* no se edita en el teléfono */
+  .mesa > .ed-bar, .mesa > .ed-insp { display: none !important; }
+
+  /* título arriba a la izquierda; baja bajo el carrusel si hay combate */
+  .mesa .tl { top: calc(var(--sa-t) + 8px); left: calc(var(--sa-l) + 8px); max-width: calc(100% - 76px - var(--sa-l) - var(--sa-r)); padding: 6px 10px; gap: 8px; }
+  .mesa:has(.init:not([hidden])) .tl, .mesa:has(.init:not([hidden])) .lado.plegado { top: calc(var(--sa-t) + 84px); }
+  .mesa .tl h1 { font-size: 1rem; }
+  .mesa .chip { min-height: 44px; }
+
+  /* carrusel de iniciativa compacto */
+  .mesa .init { top: calc(var(--sa-t) + 8px); left: calc(var(--sa-l) + 8px); right: calc(var(--sa-r) + 8px); transform: none; max-width: none; gap: 10px; padding: 6px 12px; overflow-x: auto; scroll-snap-type: x proximity; overscroll-behavior-x: contain; }
+  .mesa .init ol { flex-wrap: nowrap; gap: 8px; }
+  .mesa .init li { width: 32px; flex: none; scroll-snap-align: center; }
+  .mesa .init li.act { width: 40px; }
+  .mesa .init .ret { width: 32px; height: 32px; font-size: .75rem; }
+  .mesa .init li.act .ret { width: 40px; height: 40px; }
+  .mesa .ronda { position: sticky; left: 0; flex: none; }
+
+  /* HUD → hoja inferior fija */
+  .mesa .hud { position: fixed; left: 0; right: 0; bottom: 0; transform: none; max-width: none; z-index: 20; display: grid; grid-template-columns: 48px 1fr; align-items: center; gap: 10px 12px;
+    padding: 12px calc(var(--sa-r) + 16px) calc(var(--sa-b) + 12px) calc(var(--sa-l) + 16px); max-height: 46vh; overflow-y: auto; border-radius: var(--r-panel) var(--r-panel) 0 0; border-bottom: 0; }
+  .mesa .hud > * { min-width: 0; }
+  .mesa .hud .eco, .mesa .hud .acts, .mesa .hud .slots, .mesa .hud .primary { grid-column: 1 / -1; }
+  .mesa .eco { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .mesa .pill { min-height: 44px; justify-content: center; font-size: .85rem; }
+  .mesa .mov { min-height: 44px; align-content: center; }  /* movimiento = 4.ª píldora, dentro de .info */
+  .mesa .acts { display: grid; grid-template-columns: repeat(4, 68px); justify-content: space-between; gap: 8px; }
+  .mesa .acc { width: 68px; height: 68px; min-height: 68px; font-size: .72rem; }
+  .mesa .acc span { max-height: 2.4em; }
+  .mesa .hud .primary { width: 100%; min-height: 52px; }
+  .mesa .hud .muerte { grid-column: 1 / -1; }
+
+  /* panel lateral (ya es hoja inferior ≤699 px): sin chocar con el HUD */
+  .mesa .lado { z-index: 30; left: var(--sa-l); right: var(--sa-r); bottom: 0; width: auto; height: 55vh; padding-bottom: var(--sa-b); border-radius: var(--r-panel) var(--r-panel) 0 0; }
+  /* plegado: solo el botón, flotando arriba a la derecha (el HUD ocupa el fondo) */
+  .mesa .lado.plegado { top: calc(var(--sa-t) + 8px); bottom: auto; left: auto; right: calc(var(--sa-r) + 8px); width: auto; height: auto; padding-bottom: 0; border-radius: var(--r-panel); }
+  .mesa .lado.plegado [role=tablist] { display: none; }
+  .mesa .lado.plegado header { padding: 4px; }
+  .mesa #plegar { min-width: 44px; }
+  .mesa [role=tab] { padding: 0 12px; }
+  .mesa .toast { bottom: calc(var(--sa-b) + 16px); }
+  .mesa:has(.hud:not([hidden])) .toast { bottom: calc(46vh + var(--sa-b) + 8px); }
+  .mesa .aviso { top: 35%; }
+  dialog.pal { top: calc(var(--sa-t) + 8vh); }
+}
+
+/* Tablet: 700–1100 px táctil */
+@media (min-width: 700px) and (max-width: 1100px) and (pointer: coarse) {
+  .mesa .lado { width: 300px; left: auto; right: calc(env(safe-area-inset-right, 0px) + 12px); top: 12px; bottom: 12px; height: auto; border-radius: var(--r-panel); }
+  .mesa .lado.plegado { top: 12px; bottom: auto; width: auto; }
+  .mesa .lado.plegado [role=tablist] { display: flex; }
+  .mesa .hud { right: calc(env(safe-area-inset-right, 0px) + 336px); border-radius: var(--r-panel); }
+  .mesa .lado.plegado ~ .hud, .mesa:has(.lado.plegado) .hud { right: 0; }
+  .mesa .init { right: calc(env(safe-area-inset-right, 0px) + 336px); }
+  .mesa:has(.lado.plegado) .init { right: calc(env(safe-area-inset-right, 0px) + 72px); }
+  .mesa .acc { width: 52px; height: 52px; min-height: 52px; }
+}

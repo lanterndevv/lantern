@@ -1,0 +1,12 @@
+{
+  "name": "Lantern",
+  "short_name": "Lantern",
+  "description": "Mesa virtual de D&D 5e",
+  "lang": "es",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#0E0B08",
+  "background_color": "#0E0B08",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

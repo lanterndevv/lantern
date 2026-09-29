@@ -1,0 +1,29 @@
+/* Accesibilidad */
+.sr-only { position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+html.alto-contraste { --borde: rgba(255,240,220,.6); --txt: #FFFFFF; --txt2: #EDE3D3; --txt3: #D6C9B4; }
+html.alto-contraste :focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; }
+html.dislexia body { letter-spacing: .02em; word-spacing: .08em; }
+html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+.a11y { display: grid; gap: 10px; }
+.a11y label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.a11y .atajos { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.a11y .atajos li { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.a11y .atajos button { min-width: 7ch; font-family: var(--mono); }
+
+/* Modos de pantalla (display.ts) */
+.modo-mesa .lado, .modo-mesa .hud, .modo-mesa .ed-bar, .modo-mesa .ed-insp, .modo-mesa .tl, .modo-mesa #elegir,
+.modo-espectador .lado, .modo-espectador .hud, .modo-espectador .ed-bar, .modo-espectador .ed-insp, .modo-espectador .tl, .modo-espectador #elegir,
+.modo-espectador .init { display: none !important; }
+.modo-mesa .init { max-width: 96%; transform: translateX(-50%) scale(1.5); transform-origin: top center; top: 20px; }
+.modo-mesa, .modo-espectador { cursor: none; }
+.dm-aviso { position: absolute; inset: 0; z-index: 30; display: grid; place-items: center; pointer-events: none; opacity: 0; background: radial-gradient(circle, rgba(14,11,8,.75), rgba(14,11,8,.35)); font: 700 clamp(3rem, 10vw, 9rem) var(--serif); color: var(--ambar-claro); text-shadow: 0 4px 40px #000; text-align: center; padding: 0 5%; }
+.dm-aviso.show { animation: dm-aviso 2.4s ease-out both; }
+@keyframes dm-aviso { 0% { opacity: 0; transform: scale(.9); } 15%, 70% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+.dm-top { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 20; padding: 6px 20px; border-radius: 999px; background: rgba(14,11,8,.6); font: 700 1.3rem var(--serif); color: var(--txt); text-shadow: 0 2px 8px #000; white-space: nowrap; }
+.dm-top span { color: var(--ambar-claro); margin-left: .8em; font-family: var(--ui); }
+.dm-log { position: absolute; left: 16px; bottom: 16px; z-index: 20; list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-width: 40%; }
+.dm-log li { padding: 6px 12px; border-radius: 8px; background: rgba(14,11,8,.65); color: var(--txt); text-shadow: 0 1px 4px #000; animation: dm-fade 14s linear forwards; }
+@keyframes dm-fade { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
+/* obs=1: fondo transparente fuera del mapa, sin viñeta */
+html.obs, html.obs body, html.obs .mesa, html.obs .mapa { background: transparent !important; }
+html.obs .vineta { display: none !important; }

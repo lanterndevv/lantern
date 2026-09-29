@@ -1,12 +1,12 @@
 // Renderer Pixi v8: «mesa a la luz de una linterna». Implementa CreateTable (api.ts).
 import {
-  Application, Assets, BlurFilter, ColorMatrixFilter, Container, Graphics, Polygon, Rectangle, RenderTexture, Sprite, Text, Texture, TilingSprite,
+  Application, Assets, BlurFilter, ColorMatrixFilter, Container, Circle, Graphics, Polygon, Rectangle, RenderTexture, Sprite, Text, Texture, TilingSprite,
 } from 'pixi.js';
 import type { FederatedPointerEvent } from 'pixi.js';
 import { sightSegments, visibility } from '@lantern/vision';
 import type { ClientState, Id, Light, Point, Scene, Token, Wall } from '@lantern/protocol';
 import type { CreateTable, Marks } from './api.ts';
-import { createVfx } from './vfx.ts';
+import { createVfx, LITE } from './vfx.ts';
 import { createEdit, dashed, REGION_COLOR } from './edit.ts';
 
 const FACTION = { ally: '#5B9BE0', enemy: '#E0643A', neutral: '#BFAE86' } as const;
@@ -59,6 +59,7 @@ type LightObj = { key: string; lm: Container; lmMask: Graphics; gl: Container; g
 
 export const createTable: CreateTable = async (el, opts) => {
   const app = new Application();
+  if (import.meta.env.DEV) (globalThis as unknown as { __pixi: unknown }).__pixi = app; // pruebas E2E
   await app.init({ background: '#070504', resizeTo: el, antialias: true, resolution: devicePixelRatio, autoDensity: true });
   el.appendChild(app.canvas);
   const stage = app.stage;
@@ -74,6 +75,9 @@ export const createTable: CreateTable = async (el, opts) => {
   glowL.blendMode = 'add';
   fogRegG.filters = [new BlurFilter({ strength: 6, quality: 2 })]; // fog de región: negro opaco con bordes suaves
   world.addChild(floorL, gridG, regionsL, wallsG, doorsL, tokensL, fxL, lightSprite, glowL, fogSprite, fogRegG, marksG, editG, uiL);
+  // El stage es interactivo y Pixi hereda ese modo a todos sus hijos al buscar el objetivo: sin esto, las capas que cubren
+  // el mapa por encima de los tokens (luz, niebla, efectos, marcas) «ganan» el hit test y ningún token recibe clics.
+  for (const l of [fxL, lightSprite, glowL, fogSprite, fogRegG, marksG, editG, uiL]) l.eventMode = 'none';
   const stone = stoneTexture();
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const vfx = createVfx(app, world, fxL, reduced);
@@ -98,6 +102,8 @@ export const createTable: CreateTable = async (el, opts) => {
   };
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
+    if (fixed) return;
+    cam = undefined;
     const r = app.canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
     const k0 = world.scale.x, k = Math.min(4, Math.max(0.25, k0 * Math.exp(-e.deltaY * 0.0015)));
     world.position.set(mx - ((mx - world.x) / k0) * k, my - ((my - world.y) / k0) * k);
@@ -109,6 +115,64 @@ export const createTable: CreateTable = async (el, opts) => {
     }
   };
   const kd = key(true), ku = key(false);
+  // ---- táctil / cámara animada / modo fijo ----
+  let fixed = false, cam: { t0: number; k0: number; x0: number; y0: number; k1: number; x1: number; y1: number } | undefined;
+  const coarse = matchMedia('(pointer: coarse)').matches;
+  let touchy = coarse; // se activa también con el primer toque real
+  const MIN_HIT = 22; // px de pantalla: 44 de diámetro
+  const clampK = (k: number) => Math.min(4, Math.max(0.25, k));
+  const camTo = (k: number, x: number, y: number) => {
+    if (reduced) { cam = undefined; world.scale.set(k); world.position.set(x, y); return; }
+    cam = { t0: performance.now(), k0: world.scale.x, x0: world.x, y0: world.y, k1: k, x1: x, y1: y };
+  };
+  const focus = (x: number, y: number, zoom?: number) => {
+    const k = clampK(zoom ?? world.scale.x);
+    camTo(k, app.screen.width / 2 - x * k, app.screen.height / 2 - y * k);
+  };
+  const fitScene = () => {
+    const s = cur?.scene; if (!s) return;
+    const k = clampK(Math.min(app.screen.width / s.width, app.screen.height / s.height) * 0.95);
+    camTo(k, (app.screen.width - s.width * k) / 2, (app.screen.height - s.height * k) / 2);
+  };
+  const worldToClient = (x: number, y: number) => {
+    const r = app.canvas.getBoundingClientRect(), k = world.scale.x;
+    return { x: r.left + world.x + x * k, y: r.top + world.y + y * k };
+  };
+  app.canvas.style.touchAction = 'none';
+  app.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  const touches = new Map<number, Point>(); // pointerId -> posición local al canvas
+  let pinching = false, pv = { cx: 0, cy: 0, d: 1 };
+  const pinchNow = () => {
+    const [a, b] = [...touches.values()], d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+    return { cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, d };
+  };
+  const loc = (e: PointerEvent): Point => { const r = app.canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  const tDown = (e: PointerEvent) => {
+    if (e.pointerType !== 'touch') return;
+    touchy = true; touches.set(e.pointerId, loc(e));
+    if (touches.size < 2) return;
+    pinching = true; cam = undefined; pan = undefined; press = undefined; cancelLong();
+    if (drag) { drag.c.position.set(drag.from.x, drag.from.y); endDrag(false); }
+    pv = pinchNow();
+  };
+  const tMove = (e: PointerEvent) => {
+    if (!touches.has(e.pointerId)) return;
+    touches.set(e.pointerId, loc(e));
+    if (!pinching || touches.size < 2 || fixed) return;
+    const n = pinchNow(), k0 = world.scale.x, k = clampK(k0 * n.d / pv.d);
+    world.position.set(n.cx - ((pv.cx - world.x) / k0) * k, n.cy - ((pv.cy - world.y) / k0) * k);
+    world.scale.set(k); pv = n;
+  };
+  const tUp = (e: PointerEvent) => {
+    if (!touches.delete(e.pointerId)) return;
+    if (touches.size >= 2) pv = pinchNow();
+    if (!touches.size) pinching = false; // el dedo que queda no hace pan hasta levantar todos
+  };
+  // pulsación larga sobre token (táctil)
+  let lp: { timer: number; x: number; y: number } | undefined;
+  const cancelLong = () => { if (lp) clearTimeout(lp.timer); lp = undefined; };
+  app.canvas.addEventListener('pointerdown', tDown); app.canvas.addEventListener('pointermove', tMove);
+  app.canvas.addEventListener('pointerup', tUp); app.canvas.addEventListener('pointercancel', tUp);
   app.canvas.addEventListener('wheel', onWheel, { passive: false });
   const ek = (e: KeyboardEvent) => edit.key(e);
   addEventListener('keydown', kd); addEventListener('keyup', ku); addEventListener('keydown', ek);
@@ -193,6 +257,7 @@ export const createTable: CreateTable = async (el, opts) => {
       wallsG.stroke({ width: 3, color: 0x8fd3f5 });
     }
   }
+  const doorHw = () => (touchy ? Math.max(12, MIN_HIT / world.scale.x) : 12);
   function drawDoor(g: Graphics, w: Wall, hover: boolean) {
     g.clear();
     const col = hover ? 0xa87445 : 0x7a5230;
@@ -201,7 +266,7 @@ export const createTable: CreateTable = async (el, opts) => {
     const b = w.open ? { x: w.a.x - dy * 0.98 + dx * 0.17, y: w.a.y + dx * 0.98 + dy * 0.17 } : w.b;
     g.moveTo(w.a.x, w.a.y).lineTo(b.x, b.y).stroke({ width: (w.open ? 4 : 8) + 3, color: 0x0b0806, cap: 'round' });
     g.moveTo(w.a.x, w.a.y).lineTo(b.x, b.y).stroke({ width: w.open ? 4 : 8, color: col, cap: 'round', alpha: w.open ? 0.85 : 1 });
-    const L = Math.hypot(dx, dy) || 1, nx = (-dy / L) * 12, ny = (dx / L) * 12; // zona pulsable siempre sobre a-b
+    const L = Math.hypot(dx, dy) || 1, hw = doorHw(), nx = (-dy / L) * hw, ny = (dx / L) * hw; // zona pulsable siempre sobre a-b
     g.hitArea = new Polygon([w.a.x + nx, w.a.y + ny, w.b.x + nx, w.b.y + ny, w.b.x - nx, w.b.y - ny, w.a.x - nx, w.a.y - ny]);
   }
   function syncDoors(walls: Wall[]) {
@@ -224,7 +289,7 @@ export const createTable: CreateTable = async (el, opts) => {
         });
         doorsL.addChild(g); doors.set(w.id, d);
       }
-      const k = `${w.a.x},${w.a.y},${w.b.x},${w.b.y},${w.open},${d.hover}`;
+      const k = `${w.a.x},${w.a.y},${w.b.x},${w.b.y},${w.open},${d.hover},${doorHw()}`;
       if (k !== d.key) { d.key = k; drawDoor(d.g, w, d.hover); }
     }
   }
@@ -259,8 +324,7 @@ export const createTable: CreateTable = async (el, opts) => {
   }
 
   // ---- tokens ----
-  const canDrag = (t: Token) =>
-    isDM() || (opts.role === 'trusted' && t.faction === 'ally') || (opts.role === 'player' && t.owners.includes(opts.memberId));
+  const canDrag = (t: Token) => !fixed && (isDM() || (opts.role === 'trusted' && t.faction === 'ally') || (opts.role === 'player' && t.owners.includes(opts.memberId)));
   const snap = (t: Token, g: Scene['grid'], p: Point): Point => {
     const f = (v: number, o: number) => (t.size % 2 ? o + (Math.floor((v - o) / g.size) + 0.5) * g.size : o + Math.round((v - o) / g.size) * g.size);
     return { x: f(p.x, g.offsetX), y: f(p.y, g.offsetY) };
@@ -349,6 +413,7 @@ export const createTable: CreateTable = async (el, opts) => {
       if (!o) {
         const c = new Container();
         c.on('pointerdown', (e) => {
+          if (e.button === 2 && cur) { e.stopPropagation(); opts.onTokenContext?.(t.id, e.clientX, e.clientY); return; }
           if (e.button !== 0 || e.altKey || space || !cur) return;
           const et = edit.tool();
           if (et !== 'none' && et !== 'select') return; // wall/light/region/grid: el token no se arrastra, el clic llega al stage
@@ -356,6 +421,16 @@ export const createTable: CreateTable = async (el, opts) => {
           e.stopPropagation();
           const t2 = tokens.get(t.id)!.t, p = world.toLocal(e.global);
           press = { id: t.id, x: e.global.x, y: e.global.y, wx: p.x, wy: p.y };
+          cancelLong();
+          if (e.pointerType === 'touch' && !pinching && opts.onTokenContext) {
+            const cx = e.clientX, cy = e.clientY;
+            lp = { x: e.global.x, y: e.global.y, timer: window.setTimeout(() => {
+              lp = undefined; press = undefined;
+              if (drag) { drag.c.position.set(drag.from.x, drag.from.y); endDrag(false); }
+              navigator.vibrate?.(30);
+              opts.onTokenContext?.(t.id, cx, cy);
+            }, 500) };
+          }
           if (!canDrag(t2)) return;
           drag = { id: t.id, c, from: { x: t2.x, y: t2.y }, off: { x: t2.x - p.x, y: t2.y - p.y }, to: { x: t2.x, y: t2.y } };
           c.zIndex = 1e6; tokensL.sortableChildren = true;
@@ -372,6 +447,14 @@ export const createTable: CreateTable = async (el, opts) => {
       o.c.alpha = t.conditions.includes('dead') ? 0.5 : t.conditions.includes('invisible') ? 0.45 : t.hidden ? 0.55 : 1;
       if (drag?.id !== t.id) o.c.position.set(t.x, t.y);
     }
+    retarget();
+  }
+  // zonas pulsables: círculo del token (mínimo 44 px de pantalla en táctil) y puertas
+  let hitK = 0;
+  function retarget() {
+    hitK = world.scale.x;
+    for (const o of tokens.values()) o.c.hitArea = new Circle(0, 0, Math.max(tokR(o.t), touchy ? MIN_HIT / hitK : 0));
+    if (cur) syncDoors(cur.scene.walls);
   }
   function endDrag(commit: boolean) {
     const d = drag; drag = undefined; ruler.visible = rulerTxt.visible = false;
@@ -391,12 +474,14 @@ export const createTable: CreateTable = async (el, opts) => {
     if (e.altKey && e.button === 0) { const p = world.toLocal(e.global); opts.onPing(p.x, p.y); return; }
     if (e.button === 0 && !space && edit.down(e)) return;
     if (e.button === 0 && !space && e.target === stage) { const p = world.toLocal(e.global); press = { x: e.global.x, y: e.global.y, wx: p.x, wy: p.y }; }
-    if (e.button === 1 || (e.button === 0 && (space || e.target === stage))) pan = { x: e.global.x - world.x, y: e.global.y - world.y };
+    if (!fixed && !pinching && (e.button === 1 || (e.button === 0 && (space || e.target === stage)))) cam = undefined, pan = { x: e.global.x - world.x, y: e.global.y - world.y };
   });
   let ptr: Point | undefined; // último puntero pendiente de avisar (1 vez por frame, en el ticker)
   stage.on('globalpointermove', (e: FederatedPointerEvent) => {
     edit.move(e);
     if (opts.onPointer) ptr = world.toLocal(e.global);
+    if (lp && Math.hypot(e.global.x - lp.x, e.global.y - lp.y) > 8) cancelLong();
+    if (pinching) return;
     if (pan) { world.position.set(e.global.x - pan.x, e.global.y - pan.y); return; }
     if (!drag || !cur) return;
     const p = world.toLocal(e.global), t = tokens.get(drag.id)!.t, g = cur.scene.grid;
@@ -410,15 +495,16 @@ export const createTable: CreateTable = async (el, opts) => {
     rulerTxt.position.set(drag.to.x, drag.to.y - t.size * g.size * 0.5 - 14);
   });
   const up = (e: FederatedPointerEvent) => {
-    pan = undefined; endDrag(true); edit.up();
+    cancelLong(); pan = undefined; endDrag(true); edit.up();
     const p = press; press = undefined;
     if (!p || Math.hypot(e.global.x - p.x, e.global.y - p.y) >= 4) return;
     if (p.id) opts.onTokenClick?.(p.id, e.shiftKey); else opts.onMapClick?.(p.wx, p.wy);
   };
   stage.on('pointerup', up); stage.on('pointerupoutside', (e) => { press = undefined; up(e); });
+  stage.on('pointercancel', () => { cancelLong(); pan = undefined; press = undefined; endDrag(false); });
 
   // ---- luz: mapa de luz en RenderTexture (multiply) + resplandor aditivo ----
-  const LS = () => Math.min(0.5, 2048 / Math.max(cur!.scene.width, cur!.scene.height)); // escala de las RT
+  const LS = () => Math.min(LITE ? 1 / 3 : 0.5, 2048 / Math.max(cur!.scene.width, cur!.scene.height)); // escala de las RT
   const lmRoot = new Container(), lmBg = new Graphics(), lmDv = new Graphics(), lmLights = new Container(), lmDark = new Graphics();
   lmRoot.addChild(lmBg, lmDv, lmLights, lmDark);
   let lmRT: RenderTexture | undefined, lmDirty = true, lastLm = 0;
@@ -541,6 +627,12 @@ export const createTable: CreateTable = async (el, opts) => {
   // ---- ticker: solo animaciones ----
   app.ticker.add(() => {
     const now = performance.now();
+    if (cam) {
+      const k = Math.min(1, (now - cam.t0) / 450), e = 1 - (1 - k) ** 3, m = (a: number, b: number) => a + (b - a) * e;
+      world.scale.set(m(cam.k0, cam.k1)); world.position.set(m(cam.x0, cam.x1), m(cam.y0, cam.y1));
+      if (k >= 1) cam = undefined;
+    }
+    if (world.scale.x !== hitK) retarget();
     for (let i = pings.length - 1; i >= 0; i--) {
       const p = pings[i], k = (now - p.t0) / 1200;
       if (k >= 1) { p.g.destroy(); pings.splice(i, 1); continue; }
@@ -574,6 +666,8 @@ export const createTable: CreateTable = async (el, opts) => {
 
   function destroy() {
     app.canvas.removeEventListener('wheel', onWheel);
+    cancelLong();
+    for (const [n, f] of [['pointerdown', tDown], ['pointermove', tMove], ['pointerup', tUp], ['pointercancel', tUp]] as const) app.canvas.removeEventListener(n, f);
     removeEventListener('keydown', kd); removeEventListener('keydown', ek); removeEventListener('keyup', ku);
     for (const m of memories.values()) m.destroy(true);
     vfx.destroy();
@@ -586,6 +680,8 @@ export const createTable: CreateTable = async (el, opts) => {
   }
 
   return {
+    focus, fitScene, worldToClient,
+    setDisplay: (m) => { fixed = m === 'fixed'; pan = undefined; if (fixed) { endDrag(false); cam = undefined; } if (cur) syncTokens(cur.scene); },
     setState, setMarks, ping, floatText, effect: vfx.effect, destroy,
     setTool: (t) => edit.setTool(isDM() ? t : { tool: 'none' }), onEdit: edit.onEdit,
   };
