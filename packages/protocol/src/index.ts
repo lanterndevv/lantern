@@ -187,6 +187,7 @@ export type ClientState = {
   audio: AudioState;
   journal: JournalEntry[];     // filtrado por visibleTo
   library?: LibraryItem[];     // solo DM/asistente
+  extensions: ExtensionManifest[]; // instaladas en la mesa (todos las cargan)
 };
 
 export type ChatMsg = {
@@ -243,11 +244,13 @@ export type C2S =
   | { t: 'journal'; entry: JournalEntry }                            // DM: crea/actualiza
   | { t: 'journalDelete'; id: Id }                                   // DM
   | { t: 'handout'; entryId: Id }                                    // DM: muestra la entrada a quienes pueden verla
-  | { t: 'spawnMany'; items: { srd: string; x: number; y: number }[]; hidden?: boolean }; // DM: encuentro
+  | { t: 'spawnMany'; items: { srd: string; x: number; y: number }[]; hidden?: boolean } // DM: encuentro
+  | { t: 'extInstall'; manifest: ExtensionManifest }                 // DM (el cliente descarga el manifiesto; el servidor lo valida)
+  | { t: 'extRemove'; id: string };                                  // DM
 
 // Servidor → cliente
 export type S2C =
-  | { t: 'welcome'; memberId: Id; key: string; role: Role; state: ClientState; chat: ChatMsg[] }
+  | { t: 'welcome'; memberId: Id; key: string; role: Role; state: ClientState; chat: ChatMsg[]; v: number } // v = PROTOCOL_VERSION del servidor
   | { t: 'state'; state: ClientState }   // ponytail: estado completo filtrado en cada cambio; diffs cuando pese
   | { t: 'chat'; msg: ChatMsg }
   | { t: 'ping'; from: Id; x: number; y: number }
@@ -259,6 +262,18 @@ export type S2C =
   | { t: 'handout'; entry: JournalEntry }
   | { t: 'regionMsg'; text: string }                                   // mensaje de una región al token que entra
   | { t: 'error'; msg: string };
+
+// Versión del protocolo: sube cuando un cambio rompe clientes viejos; el cliente ofrece recargar si no coincide.
+export const PROTOCOL_VERSION = 1;
+
+// Extensión de terceros: página en un iframe sandbox que habla con la mesa por postMessage (ver packages/sdk).
+export type ExtensionPermission = 'state' | 'chat' | 'roll' | 'contextMenu' | 'panel' | 'tokens';
+export type ExtensionManifest = {
+  id: string;                  // [a-z0-9-]{3,40}
+  name: string; version: string; author?: string; description?: string;
+  url: string;                 // https:// (o http://localhost en desarrollo): página del iframe
+  permissions: ExtensionPermission[];
+};
 
 export const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // sin 0/O/1/I/L
 
