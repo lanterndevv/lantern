@@ -29,7 +29,7 @@ export function mountSettings(el: HTMLElement, send: (m: C2S) => void, myId: str
       <section aria-labelledby="st-e"><h2 id="st-e">Edición</h2>
         <div class="seg" role="radiogroup" aria-labelledby="st-e">${(['2014', '2024'] as const).map(v =>
           `<button type="button" role="radio" data-f="ed-${v}" data-ed="${v}" aria-checked="${S.edition === v}">${v}</button>`).join('')}</div></section>
-      <section aria-labelledby="st-o"><h2 id="st-o">Reglas opcionales</h2>${OPT.map(([k, n, d]) => sw('opt-' + k, S.optional[k], n, d)).join('')}</section>
+      <section aria-labelledby="st-o"><h2 id="st-o">Reglas opcionales</h2>${OPT.map(([k, n, d]) => sw('opt-' + k, !!S.optional[k], n, d)).join('')}</section>
       <section aria-labelledby="st-r"><h2 id="st-r">Roles</h2><table class="roles"><thead><tr><th scope="col">Miembro</th><th scope="col">Rol</th></tr></thead><tbody>${st.members.map(m =>
         `<tr><th scope="row">${esc(m.name)}</th><td><select data-f="role-${esc(m.id)}" data-role="${esc(m.id)}" aria-label="Rol de ${esc(m.name)}"${m.id === myId ? ' disabled' : ''}>${(Object.keys(ROLES) as Role[]).map(r =>
           `<option value="${r}"${m.role === r ? ' selected' : ''}>${ROLES[r]}</option>`).join('')}</select></td></tr>`).join('')}</tbody></table></section>`;

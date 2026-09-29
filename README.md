@@ -34,6 +34,22 @@ Límites: 30 mensajes/s por conexión (ráfaga de 60), 20 conexiones por IP, 200
 ## Modo LAN
 Sin Internet: `npm start` (o Docker) en un equipo y los demás abren `http://<ip-del-equipo>:8787`. Cambia `HOST` si quieres limitarlo a una interfaz (`HOST=127.0.0.1`). Ojo: los navegadores solo permiten micrófono/cámara en `https` o `localhost`.
 
+## Voz SFU con LiveKit (opcional)
+Por defecto la voz es una malla WebRTC entre navegadores (vale hasta ~6 personas). Para mesas grandes, levanta un [LiveKit](https://livekit.io) autoalojado y define estas variables en el servidor de Lantern; si falta alguna, se sigue usando la malla:
+
+| Variable | Ejemplo | Uso |
+|---|---|---|
+| `LANTERN_LIVEKIT_URL` | `ws://localhost:7880` | URL del SFU que verá el navegador (`wss://` tras HTTPS) |
+| `LANTERN_LIVEKIT_KEY` | `devkey` | API key de LiveKit |
+| `LANTERN_LIVEKIT_SECRET` | `secret` | API secret de LiveKit |
+
+Modo dev (key `devkey`, secret `secret`):
+
+    docker run --rm -p 7880:7880 -p 7881:7881 -p 7882:7882/udp livekit/livekit-server --dev
+    LANTERN_LIVEKIT_URL=ws://localhost:7880 LANTERN_LIVEKIT_KEY=devkey LANTERN_LIVEKIT_SECRET=secret npm start
+
+(o `livekit-server --dev` si lo tienes instalado). El servidor firma un token de 6 h por miembro (sala = código de mesa); los espectadores solo escuchan. En producción usa claves propias y `wss://`.
+
 ## Copiloto IA (opcional)
 Se activa solo con variables de entorno del servidor (el cliente nunca elige el endpoint): `LANTERN_LLM_URL` (API compatible con OpenAI, p. ej. `http://localhost:8080/v1`), `LANTERN_LLM_KEY` (Bearer, opcional), `LANTERN_LLM_MODEL` (opcional) y `LANTERN_LLM_TIMEOUT_MS` (60000 por defecto).
 Operaciones: `monsterTurn` (propone movimiento, acción y objetivos de un monstruo; validado con visión, velocidad, muros y alcance), `npc` y `recap` (crónica en el diario), solo DM/asistente (recap solo DM), y `rules` (duda de reglas, cualquier miembro no espectador).

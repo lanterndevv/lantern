@@ -6,12 +6,12 @@ import { mergeSettings, type Room } from './room.ts';
 import { MAX_JOURNAL, MAX_SCENES, obj, parseJournal, parseScene } from './validate.ts';
 
 export const MAX_ASSET = 25 * 1024 * 1024, MAX_EXPORT = 200 * 1024 * 1024;
-export const ASSET_RE = /^([0-9a-f]{64})\.(png|jpg|webp|mp3|ogg|webm|mp4)$/;
+export const ASSET_RE = /^([0-9a-f]{64})\.(png|jpg|webp|mp3|ogg|webm|mp4|pdf)$/;
 export const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 
 export async function exportCampaign(room: Room, read: (name: string) => Promise<Buffer | null>): Promise<object | 'tooLarge'> {
   const scenes = Object.values(room.scenes), journal = room.journal;
-  const refs = new Set([...JSON.stringify([scenes, journal]).matchAll(/\/assets\/([0-9a-f]{64}\.(?:png|jpg|webp|mp3|ogg|webm|mp4))/g)].map((m) => m[1]));
+  const refs = new Set([...JSON.stringify([scenes, journal]).matchAll(/\/assets\/([0-9a-f]{64}\.(?:png|jpg|webp|mp3|ogg|webm|mp4|pdf))/g)].map((m) => m[1]));
   const assets: Record<string, string> = {};
   let size = 0;
   for (const name of refs) {

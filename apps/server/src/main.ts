@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve, sep, extname } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -13,17 +14,19 @@ import { createAccounts } from './accounts.ts';
 import { MAX_SCENES } from './validate.ts';
 import { MAX_ASSET, exportCampaign, importCampaign, parseUvtt, sha256 } from './campaign.ts';
 import { copilot } from './copilot.ts';
+import { asPlayer, finishState } from './extras.ts';
+import { createBackups, mergeInto, parsePick, restoreInto } from './backup.ts';
 import { canSee, chatFor, redact, createRoom, filterFor, genCode, handle, joinRoom, normCode, sha, type MemberRec, type Room, type RollFn } from './room.ts';
 
 const MAX_IMPORT = 250 * 1024 * 1024, MAX_UVTT = 60 * 1024 * 1024;
-const EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/webm': 'webm', 'video/webm': 'webm', 'video/mp4': 'mp4' };
-const TYPE: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', mp3: 'audio/mpeg', ogg: 'audio/ogg', webm: 'video/webm', mp4: 'video/mp4' };
+const EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/webm': 'webm', 'video/webm': 'webm', 'video/mp4': 'mp4', 'application/pdf': 'pdf' };
+const TYPE: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', mp3: 'audio/mpeg', ogg: 'audio/ogg', webm: 'video/webm', mp4: 'video/mp4', pdf: 'application/pdf' };
 
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.woff': 'font/woff', '.txt': 'text/plain; charset=utf-8', '.map': 'application/json', '.wasm': 'application/wasm' };
 // Límites (seguridad). ponytail: contadores en memoria, se pierden al reiniciar; suficiente para un servidor único.
 const WS_RATE = 30, WS_BURST = 60, WS_MAX_EXCESS = 10, MAX_CONN_IP = 20, MAX_ROOMS_IP_DAY = 200, MAX_UPLOADS = 30, MAX_PLAYER_UPLOADS = 10, MAX_PLAYER_ASSET = 5 * 1024 * 1024, UPLOAD_WINDOW = 10 * 60_000, DAY = 86_400_000;
 
-type Conn = { room: Room; member: MemberRec };
+type Conn = { room: Room; member: MemberRec; sid?: string };
 
 export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, rollFn: RollFn = roll) {
   const webRoot = resolve(process.env.WEB_DIST ?? new URL('../../web/dist', import.meta.url).pathname);
@@ -38,8 +41,12 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
     return ++e.n <= max ? 0 : Math.ceil((e.reset - now) / 1000);
   };
   const db = openDb(dbPath);
+  const dbFile = dbPath ?? process.env.LANTERN_DB ?? 'lantern.db';
+  const backups = createBackups(process.env.LANTERN_BACKUP_DIR ?? (dbFile === ':memory:' ? undefined : join(dirname(resolve(dbFile)), 'backups')));
   const rooms = new Map<string, Room>();
   const conns = new Map<WebSocket, Conn>();
+  const seqs = new Map<string, number>(); // `${memberId}:${sid}` → último `s` procesado: reenvíos tras un corte no se duplican
+  // ponytail: en memoria y sin caducar; un reinicio del servidor pierde la deduplicación (y sus mensajes en vuelo)
   const timers = new Map<string, NodeJS.Timeout>();
   // ponytail: las mesas nunca se expulsan de memoria; añadir evicción por inactividad si hace falta
 
@@ -56,7 +63,7 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
   const online = (r: Room) => new Set([...conns.values()].filter((c) => c.room === r).map((c) => c.member.id as Id));
   const broadcastState = (r: Room) => {
     const on = online(r);
-    for (const [ws, c] of conns) if (c.room === r) send(ws, { t: 'state', state: filterFor(r, c.member, on) });
+    for (const [ws, c] of conns) if (c.room === r) send(ws, { t: 'state', state: finishState(r, c.member, filterFor(r, c.member, on)) });
   };
 
   const assets = process.env.LANTERN_ASSETS ?? './assets';
@@ -104,7 +111,7 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
   const http = createServer(async (req, res) => {
     if (await accounts.handle(req, res)) return;
     if (req.url === '/health') { res.end('ok'); return; }
-    if (req.method === 'POST' && (req.url === '/api/assets' || req.url === '/api/import' || req.url === '/api/uvtt')) {
+    if (req.method === 'POST' && (req.url === '/api/assets' || req.url === '/api/import' || req.url === '/api/merge' || req.url === '/api/uvtt')) {
       const wait = hit(uploads, ipOf(req), MAX_UPLOADS, UPLOAD_WINDOW);
       if (wait) { res.writeHead(429, { 'retry-after': String(wait), connection: 'close' }); res.end(() => req.destroy()); return; }
     }
@@ -117,13 +124,27 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
       if (!priv && hit(playerUploads, ipOf(req), MAX_PLAYER_UPLOADS, UPLOAD_WINDOW)) return fail(req, res, 429); // límite propio por IP
       const body = await readBody(req, res, priv ? MAX_ASSET : MAX_PLAYER_ASSET);
       if (!body) return;
+      if (ext === 'pdf' && body.subarray(0, 5).toString('latin1') !== '%PDF-') return fail(req, res, 415);
       const name = sha256(body) + '.' + ext;
       mkdirSync(assets, { recursive: true });
       await writeFile(join(assets, name), body);
+      const attr = req.headers['x-lantern-attr']; // atribución (Openverse, game-icons…): se guarda junto al recurso
+      if (priv && typeof attr === 'string' && attr.length < 3000) try {
+        const j = JSON.parse(decodeURIComponent(attr)) as Record<string, unknown>, cut = (k: string) => typeof j[k] === 'string' ? (j[k] as string).slice(0, 300) : undefined;
+        await writeFile(join(assets, name + '.attr.json'), JSON.stringify({ title: cut('title'), creator: cut('creator'), license: cut('license'), url: cut('url'), source: cut('source') }));
+      } catch { /* atribución mal formada: se ignora */ }
       res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ url: '/assets/' + name }));
       return;
     }
-    if (req.url === '/api/export' || req.url === '/api/import' || req.url === '/api/uvtt') {
+    if (req.method === 'GET' && req.url === '/api/credits') { // atribuciones de los recursos usados en la mesa
+      const a = auth(req);
+      if (!a) return fail(req, res, 403);
+      const names = new Set([...JSON.stringify([a.room.scenes, a.room.journal]).matchAll(/\/assets\/([0-9a-f]{64}\.(?:png|jpg|webp))/g)].map((m) => m[1]));
+      const out: unknown[] = [];
+      for (const n of names) { const t = await readFile(join(assets, n + '.attr.json'), 'utf8').catch(() => null); if (t) try { out.push({ asset: n, ...JSON.parse(t) }); } catch { /* sidecar roto */ } }
+      return json(res, 200, out);
+    }
+    if (req.url === '/api/export' || req.url === '/api/import' || req.url === '/api/merge' || req.url === '/api/uvtt') {
       const a = auth(req);
       if (!a || a.who.role !== 'dm') return fail(req, res, 403);
       if (req.url === '/api/export' && req.method === 'GET') {
@@ -149,6 +170,17 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
         db.save(room);
         return json(res, 200, { code: room.code, key });
       }
+      if (req.url === '/api/merge' && req.method === 'POST') { // fusión selectiva: solo lo elegido entra en esta mesa
+        const v = await jsonBody(req, res, MAX_IMPORT);
+        if (v === undefined) return;
+        const imp = importCampaign(v), pick = parsePick((v as { select?: unknown }).select);
+        if ('error' in imp || !pick) return json(res, 400, { error: 'error' in imp ? imp.error : 'selección inválida' });
+        const n = mergeInto(a.room, imp, pick);
+        mkdirSync(assets, { recursive: true });
+        for (const [name, data] of imp.assets) await writeFile(join(assets, name), data);
+        broadcastState(a.room); dirty(a.room);
+        return json(res, 200, n);
+      }
       if (req.url === '/api/uvtt' && req.method === 'POST') {
         const v = await jsonBody(req, res, MAX_UVTT);
         if (v === undefined) return;
@@ -162,13 +194,13 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
       }
       return fail(req, res, 405);
     }
-    const f = req.method === 'GET' && /^\/assets\/([0-9a-f]{64}\.(png|jpg|webp|mp3|ogg|webm|mp4))$/.exec(req.url ?? '');
+    const f = req.method === 'GET' && /^\/assets\/([0-9a-f]{64}\.(png|jpg|webp|mp3|ogg|webm|mp4|pdf))$/.exec(req.url ?? '');
     if (f) {
       // Range es necesario para que <audio>/<video> puedan saltar (sincronizar el jukebox a mitad de pista).
       // ponytail: el archivo entero en memoria (≤25 MB); .webm se sirve como video/webm también para audio.
       const data = await readFile(join(assets, f[1])).catch(() => null);
       if (data) {
-        const head = { 'content-type': TYPE[f[2]], 'cache-control': 'public, max-age=31536000, immutable', 'x-content-type-options': 'nosniff', 'accept-ranges': 'bytes' };
+        const head = { 'content-type': TYPE[f[2]], ...(f[2] === 'pdf' && { 'content-disposition': 'inline' }), 'cache-control': 'public, max-age=31536000, immutable', 'x-content-type-options': 'nosniff', 'accept-ranges': 'bytes' };
         const r = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
         if (r && (r[1] || r[2])) {
           const size = data.length;
@@ -223,9 +255,10 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
           if ('error' in r) return send(ws, { t: 'error', msg: r.error });
           member = r.member; key = r.key ?? (msg.key as string);
         }
-        conns.set(ws, { room, member });
+        const sid = typeof msg.sid === 'string' ? msg.sid.slice(0, 40) : undefined;
+        conns.set(ws, { room, member, sid });
         dirty(room);
-        send(ws, { t: 'welcome', memberId: member.id, key, role: member.role, state: filterFor(room, member, online(room)), chat: chatFor(room, member), v: PROTOCOL_VERSION });
+        send(ws, { t: 'welcome', memberId: member.id, key, role: member.role, state: finishState(room, member, filterFor(room, member, online(room))), chat: chatFor(room, member), v: PROTOCOL_VERSION, seq: sid ? seqs.get(`${member.id}:${sid}`) ?? 0 : undefined });
         send(ws, { t: 'clock', now: Date.now() });
     broadcastState(room); // el resto ve el nuevo miembro / online
         return;
@@ -233,11 +266,35 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
 
       if (!conn) return send(ws, { t: 'error', msg: 'primero join' });
       const { room, member } = conn;
+      if (conn.sid && typeof msg.s === 'number') {
+        const k = `${member.id}:${conn.sid}`;
+        if (msg.s <= (seqs.get(k) ?? 0)) return; // duplicado de un reenvío
+        seqs.set(k, msg.s);
+      }
       if (msg.t === 'copilot') { // async: no bloquea el resto de la mesa; responde solo a quien preguntó
         void copilot(room, member, msg).then((r) => { send(ws, r.msg); if (r.state) { broadcastState(room); dirty(room); } });
         return;
       }
+      if (msg.t === 'asPlayer') { // vista «como jugador X» solo para el DM
+        const r = asPlayer(room, member, msg, online(room));
+        return send(ws, 'error' in r ? { t: 'error', msg: r.error } : { t: 'asState', memberId: msg.memberId ?? null, state: r.state });
+      }
+      if (msg.t === 'backup') {
+        if (member.role !== 'dm') return send(ws, { t: 'error', msg: 'no permitido' });
+        if (!backups.enabled) return send(ws, { t: 'error', msg: 'copias desactivadas en este servidor' });
+        void (async () => {
+          if (msg.op === 'now') await backups.save(room);
+          else if (msg.op === 'restore') {
+            const err = restoreInto(room, backups.read(room.code, msg.name));
+            if (err) return send(ws, { t: 'error', msg: `no se pudo restaurar: ${err}` });
+            broadcastState(room); dirty(room);
+          } else if (msg.op !== 'list') return send(ws, { t: 'error', msg: 'mensaje inválido' });
+          send(ws, { t: 'backups', list: backups.list(room.code) });
+        })();
+        return;
+      }
       const fx = handle(room, member, msg, rollFn);
+      if (msg.t === 'sessionEnd' && !fx.error) void backups.save(room); // copia al cerrar la sesión
       if (fx.error) return send(ws, { t: 'error', msg: fx.error });
       for (const cm of [fx.chat, ...(fx.chats ?? [])]) if (cm) for (const [w, c] of conns) if (c.room === room && canSee(cm, c.member)) send(w, { t: 'chat', msg: redact(room, cm, c.member) as ChatMsg });
       if (fx.ping) for (const [w, c] of conns) if (c.room === room) send(w, { t: 'ping', ...fx.ping });
@@ -256,11 +313,13 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
     ws.on('error', () => ws.terminate());
   });
 
+  const bk = backups.enabled ? setInterval(() => { for (const r of rooms.values()) void backups.save(r); }, Number(process.env.LANTERN_BACKUP_MIN ?? 10) * 60_000).unref() : undefined;
   http.listen(port, process.env.HOST ?? '0.0.0.0');
   return {
     port: () => (http.address() as { port: number }).port,
     ready: new Promise<void>((ok) => http.once('listening', ok)),
     close: () => new Promise<void>((done) => {
+      clearInterval(bk);
       for (const [code, t] of timers) { clearTimeout(t); const r = rooms.get(code); if (r) db.save(r); }
       timers.clear();
       for (const ws of wss.clients) ws.terminate();

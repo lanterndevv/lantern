@@ -1,0 +1,37 @@
+/* Fase 11: dados 2D, repetir tirada, emotes, compendio, marcadores, vista como jugador, visor PDF. */
+.xd-mode { display: flex; align-items: center; gap: 8px; }
+.xd-mode select { min-height: 44px; background: var(--sombra); border: 1px solid var(--borde); border-radius: var(--r-btn); color: inherit; padding: 0 8px; }
+.xd-tray { position: fixed; left: 50%; bottom: 18%; transform: translateX(-50%); z-index: 40; display: flex; gap: 8px; align-items: center; padding: 12px 16px; pointer-events: none; }
+.xd { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 10px; background: var(--relieve); border: 2px solid var(--ambar); font: 700 1.2rem var(--mono); animation: xd-tumble .5s ease-out; }
+.xd b { display: none; }
+.xd.fin { animation: none; }
+.xd-off { opacity: .4; border-style: dashed; }
+.xd-tot { font: 700 1.6rem var(--serif); padding-left: 6px; }
+@keyframes xd-tumble { 0% { transform: translateY(-46px) rotate(-200deg) scale(.6); opacity: 0; } 60% { transform: translateY(4px) rotate(20deg); opacity: 1; } 100% { transform: none; } }
+.reduce-motion .xd { animation: none; }
+.xr { display: inline-flex; gap: 6px; margin-left: 8px; flex-wrap: wrap; }
+.xr button { min-height: 32px; padding: 0 10px; font-size: .85rem; border-color: var(--ambar); }
+.xe { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.xe button { min-height: 40px; min-width: 44px; padding: 0 10px; }
+.xv { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 45; display: flex; gap: 10px; align-items: center; padding: 6px 12px; }
+.xp-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+.xp-pin { position: absolute; left: 0; top: 0; margin: -30px 0 0 -14px; min-height: 0; width: 28px; height: 30px; padding: 0; border: 0; background: transparent; font-size: 1.5rem; line-height: 1; pointer-events: auto; filter: drop-shadow(0 1px 2px #000); }
+.cp-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.cp-lista details { border: 1px solid var(--borde); border-radius: var(--r-btn); padding: 6px 10px; }
+.cp-lista summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cp-lista dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 6px 0; }
+.cp-lista dt { color: var(--txt2); } .cp-lista dd { margin: 0; }
+.cp-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.cp-img { display: grid; gap: 4px; align-content: start; }
+.cp-img img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--r-btn); background: #000; cursor: grab; }
+.cp-img .dmbtns button { min-height: 32px; padding: 0 6px; font-size: .8rem; }
+.cp fieldset, .dmt fieldset { border: 1px solid var(--borde); border-radius: var(--r-card); }
+.dmt section, .cp section { display: grid; gap: 8px; margin-bottom: 14px; }
+.sx { display: grid; gap: 8px; margin-top: 12px; }
+.dj-enlace { min-height: 0; padding: 0 4px; border: 0; background: transparent; color: var(--ambar-claro); text-decoration: underline; }
+.dj-enlace:disabled { color: var(--peligro); text-decoration: line-through; }
+.dj-pdf { width: 100%; height: min(70vh, 640px); border: 1px solid var(--borde); border-radius: var(--r-btn); background: #fff; }
+dialog.dj-hand.pdf { width: min(900px, 96vw); }
+.msg.botin ul { margin: 4px 0 0; }
+.ed-nudge { flex-wrap: wrap; align-items: center; }
+.ed-nudge button { min-width: 44px; padding: 0 10px; }

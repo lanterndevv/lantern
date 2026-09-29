@@ -76,3 +76,22 @@ export function handleCheckRequest(msg: Extract<import('@lantern/protocol').S2C,
     box.append(row);
   }
 }
+
+/** Jugador: petición de tirar su propia salvación (opción de mesa); si no la tira a tiempo, el servidor usa la que ya tenía. */
+export function handleSaveRequest(msg: Extract<import('@lantern/protocol').S2C, { t: 'saveRequest' }>, ctx: { send(m: C2S): void }) {
+  let box = document.getElementById('pedidos');
+  if (!box) {
+    box = document.createElement('div'); box.id = 'pedidos'; box.className = 'pedidos';
+    box.setAttribute('role', 'status'); box.setAttribute('aria-live', 'polite');
+    document.body.append(box);
+  }
+  const row = document.createElement('div');
+  row.className = 'pedido panel';
+  row.innerHTML = `<span>${esc(msg.text)} · CD ${msg.dc} <span class="c2-cuenta" aria-hidden="true"></span></span><button type="button" class="primary">Tirar salvación</button>`;
+  const cuenta = row.querySelector('.c2-cuenta')!;
+  let left = 20; // el servidor da 20 s; la cuenta es orientativa (no depende del reloj del servidor)
+  cuenta.textContent = String(left);
+  const iv = setInterval(() => { left--; if (left <= 0) { clearInterval(iv); row.remove(); } else cuenta.textContent = String(left); }, 1000);
+  row.querySelector('button')!.onclick = () => { ctx.send({ t: 'answerSave', pending: msg.pending, tokenId: msg.tokenId }); clearInterval(iv); row.remove(); };
+  box.append(row);
+}

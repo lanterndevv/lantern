@@ -162,7 +162,7 @@ export function openCreator(onDone: (c: ImportedCharacter) => void): void {
     return {
       ddbId: 0, name: st.name.trim(), level: L, classes: `${k.name} ${L}`, hp: { cur: hp, max: hp, temp: 0 }, ac, speed: sp.speed, initMod: m('dex'),
       saves: Object.fromEntries(AB.map(a => [a, m(a) + (k.saves.includes(a) ? prof : 0)])), darkvision: sp.darkvision * 12,
-      actions, slots, defenses: sp.resist.length ? { resist: sp.resist } : undefined, abilities: ab, prof,
+      actions, slots, defenses: sp.resist.length ? { resist: sp.resist } : undefined, abilities: ab, prof, hitDice: { die: k.hitDie, max: L, used: 0 }, ...(st.species === 'halfling' && { lucky: true }),
       skills: Object.fromEntries(Object.entries(SKILLS).map(([id, [, a]]) => [camel(id), m(a) + (st.skills.includes(id) ? prof : 0)])),
     };
   }

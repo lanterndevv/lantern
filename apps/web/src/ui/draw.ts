@@ -1,5 +1,6 @@
 // Dibujo para todos, cursores, «Mostrar a todos aquí», deshacer e imagen de token propio.
 import type { C2S, ClientState, Drawing, Id, Role, S2C, Token } from '@lantern/protocol';
+import { brushPolygon } from '@lantern/vision';
 
 // ponytail: los nombres siguen el contrato de api.ts pedido a otro agente (EditTool 'draw', drawEphemeral, setCursors).
 // Si aún no existen en render/api.ts, este tipo local los cubre; el orquestador pasa el Table real (cast en el montaje).
@@ -34,6 +35,7 @@ export function mountDraw(bar: HTMLElement, c: DrawCtx) {
         `<label class="dr-col" style="--c:${h}"><input type="radio" name="dr-c" value="${h}"${i === 1 ? ' checked' : ''}><span class="sr">${n}</span></label>`).join('')}</div>
       <label>Grosor<select id="dr-w">${WIDTHS.map(([v, n]) => `<option value="${v}">${n}</option>`).join('')}</select></label>
       <label class="chk" id="dr-pl"><input type="checkbox" id="dr-p"> Persistente</label>
+      ${staff ? '<label class="chk"><input type="checkbox" id="dr-fog"> Niebla (pincel): cada trazo crea una región de niebla</label>' : ''}
       <button type="button" id="dr-me">Borrar mío</button>
       ${dm ? '<button type="button" id="dr-all">Borrar todo</button><button type="button" id="dr-focus">Mostrar a todos aquí</button>' : ''}
     </div>
@@ -74,7 +76,14 @@ export function mountDraw(bar: HTMLElement, c: DrawCtx) {
 
   return {
     /** TableOptions.onDraw(d, persist) */
-    onDraw(d: Drawing, persist: boolean) { c.send({ t: 'draw', item: { ...d, id: d.id || rid(), by: d.by || c.me }, persist: persist && canPersist() }); },
+    onDraw(d: Drawing, persist: boolean) {
+      if (staff && q<HTMLInputElement>('dr-fog').checked) { // niebla a mano alzada: el trazo pasa a región 'fog' simplificada (el grosor es el del pincel)
+        const sc = c.state().scene, poly = brushPolygon(d.points, +q<HTMLSelectElement>('dr-w').value * 5)?.map(p => ({ x: Math.min(sc.width, Math.max(0, p.x)), y: Math.min(sc.height, Math.max(0, p.y)) }));
+        if (!poly) return c.toast('Trazo demasiado corto para crear niebla');
+        c.send({ t: 'upsert', kind: 'region', item: { id: rid(), name: 'Niebla', kind: 'fog', hidden: false, points: poly, ...(d.level && { level: d.level }) } });
+        return;
+      }
+      c.send({ t: 'draw', item: { ...d, id: d.id || rid(), by: d.by || c.me }, persist: persist && canPersist() }); },
     /** TableOptions.onErase(id) */
     onErase(id: Id) { c.send({ t: 'erase', id }); },
     /** TableOptions.onPointer(x, y): a lo sumo 10 Hz y solo con el interruptor activo */

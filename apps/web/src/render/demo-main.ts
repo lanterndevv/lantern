@@ -18,6 +18,22 @@ scene.regions ??= [
   { id: 'r-dark', name: 'Oscuridad', kind: 'darkness', hidden: false, points: [{ x: 80, y: 80 }, { x: 300, y: 80 }, { x: 300, y: 260 }, { x: 80, y: 260 }] },
   { id: 'r-trap', name: 'Trampa', kind: 'trap', hidden: true, points: [{ x: 400, y: 300 }, { x: 560, y: 300 }, { x: 480, y: 440 }] },
 ];
+// capturas: ?v=hex,fx,cone,dust,sand,fireflies,post,cine (combinables)
+const V = (qs.get('v') ?? '').split(',');
+if (V.includes('hex')) scene.grid.type = 'hex';
+if (V.includes('fx')) {
+  scene.globalLight = 0.15;
+  Object.assign(tk('trasgo-a'), { conditions: ['stunned'] }); Object.assign(tk('trasgo-b'), { conditions: ['petrified'] });
+  Object.assign(tk('osgo'), { conditions: ['poisoned', 'restrained'] }); Object.assign(tk('ysolde'), { conditions: ['paralyzed'], hp: { cur: 0, max: 20, temp: 0 } });
+  scene.lights.push({ id: 'l4', x: 700, y: 200, bright: 80, dim: 200, color: '#8fd3f5', anim: 'magic' }, { id: 'l5', x: 700, y: 700, bright: 60, dim: 180, color: '#ffd28a', anim: 'candle' });
+  scene.regions!.push(
+    { id: 'r-f', name: 'Fuego', kind: 'difficult', fx: 'fire', hidden: false, points: [{ x: 600, y: 80 }, { x: 780, y: 80 }, { x: 780, y: 200 }, { x: 600, y: 200 }] },
+    { id: 'r-w', name: 'Tela', kind: 'difficult', fx: 'web', hidden: false, points: [{ x: 820, y: 80 }, { x: 980, y: 80 }, { x: 980, y: 220 }, { x: 820, y: 220 }] },
+    { id: 'r-i', name: 'Hielo', kind: 'difficult', fx: 'ice', hidden: false, points: [{ x: 600, y: 260 }, { x: 780, y: 260 }, { x: 780, y: 380 }, { x: 600, y: 380 }] },
+    { id: 'r-z', name: 'Zarzas', kind: 'difficult', fx: 'brambles', hidden: false, points: [{ x: 820, y: 260 }, { x: 980, y: 260 }, { x: 980, y: 380 }, { x: 820, y: 380 }] });
+}
+if (V.includes('cone')) scene.lights.push({ id: 'l6', x: 700, y: 500, bright: 150, dim: 360, color: '#ffe9b0', cone: { dir: 0, angle: 70 } });
+for (const k of ['dust', 'sand', 'fireflies'] as const) if (V.includes(k)) scene.weather = { kind: k, intensity: 0.8, wind: 0.3 };
 document.body.style.cssText = 'margin:0;overflow:hidden;background:#070504';
 
 // ponytail: visión en el cliente solo para la demo (en producción la calcula el servidor)
@@ -29,6 +45,7 @@ const state = (): ClientState => ({
 });
 
 const marks: Marks = { targets: [] };
+
 const table = await createTable(document.body, {
   role: dm ? 'dm' : 'player', memberId: 'yo',
   onMoveToken(id, x, y) {
@@ -65,10 +82,16 @@ table.onEdit((op) => {
 });
 table.setState(state());
 table.setMarks(marks);
+if (V.includes('post')) table.setPost({ bloom: true });
+if (V.includes('cine')) table.cinematic(true);
+if (V.includes('route')) {
+  const a = { x: tk('kael').x, y: tk('kael').y }; table.setRoute([a, { x: a.x + 120, y: a.y + 60 }, { x: a.x + 260, y: a.y + 60 }, { x: a.x + 400, y: a.y + 160 }], { difficult: [[{ x: a.x + 120, y: a.y + 60 }, { x: a.x + 260, y: a.y + 60 }]], remaining: 20 });
+  marks.aim = { from: 'kael', to: 'trasgo-b' }; table.setMarks(marks);
+}
 if (qs.get('fixed') === '1') table.setDisplay('fixed');
 const at = (id: string) => ({ x: tk(id).x, y: tk(id).y });
-const KINDS = ['none', 'rain', 'storm', 'snow', 'fog', 'ash', 'leaves', 'embers'] as const;
-let wi = 0, dm_i = 3, ti = 4;
+const KINDS = ['none', 'rain', 'storm', 'snow', 'fog', 'ash', 'leaves', 'embers', 'fireflies', 'sand', 'dust'] as const;
+let cine = false, wi = 0, dm_i = 3, ti = 4;
 addEventListener('keydown', (e) => {
   const tools = { e: { tool: 'select' }, m: { tool: 'wall', kind: 'wall' }, l: { tool: 'light', bright: 120, dim: 240, color: '#ffb85c' },
     r: { tool: 'region', kind: 'trap' }, g: { tool: 'grid' }, 0: { tool: 'none' } } as const;
@@ -97,6 +120,15 @@ addEventListener('keydown', (e) => {
   else if (e.key === '3') table.effect({ kind: 'burst', at: at('osgo'), radius: 240, damageType: 'fire' });
   else if (e.key === '4') table.effect({ kind: 'heal', at: at('brida') });
   else if (e.key === '5') { table.effect({ kind: 'projectile', from: at('kael'), to: at('osgo'), damageType: 'slashing' }); setTimeout(() => table.effect({ kind: 'impact', at: at('osgo'), damageType: 'slashing', crit: true }), 0); }
+  else if (e.key === '6') table.effect({ kind: 'spell', spell: 'Bola de fuego', from: at('ysolde'), to: at('osgo'), radius: 160 });
+  else if (e.key === '7') table.effect({ kind: 'spell', spell: 'Proyectil mágico', from: at('ysolde'), to: at('osgo') });
+  else if (e.key === '8') table.effect({ kind: 'spell', spell: 'Tormenta de hielo', from: at('ysolde'), to: at('osgo'), radius: 160 });
+  else if (e.key === '9') table.effect({ kind: 'spell', spell: 'x', school: 'Necromancia', from: at('ysolde'), to: at('osgo') });
+  else if (e.key === 'x') table.effect({ kind: 'fumble', at: at('kael') });
+  else if (e.key === 'p') table.frameParty();
+  else if (e.key === 'v') { cine = !cine; table.cinematic(cine); }
+  else if (e.key === 'b') table.setPost({ bloom: !table.getPost().bloom });
+  else if (e.key === 'F') table.followToken(tk('kael').id);
   else if (e.key === 'w') {
     wi = (wi + 1) % KINDS.length; scene.weather = { kind: KINDS[wi], intensity: 0.7, wind: 0.4 };
     table.setState(state()); console.log('clima', KINDS[wi]);

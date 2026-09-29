@@ -6,7 +6,7 @@ import type { EditOp, EditTool } from './api.ts';
 export const REGION_COLOR: Record<Region['kind'], string> = {
   trap: '#F08A64', difficult: '#D3C3A6', teleport: '#C29CF5', fog: '#3a3129', darkness: '#000000', sound: '#8FD3F5', message: '#F5C877',
 };
-const WALL_COLOR: Record<Wall['kind'], string> = { wall: '#F5C877', door: '#5B9BE0', window: '#8FD3F5', terrain: '#7FCB8A' };
+const WALL_COLOR: Record<Wall['kind'], string> = { wall: '#F5C877', door: '#5B9BE0', window: '#8FD3F5', terrain: '#7FCB8A', invisible: '#B08AF0', ethereal: '#E88AC0' };
 
 export function dashed(g: Graphics, a: Point, b: Point, dash: number, gap: number) {
   const len = Math.hypot(b.x - a.x, b.y - a.y), ux = (b.x - a.x) / len, uy = (b.y - a.y) / len;
@@ -17,7 +17,7 @@ export function dashed(g: Graphics, a: Point, b: Point, dash: number, gap: numbe
 }
 
 const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
-function segDist(p: Point, a: Point, b: Point) {
+export function segDist(p: Point, a: Point, b: Point) {
   const dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
   const t = l2 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2)) : 0;
   return dist(p, { x: a.x + t * dx, y: a.y + t * dy });

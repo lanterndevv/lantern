@@ -74,7 +74,7 @@ async function monsterTurn(room: Room, id: unknown): Promise<CopilotTurn> {
   const s = room.scene, tk = typeof id === 'string' ? s.tokens.find((t) => t.id === id) : undefined;
   if (!tk) return fail('token inexistente');
   const feet = s.grid.feet, gs = s.grid.size, fl = flr(s, tk.level);
-  const poly = visibility({ x: tk.x, y: tk.y }, sightSegments(s.walls.filter((w) => flr(s, w.level) === fl)), s.width, s.height);
+  const poly = visibility({ x: tk.x, y: tk.y }, sightSegments(s.walls.filter((w) => flr(s, w.level) === fl), tk), s.width, s.height);
   const seen = s.tokens.filter((t) => t.id !== tk.id && !t.hidden && flr(s, t.level) === fl && pointInPolygon(t, poly)); // visión del propio token
   const rel = (t: Token) => t.faction === tk.faction ? 'aliados' : t.faction === 'neutral' || tk.faction === 'neutral' ? 'neutrales' : 'enemigos';
   const used = room.combat?.used[tk.id]?.moved ?? 0, speed = Math.max(0, (tk.speed ?? 30) - used);

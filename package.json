@@ -7,11 +7,14 @@
     "apps/*"
   ],
   "scripts": {
-    "test": "node --test 'packages/*/src/**/*.test.ts' 'apps/server/src/**/*.test.ts' apps/web/src/render/walls-detect.test.ts 'apps/web/src/beyond20.test.ts'",
+    "test": "node --test 'packages/*/src/**/*.test.ts' 'apps/server/src/**/*.test.ts' apps/web/src/render/walls-detect.test.ts apps/web/src/render/geom.test.ts 'apps/web/src/beyond20.test.ts'",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "server": "node apps/server/src/main.ts",
     "web": "npm run dev -w @lantern/web",
     "e2e": "node tools/e2e/run.mjs",
+    "bench": "node tools/bench/run.mjs",
+    "chaos": "node tools/chaos/run.mjs",
+    "ddb-contract": "node tools/ddb-contract/check.mjs",
     "build": "npm run build -w @lantern/web",
     "start": "[ -f apps/web/dist/index.html ] || npm run build; node apps/server/src/main.ts"
   },

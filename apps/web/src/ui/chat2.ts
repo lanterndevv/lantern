@@ -18,7 +18,10 @@ function memberAt(rest: string, c: ChatCtx) {
 export function chatSendFromInput(text: string, c: ChatCtx): boolean {
   const v = text.trim(); if (!v) return false;
   const roll = /^\/(rs|r|tirar)\s+(.+)$/i.exec(v);
-  if (roll) { c.send({ t: 'roll', expr: roll[2], ...(roll[1].toLowerCase() === 'rs' ? { secret: true } : {}) }); return true; }
+  if (roll) {
+    const own = roll[2].includes('@') ? (mine(c).find(t => t.id === sel.as) ?? mine(c)[0]) : undefined; // @str, @prof… salen de este personaje
+    c.send({ t: 'roll', expr: roll[2], ...(roll[1].toLowerCase() === 'rs' ? { secret: true } : {}), ...(own ? { as: own.id } : {}) }); return true;
+  }
   const cmd = /^\/(w|me|ic)\s+(.+)$/is.exec(v);
   if (/^\/(w|me|ic)\b/i.test(v) && !cmd) { c.toast('Falta el texto del comando'); return false; }
   if (cmd) {
@@ -44,6 +47,7 @@ export function chatSendFromInput(text: string, c: ChatCtx): boolean {
  * html ya va escapado; sustituye al contenido del div.msg.
  */
 export function renderChatExtras(m: ChatMsg, name: (id: Id) => string): { cls: string; html: string } | null {
+  if (m.loot) return { cls: 'msg botin', html: `<strong>${esc(m.loot.title)}</strong> <span class="det">botín</span><ul class="filas">${m.loot.lines.map(l => `<li><span class="obj">${esc(l.item)}</span>${l.to ? `<em class="res ok">→ ${esc(l.to)}</em>` : ''}</li>`).join('')}</ul>` };
   if (m.text == null || (!m.to?.length && !m.as && !m.emote)) return null;
   const from = esc(m.as ?? name(m.from)), text = esc(m.text);
   const whisper = m.to?.length ? `<em class="cx-susurro">susurro a ${esc(m.to.map(name).join(', '))}</em> ` : '';

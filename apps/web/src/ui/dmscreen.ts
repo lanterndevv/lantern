@@ -1,3 +1,5 @@
+import { monsterSearch, spellSearch } from './compendium.ts';
+
 // Pantalla del DM: referencia rápida (resúmenes propios). Contenido basado en el SRD 5.2.1, © Wizards of the Coast LLC, CC-BY-4.0.
 type Sec = { id: string; title: string; rows: [string, string][] };
 
@@ -66,6 +68,12 @@ export function mountDmScreen(el: HTMLElement) {
     out.innerHTML = secs.map(({ s, rows }) => `<section aria-labelledby="dms-${s.id}"><h3 id="dms-${s.id}">${esc(s.title)}</h3><dl>${rows.map(([a, b]) => `<dt>${esc(a)}</dt><dd>${esc(b)}</dd>`).join('')}</dl></section>`).join('') || '<p class="det">Sin resultados.</p>';
     n.textContent = `${secs.reduce((a, x) => a + x.rows.length, 0)} entradas en ${secs.length} secciones`;
   };
+  for (const [title, fill] of [['Buscador de conjuros', spellSearch], ['Buscador de monstruos', (b: HTMLElement) => monsterSearch(b)]] as const) { // perezosos: se rellenan al abrir
+    const d = document.createElement('details'), box = document.createElement('div');
+    d.innerHTML = `<summary>${title}</summary>`; d.append(box);
+    d.addEventListener('toggle', () => { if (d.open && !box.hasChildNodes()) fill(box); });
+    el.querySelector('#dms-out')!.before(d);
+  }
   el.querySelector('#dms-q')!.addEventListener('input', e => draw((e.target as HTMLInputElement).value));
   draw('');
 }

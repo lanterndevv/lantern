@@ -7,20 +7,25 @@ export type Role = 'dm' | 'assistant' | 'trusted' | 'player' | 'spectator';
 export type Faction = 'ally' | 'enemy' | 'neutral';
 
 // wall: bloquea vista y paso · door: igual salvo abierta · window: deja ver, no pasar · terrain: deja ver, no pasar
-export type WallKind = 'wall' | 'door' | 'window' | 'terrain';
-export type Wall = { id: Id; a: Point; b: Point; kind: WallKind; open?: boolean; secret?: boolean; locked?: boolean; note?: string; level?: Id }; // note: solo DM · level: planta (ausente = planta base)
+// invisible: bloquea vista, no paso · ethereal: bloquea paso, no vista
+export type WallKind = 'wall' | 'door' | 'window' | 'terrain' | 'invisible' | 'ethereal';
+export type Wall = { id: Id; a: Point; b: Point; kind: WallKind; open?: boolean; secret?: boolean; locked?: boolean; note?: string; level?: Id; oneWay?: 'left' | 'right'; lock?: { dc: number } }; // oneWay: bloquea la vista solo desde ese lado de a→b · note: solo DM · level: planta (ausente = planta base)
 
 export type Light = {
   id: Id; x: number; y: number;
   bright: number; dim: number; // radios en px
   color: string;               // '#ffb85c'
-  anim?: 'none' | 'torch' | 'pulse';
+  anim?: 'none' | 'torch' | 'pulse' | 'candle' | 'magic' | 'lightning';
+  cone?: { dir: number; angle: number }; // luz en cono: dir y apertura total en grados (0 = +x, horario)
   level?: Id;
   burnUntil?: number;          // minuto del reloj del mundo en que se apaga (antorchas); ausente = permanente
   follow?: Id;                 // la luz sigue a este token (antorcha en mano)
 };
 
 export type Hp = { cur: number; max: number; temp: number };
+export type MoveMode = 'walk' | 'fly' | 'swim' | 'climb';
+// Efecto que se recuerda al empezar/acabar el turno del token: salvación repetida, daño continuo, regeneración, o fin de una condición.
+export type TurnEffect = { id: Id; name: string; when: 'start' | 'end'; save?: { ability: Ability; dc: number }; damage?: string; damageType?: string; heal?: string; endsCondition?: string; sourceId?: string };
 
 export type Ability = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
 
@@ -34,8 +39,10 @@ export type Action = {
   save?: { ability: Ability; dc: number; half: boolean }; // kind save
   damage?: string;                     // expresión de dados, p. ej. '2d8' o '1d8+4'
   damageType?: string;                 // 'fire', 'cold', 'slashing'… (ids en inglés, como rules)
-  area?: { shape: 'sphere' | 'cone' | 'line' | 'cube'; size: number }; // pies (radio o lado/largo)
+  area?: { shape: 'sphere' | 'cone' | 'line' | 'cube' | 'cylinder'; size: number }; // cylinder: en 2D es una esfera // pies (radio o lado/largo)
   slot?: number;                       // nivel de espacio de conjuro que gasta (0/ausente = no gasta)
+  school?: string;                     // escuela del conjuro (para el rótulo)
+  condition?: string;                  // condición que aplica a quien falla la salvación (ligada a la concentración del lanzador)
 };
 
 export type Token = {
@@ -45,6 +52,7 @@ export type Token = {
   faction: Faction;
   img?: string;
   hidden: boolean;             // oculto por el DM
+  shape?: 'round' | 'free';    // free: la imagen se dibuja sin máscara circular
   owners: Id[];                // memberIds que lo controlan
   darkvision: number;          // px; 0 = sin visión en la oscuridad
   hp?: Hp;
@@ -71,7 +79,20 @@ export type Token = {
   condRounds?: Record<string, number>;        // rondas restantes por condición (ausente = indefinida)
   exhaustion?: number;                        // nivel de agotamiento 0–6
   concentration?: string;                     // nombre del conjuro que mantiene
+  shielded?: boolean;                         // Escudo activo (+5 CA) hasta el inicio del siguiente turno del lanzador
+  speeds?: Partial<Record<Exclude<MoveMode, 'walk'>, number>>; // velocidades de vuelo/nado/trepa (pies); ausente = no tiene
+  initAdv?: boolean;                          // ventaja en iniciativa (Alerta…)
+  effects?: TurnEffect[];                     // recordatorios de inicio/fin de turno
+  condSource?: Record<string, string>;        // condición → sourceId del conjuro de concentración que la creó
+  hpState?: 'ok' | 'hurt' | 'bloodied' | 'critical' | 'down'; // solo en lo que reciben los jugadores de un enemigo (hpView 'status')
   deathSaves?: { successes: number; failures: number };
+  senses?: { darkvision?: number; blindsight?: number; truesight?: number; tremorsense?: number; devilsSight?: number }; // radios en px
+  edition?: '2014' | '2024';                  // prevalece sobre la de la mesa
+  hitDice?: { die: number; max: number; used: number };
+  lucky?: boolean;                            // rasgo Suerte (mediano): repite un 1 natural
+  inspiration?: boolean;                      // Inspiración heroica: permite repetir una tirada
+  encounter?: string;                         // etiqueta de encuentro: una región 'encounter' con la misma etiqueta lo revela
+  asi?: number;                               // mejoras de característica pendientes tras subir de nivel
 };
 
 // Ajustes de la mesa (los fija el DM).
@@ -79,7 +100,9 @@ export type TableSettings = {
   mode: 'simple' | 'full';                    // Sencillo: mapa, tokens, dados, chat. Completo: todas las capas activas.
   layers: { lighting: boolean; initiative: boolean; automation: boolean; effects: boolean; story: boolean };
   edition: '2014' | '2024';
-  optional: { flanking: boolean; heroPoints: boolean; brutalCrit: boolean; fumbles: boolean; sideInit: boolean };
+  optional: { flanking: boolean; heroPoints: boolean; brutalCrit: boolean; fumbles: boolean; sideInit: boolean; playerInit?: boolean; groupInit?: boolean; playerSaves?: boolean; ghostRoutes?: boolean };
+  hpView?: 'exact' | 'status' | 'none';       // PG de enemigos en el carrusel para los jugadores (por defecto none)
+  diagonal?: 'chebyshev' | 'alt' | 'euclid';  // regla de diagonales (por defecto chebyshev 5-5-5)
   drawing?: 'dm' | 'all';                     // quién puede dibujar de forma persistente (por defecto solo el DM)
 };
 
@@ -92,7 +115,7 @@ export const DEFAULT_SETTINGS: TableSettings = {
 
 // Lo que el puente (extensión Lantern Link) extrae de un personaje de D&D Beyond.
 // Solo estadísticas de juego del propio usuario; nunca texto de reglas ni el token de sesión.
-export type ImportedCharacter = Pick<Token, 'name' | 'hp' | 'ac' | 'speed' | 'initMod' | 'saves' | 'darkvision' | 'actions' | 'slots' | 'defenses' | 'abilities' | 'skills' | 'prof'> & {
+export type ImportedCharacter = Pick<Token, 'name' | 'hp' | 'ac' | 'speed' | 'initMod' | 'saves' | 'darkvision' | 'actions' | 'slots' | 'defenses' | 'abilities' | 'skills' | 'prof' | 'hitDice' | 'lucky'> & {
   ddbId: number; level: number; classes: string; avatar?: string;
 };
 
@@ -101,7 +124,8 @@ export type Combat = {
   round: number;
   turn: number;                                 // índice en order
   order: { tokenId: Id; init: number }[];       // ya ordenado de mayor a menor
-  used: Record<Id, { action: boolean; bonus: boolean; reaction: boolean; moved: number }>; // moved en pies
+  used: Record<Id, { action: boolean; bonus: boolean; reaction: boolean; moved: number; object?: boolean; dash?: number; dodge?: boolean; disengage?: boolean }>; // moved en pies · dash: velocidad extra por Correr
+  awaiting?: Id[];                              // iniciativa pedida a los jugadores: aún sin tirar (el combate no avanza)
 };
 
 // Resultado de una acción, para las tarjetas del registro.
@@ -119,10 +143,12 @@ export type ActionCard = {
   detail?: string;               // texto de las tiradas de daño
   dice?: Die[];                  // todos los dados tirados (d20 de ataque/salvación + daño), para la animación 3D
   pending?: Id;                  // si está esperando confirmación del DM (automatización «asistida»)
+  manual?: boolean;              // automatización manual: sin comparar con CA ni CD; Aplicar/Mitad/Curar
+  awaiting?: Id[];               // objetivos cuyo dueño aún no ha tirado la salvación
   applied: boolean;
 };
 
-export type Grid = { size: number; offsetX: number; offsetY: number; feet: number };
+export type Grid = { type?: 'square' | 'hex' | 'none'; /* hex = filas (pointy-top); ausente = square */ size: number; offsetX: number; offsetY: number; feet: number };
 
 export type Scene = {
   id: Id; name: string;
@@ -142,6 +168,7 @@ export type Scene = {
   audioPreset?: AudioState;    // música/ambiente que se activan con la escena
   dmNotes?: string;            // notas del DM de la escena (solo DM)
   story?: { image?: string; title?: string; subtitle?: string }; // ilustración del modo Historia
+  pins?: { id: Id; x: number; y: number; entryId: Id }[]; // marcadores enlazados a entradas del diario (el jugador solo recibe los de entradas que puede leer)
 };
 
 // Región del mapa con comportamiento. points = polígono en px de mundo.
@@ -161,8 +188,12 @@ export type Region = {
   text?: string;                            // message (lo ve quien entra) / descripción
   level?: Id;                               // planta de la región
   toLevel?: Id;                             // teleport/escalera: planta de destino (con `to` o misma posición)
-  trigger?: 'enter' | 'turnStart' | 'turnEnd'; // cuándo se dispara (por defecto al entrar); turnStart/End: áreas persistentes (Espíritus guardianes…)
+  fx?: 'fire' | 'web' | 'fog' | 'ice' | 'brambles'; // efecto visual persistente en bucle dentro de la región
+  trigger?: 'enter' | 'exit' | 'interact' | 'turnStart' | 'turnEnd'; // cuándo se dispara (por defecto al entrar); turnStart/End: áreas persistentes (Espíritus guardianes…)
+  action?: 'silence' | 'doc' | 'scene' | 'encounter'; // efecto extra: silencio (sin conjuros verbales), mostrar documento, cambiar de escena, revelar encuentro
+  docId?: Id; sceneId?: Id; encounter?: string;       // parámetros de action
   untilRound?: number;                      // se borra al acabar esa ronda (conjuros con duración)
+  sourceId?: string;                        // conjuro de concentración que la creó (`conc:<tokenId>`): se borra al romperse
 };
 
 export type Drawing = { id: Id; points: Point[]; color: string; width: number; by: Id; level?: Id };
@@ -173,6 +204,7 @@ export type JournalEntry = {
   visibleTo: 'dm' | 'all' | Id[];            // quién puede leerla
   table?: { dice: string; rows: { min: number; max: number; text: string }[] }; // tabla aleatoria («1d6», filas por rango)
   folder?: string;
+  pdf?: string;                              // /assets/….pdf: se muestra en un visor
 };
 
 export type LibraryItem = { id: Id; name: string; folder?: string; active: boolean; tokens: number; walls: number; background?: string };
@@ -187,7 +219,7 @@ export type SessionSummary = {
   xp?: number;                 // PX de los enemigos derrotados (SRD)
 };
 
-export type Weather = { kind: 'none' | 'rain' | 'snow' | 'fog' | 'ash' | 'storm' | 'leaves' | 'embers'; intensity: number; wind: number }; // intensity 0–1, wind −1…1
+export type Weather = { kind: 'none' | 'rain' | 'snow' | 'fog' | 'ash' | 'storm' | 'leaves' | 'embers' | 'fireflies' | 'sand' | 'dust'; intensity: number; wind: number }; // intensity 0–1, wind −1…1
 
 // Audio compartido: el servidor marca los tiempos con su reloj; cada cliente calcula dónde va la pista.
 export type AudioState = {
@@ -211,7 +243,7 @@ export type ClientState = {
   scene: Scene;
   visible?: Point[][];         // polígonos de visión del grupo (ausente para DM)
   combat?: Combat;             // filtrado: sin tokens que el miembro no pueda ver
-  automation: 'assisted' | 'auto';
+  automation: 'assisted' | 'auto' | 'manual';
   settings: TableSettings;
   view: 'tactical' | 'story';
   audio: AudioState;
@@ -221,6 +253,7 @@ export type ClientState = {
   safety: { lines: string[]; veils: string[] }; // líneas y velos de la mesa (anónimos)
   sessionStart?: number;       // ms del servidor en que empezó la sesión actual
   copilot: boolean;            // hay un modelo configurado en el servidor
+  livekit?: boolean;           // el servidor ofrece voz SFU (LiveKit); si no, la voz es malla WebRTC
   clock: number;               // reloj del mundo en minutos desde el inicio de la campaña (día = floor(/1440))
   canUndo: boolean;            // hay algo que deshacer para este miembro
 };
@@ -231,27 +264,37 @@ export type ChatMsg = {
   to?: Id[];                   // susurro: solo estos miembros (y el DM) lo ven
   as?: string;                 // en personaje: nombre del token con el que habla
   emote?: boolean;             // /me: acción narrada
-  roll?: { expr: string; total: number; detail: string; secret: boolean; dice?: Die[]; blind?: boolean; external?: 'beyond20' }; // blind: ni quien tira lo ve · external: tirada hecha fuera (confianza del cliente)
+  roll?: { expr: string; total: number; detail: string; secret: boolean; dice?: Die[]; blind?: boolean; external?: 'beyond20'; rerolled?: true }; // blind: ni quien tira lo ve · external: tirada hecha fuera (confianza del cliente)
   card?: ActionCard;
+  loot?: { title: string; lines: { item: string; to?: string }[] }; // tarjeta de botín con su reparto
 };
 
 // Cliente → servidor
 export type C2S =
   // sin code → crea mesa nueva y quien la crea es DM. key = secreto devuelto en welcome, para reconectar.
-  | { t: 'join'; code?: string; name: string; key?: string; as?: 'spectator' } // as: entra como espectador (pantalla de mesa física, streaming)
-  | { t: 'moveToken'; id: Id; x: number; y: number }
+  | { t: 'join'; code?: string; name: string; key?: string; as?: 'spectator'; sid?: string } // sid: sesión de la pestaña, para no duplicar reenvíos // as: entra como espectador (pantalla de mesa física, streaming)
+  | { t: 'moveToken'; id: Id; x: number; y: number; path?: Point[]; mode?: MoveMode } // path: puntos de paso intermedios (el destino es x,y)
   | { t: 'upsert'; kind: 'token'; item: Token }
   | { t: 'upsert'; kind: 'wall'; item: Wall }
   | { t: 'upsert'; kind: 'light'; item: Light }
   | { t: 'remove'; kind: 'token' | 'wall' | 'light'; id: Id }
   | { t: 'door'; id: Id; open: boolean }
   | { t: 'chat'; text: string; to?: Id[]; as?: Id; emote?: boolean } // as = token propio para hablar en personaje
-  | { t: 'roll'; expr: string; secret?: boolean }
+  | { t: 'roll'; expr: string; secret?: boolean; as?: Id } // as: token cuyas @variables (@str, @prof…) se usan
   | { t: 'ping'; x: number; y: number }
   | { t: 'claim'; tokenId: Id }                                      // jugador elige un aliado sin dueño
   | { t: 'combat'; op: 'start' | 'next' | 'prev' | 'end' }           // DM
   | { t: 'combat'; op: 'delay'; tokenId: Id }                       // dueño en su turno (o DM): retrasa hasta después del siguiente
   | { t: 'combat'; op: 'add' | 'remove'; tokenId: Id }               // DM: meter/sacar una criatura en caliente
+  | { t: 'combat'; op: 'group' | 'split'; tokenId: Id }              // DM: agrupar (misma iniciativa) o separar (tirada propia) a los monstruos idénticos a tokenId
+  | { t: 'combat'; op: 'move'; tokenId: Id; to: number }             // DM: reordenar el tracker
+  | { t: 'combat'; op: 'forceInit' | 'undoTurn' }                    // DM: tira lo que falta de iniciativa / deshace el último turno real
+  | { t: 'rollInit'; tokenId: Id }                                   // dueño: tira su iniciativa cuando la mesa lo pide
+  | { t: 'answerSave'; pending: Id; tokenId: Id }                    // dueño: tira la salvación de una tarjeta que la espera
+  | { t: 'route'; tokenId: Id; points: Point[] }                     // ruta planificada mientras se arrastra (fantasma para los demás)
+  | { t: 'turnAction'; tokenId: Id; op: 'dodge' | 'dash' | 'disengage' | 'hide' | 'useObject' }
+  | { t: 'budget'; tokenId: Id; slot: 'action' | 'bonus' | 'reaction' | 'object'; used: boolean } // corrección manual del presupuesto
+  | { t: 'effect'; op: 'add'; tokenId: Id; effect: Omit<TurnEffect, 'id'> } | { t: 'effect'; op: 'apply' | 'dismiss'; tokenId: Id; effectId: Id } // add: DM
   | { t: 'legendary'; tokenId: Id; op: 'use' | 'reset' }             // DM
   | { t: 'react'; pending: Id; tokenId: Id; actionId: Id }           // dueño del objetivo: reacción (Escudo) sobre una tarjeta aún pendiente
   | { t: 'draw'; item: Drawing; persist: boolean }                   // dibujo: efímero (5 s, solo difusión) o persistente
@@ -265,15 +308,15 @@ export type C2S =
   | { t: 'moveMany'; moves: { id: Id; x: number; y: number }[] }     // mover un grupo en formación (mismas reglas que moveToken)
   | { t: 'carry'; tokenId: Id; by: Id | null }                       // montura/agarre: tokenId pasa a moverse con `by`
   | { t: 'spawnCustom'; monster: ImportedCharacter & { cr?: string; size?: number; srdLike?: true }; x: number; y: number; hidden?: boolean } // DM: monstruo traído de su cuenta DDB
-  | { t: 'act'; tokenId: Id; actionId: Id; targets: Id[] }           // resolver una acción
-  | { t: 'confirm'; pending: Id; mode: 'full' | 'half' | 'none' }     // DM confirma daño pendiente
+  | { t: 'act'; tokenId: Id; actionId: Id; targets: Id[]; at?: Point; dir?: Point } // resolver una acción · at/dir: punto y dirección de la plantilla (el servidor calcula los objetivos)
+  | { t: 'confirm'; pending: Id; mode: 'full' | 'half' | 'none' | 'heal' } // heal: solo tarjetas manuales     // DM confirma daño pendiente
   | { t: 'spawn'; srd: string; x: number; y: number; hidden?: boolean } // DM añade monstruo del SRD
-  | { t: 'automation'; value: 'assisted' | 'auto' }                   // DM
+  | { t: 'automation'; value: 'assisted' | 'auto' | 'manual' }                   // DM
   | { t: 'diceTheme'; theme: DiceTheme }                              // cada miembro elige su set
   | { t: 'importCharacter'; tokenId: Id; data: ImportedCharacter }   // dueño del token (o DM): aplica un personaje de DDB
   | { t: 'settings'; patch: Partial<Omit<TableSettings, 'layers' | 'optional'>> & { layers?: Partial<TableSettings['layers']>; optional?: Partial<TableSettings['optional']> } } // DM
   | { t: 'setRole'; memberId: Id; role: Role }                        // DM
-  | { t: 'condition'; tokenId: Id; condition: string; on: boolean; rounds?: number } // DM, o dueño sobre su token
+  | { t: 'condition'; tokenId: Id; condition: string; on: boolean; rounds?: number; saveEnd?: { ability: Ability; dc: number }; sourceId?: string } // DM, o dueño sobre su token
   | { t: 'hp'; tokenId: Id; delta: number; kind: 'damage' | 'heal' | 'temp'; damageType?: string } // DM, o dueño sobre su token
   | { t: 'concentration'; tokenId: Id; spell: string | null }        // dueño o DM
   | { t: 'deathSave'; tokenId: Id }                                   // dueño en su turno (o DM)
@@ -313,11 +356,26 @@ export type C2S =
   | { t: 'copilot'; op: 'monsterTurn'; tokenId: Id; rid: string }     // DM: propone el turno de un monstruo
   | { t: 'copilot'; op: 'rules'; question: string; rid: string }      // cualquiera: duda de reglas (contexto = lo que ve quien pregunta)
   | { t: 'copilot'; op: 'npc'; prompt: string; rid: string }          // DM: nombre/descripción/voz de un PNJ
-  | { t: 'copilot'; op: 'recap'; rid: string };                       // DM: resumen narrativo de la sesión → diario
+  | { t: 'copilot'; op: 'recap'; rid: string }
+  | { t: 'livekit' }
+  // fase 11 (extras.ts)
+  | { t: 'reroll'; msgId: Id; kind: 'inspiration' | 'lucky'; tokenId: Id } // repite el d20 de una tirada propia
+  | { t: 'rest'; tokenId: Id; kind: 'short' | 'long'; spend?: number }  // spend = dados de golpe a gastar (corto)
+  | { t: 'requestRest'; kind: 'short' | 'long' }                        // DM: pide descanso a todo el grupo
+  | { t: 'levelUp'; tokenId: Id; cls: string; hp: 'average' | 'roll' }
+  | { t: 'abilityUp'; tokenId: Id; a: Ability; b?: Ability }            // gasta una mejora pendiente: +2 a `a` o +1 a `a` y `b`
+  | { t: 'myChar'; data: ImportedCharacter }                            // personaje pregenerado o importado: a tu token, a uno libre o uno nuevo
+  | { t: 'unlock'; wallId: Id; tokenId: Id; tool: 'athletics' | 'thieves' } // prueba contra la cerradura de una puerta
+  | { t: 'interact'; tokenId: Id }                                      // dispara las regiones 'interact' bajo el token
+  | { t: 'asPlayer'; memberId: Id | null }                              // DM: pide el estado filtrado de ese jugador (null = el propio)
+  | { t: 'loot'; title: string; lines: { item: string; to?: string }[] } // DM
+  | { t: 'docView'; entryId: Id; zoom: number; page?: number }          // DM: zoom sincronizado del visor PDF
+  | { t: 'pin'; op: 'add'; x: number; y: number; entryId: Id } | { t: 'pin'; op: 'remove'; id: Id } // DM
+  | { t: 'backup'; op: 'list' | 'now' } | { t: 'backup'; op: 'restore'; name: string }; // DM                                                 // miembro: pide token de voz SFU (solo si state.livekit)                       // DM: resumen narrativo de la sesión → diario
 
 // Servidor → cliente
 export type S2C =
-  | { t: 'welcome'; memberId: Id; key: string; role: Role; state: ClientState; chat: ChatMsg[]; v: number } // v = PROTOCOL_VERSION del servidor
+  | { t: 'welcome'; memberId: Id; key: string; role: Role; state: ClientState; chat: ChatMsg[]; v: number; seq?: number } // v = PROTOCOL_VERSION del servidor; seq = último mensaje recibido de esta sid
   | { t: 'state'; state: ClientState }   // ponytail: estado completo filtrado en cada cambio; diffs cuando pese
   | { t: 'chat'; msg: ChatMsg }
   | { t: 'ping'; from: Id; x: number; y: number }
@@ -333,11 +391,20 @@ export type S2C =
   | { t: 'focus'; x: number; y: number }                                // el DM mueve la cámara de todos
   | { t: 'reactionPrompt'; pending: Id; tokenId: Id; actionId: Id; text: string; expires: number } // «¿Usas Escudo?»
   | { t: 'safety'; op: 'x' }                                           // tarjeta X: todos ven la pausa (sin autor)
+  | { t: 'route'; tokenId: Id; points: Point[] }                        // ruta planificada por otro jugador
+  | { t: 'turnReminder'; tokenId: Id; phase: 'start' | 'end'; effects: TurnEffect[] } // al dueño y al DM
+  | { t: 'saveRequest'; pending: Id; tokenId: Id; ability: Ability; dc: number; text: string; expires: number } // al dueño: tira tu salvación
+  | { t: 'spellBanner'; name: string; school?: string; level?: number; caster: string }
   | { t: 'checkRequest'; id: Id; tokenIds: Id[]; kind: 'save' | 'skill' | 'ability'; key: string; label: string; dc?: number } // a los dueños
   | { t: 'sessionSummary'; summary: SessionSummary }
   | { t: 'copilot'; rid: string; ok: true; text?: string; turn?: CopilotTurn }
   | { t: 'copilot'; rid: string; ok: false; error: string }
-  | { t: 'error'; msg: string };
+  | { t: 'error'; msg: string }
+  | { t: 'livekit'; url: string; token: string }
+  | { t: 'restRequest'; kind: 'short' | 'long' }
+  | { t: 'asState'; memberId: Id | null; state: ClientState } // respuesta a asPlayer
+  | { t: 'docView'; entryId: Id; zoom: number; page?: number }
+  | { t: 'backups'; list: { name: string; at: number; size: number }[] };                    // respuesta a C2S livekit: URL del SFU y JWT de acceso
 
 // Versión del protocolo: sube cuando un cambio rompe clientes viejos; el cliente ofrece recargar si no coincide.
 export const PROTOCOL_VERSION = 1;
@@ -353,8 +420,10 @@ export type ExtensionManifest = {
 
 export const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // sin 0/O/1/I/L
 
-export const blocksSight = (w: Wall) =>
-  (w.kind === 'wall' || (w.kind === 'door' && !w.open));
+// from: origen de la vista, para los muros de una dirección (izquierda = lado con cruce a→b positivo)
+export const blocksSight = (w: Wall, from?: Point) =>
+  (w.kind === 'wall' || w.kind === 'invisible' || (w.kind === 'door' && !w.open)) &&
+  (!w.oneWay || !from || (((w.b.x - w.a.x) * (from.y - w.a.y) - (w.b.y - w.a.y) * (from.x - w.a.x)) > 0) === (w.oneWay === 'left'));
 
 export const blocksMove = (w: Wall) =>
-  w.kind !== 'door' || !w.open;
+  w.kind !== 'invisible' && (w.kind !== 'door' || !w.open);

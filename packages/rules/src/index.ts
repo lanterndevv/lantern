@@ -1,49 +1,95 @@
 // Reglas D&D 5e: tiradas de dados y núcleo de reglas (funciones puras).
 
 // ---------- Dados ----------
-import type { Die } from '@lantern/protocol';
-const TERM = /^(\d*)d(\d+)(?:k([hl])(\d+))?$|^\d+$/;
+// Sintaxis: [N#]expr · término NdX[khN|klN|!|rN|minN|maxN]* · constantes · @var (contexto: @str, @prof, @lvl…).
+// ! explota en el máximo · rN repite una vez los dados ≤ N · minN/maxN acotan cada dado · N# repite la expresión N veces.
+import type { Die, Token } from '@lantern/protocol';
+const DICE = /^(\d*)d(\d+)((?:k[hl]\d+|!|r\d+|min\d+|max\d+)*)$/;
+const MOD = /k[hl]\d+|!|r\d+|min\d+|max\d+/g;
+const MAX_DICE = 100;
 
-export function roll(expr: string, rng: () => number = Math.random): { total: number; detail: string; dice: Die[] } {
-  const src = String(expr).toLowerCase().replace(/\s+/g, '');
-  if (!src || !/^[+-]?[^+-]+([+-][^+-]+)*$/.test(src)) throw new Error(`Expresión de dados no válida: "${expr}"`);
+export type DiceContext = Record<string, number>;
+const ABILITY_IDS: Ability[] = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
+/** Variables de dados de una ficha: @str… = modificadores, @prof y @lvl. */
+export function diceContext(t: { abilities?: Token['abilities']; prof?: number; lvl?: number }): DiceContext {
+  const c: DiceContext = { prof: t.prof ?? 0, lvl: t.lvl ?? 0 };
+  for (const a of ABILITY_IDS) c[a] = t.abilities ? Math.floor((t.abilities[a] - 10) / 2) : 0;
+  return c;
+}
+
+function once(src: string, rng: () => number, budget: { count: number }): { total: number; body: string; dice: Die[] } {
+  if (!src || !/^[+-]?[^+-]+([+-][^+-]+)*$/.test(src)) throw new Error(`Expresión de dados no válida: "${src}"`);
   const parts = src.match(/[+-]?[^+-]+/g)!;
   if (parts.length > 20) throw new Error('Demasiados términos (máximo 20)');
   let total = 0;
-  let count = 0;
   const dice: Die[] = [];
-  let detail = '';
+  let body = '';
   parts.forEach((p, i) => {
     const sign = p.startsWith('-') ? -1 : 1;
-    const body = p.replace(/^[+-]/, '');
-    const m = TERM.exec(body);
-    if (!m) throw new Error(`Término no válido: "${body}"`);
+    const t = p.replace(/^[+-]/, '');
     const op = sign < 0 ? '-' : i > 0 ? '+' : '';
-    if (m[2] === undefined) {
-      total += sign * Number(body);
-      detail += op + body;
+    if (/^\d+$/.test(t)) {
+      total += sign * Number(t);
+      body += op + t;
       return;
     }
+    const m = DICE.exec(t);
+    if (!m) throw new Error(`Término no válido: "${t}"`);
     const n = m[1] === '' ? 1 : Number(m[1]);
     const faces = Number(m[2]);
     if (n < 1) throw new Error('Debe haber al menos un dado');
     if (faces < 2 || faces > 1000) throw new Error('Las caras del dado deben estar entre 2 y 1000');
-    count += n;
-    if (count > 100) throw new Error('Demasiados dados (máximo 100)');
-    const rolls = Array.from({ length: n }, () => Math.floor(rng() * faces) + 1);
-    const keep = new Array<boolean>(n).fill(true);
-    if (m[3]) {
-      const k = Number(m[4]);
-      if (k < 1 || k > n) throw new Error(`Modificador kh/kl no válido: quedarse con ${k} de ${n} dados`);
-      const order = rolls.map((_, j) => j).sort((a, b) => (m[3] === 'h' ? rolls[b] - rolls[a] : rolls[a] - rolls[b]));
-      order.slice(k).forEach((j) => (keep[j] = false));
+    budget.count += n;
+    if (budget.count > MAX_DICE) throw new Error(`Demasiados dados (máximo ${MAX_DICE})`);
+    let keep: string | undefined, k = 0, explode = false, rr = 0, lo = -Infinity, hi = Infinity;
+    for (const x of m[3].match(MOD) ?? []) {
+      if (x === '!') explode = true;
+      else if (x.startsWith('min')) lo = Number(x.slice(3));
+      else if (x.startsWith('max')) hi = Number(x.slice(3));
+      else if (x[0] === 'r') rr = Number(x.slice(1));
+      else { keep = x[1]; k = Number(x.slice(2)); }
     }
-    const sum = rolls.reduce((s, r, j) => s + (keep[j] ? r : 0), 0);
-    total += sign * sum;
-    rolls.forEach((value, j) => dice.push({ sides: faces, value, kept: keep[j] }));
-    detail += op + '[' + rolls.map((r, j) => (keep[j] ? String(r) : `~~${r}~~`)).join(',') + ']';
+    if (keep && (k < 1 || k > n)) throw new Error(`Modificador kh/kl no válido: quedarse con ${k} de ${n} dados`);
+    const list: { value: number; kept: boolean }[] = [];
+    const live: number[] = []; // índices de list que cuentan para kh/kl
+    const draw = () => {
+      let v = Math.floor(rng() * faces) + 1;
+      if (v <= rr) { list.push({ value: v, kept: false }); v = Math.floor(rng() * faces) + 1; }
+      const raw = v;
+      live.push(list.push({ value: Math.min(hi, Math.max(lo, v)), kept: true }) - 1);
+      return raw;
+    };
+    for (let j = 0; j < n; j++) {
+      let raw = draw();
+      while (explode && raw === faces && budget.count < MAX_DICE) { budget.count++; raw = draw(); }
+    }
+    if (keep) live.sort((a, b) => (keep === 'h' ? list[b].value - list[a].value : list[a].value - list[b].value)).slice(k).forEach((j) => (list[j].kept = false));
+    total += sign * list.reduce((s, d) => s + (d.kept ? d.value : 0), 0);
+    list.forEach((d) => dice.push({ sides: faces, value: d.value, kept: d.kept }));
+    body += op + '[' + list.map((d) => (d.kept ? String(d.value) : `~~${d.value}~~`)).join(',') + ']';
   });
-  return { total, detail: `${src} → ${detail} = ${total}`, dice };
+  return { total, body, dice };
+}
+
+export function roll(expr: string, rng: () => number = Math.random, ctx: DiceContext = {}): { total: number; detail: string; dice: Die[]; totals?: number[] } {
+  let src = String(expr).toLowerCase().replace(/\s+/g, '');
+  const rep = /^(\d+)#/.exec(src);
+  if (rep) src = src.slice(rep[0].length);
+  const expanded = src
+    .replace(/@([a-z]+)/g, (_, k: string) => {
+      const key = Object.keys(ctx).filter((c) => k.startsWith(c)).sort((x, y) => y.length - x.length)[0]; // '@lvld6' = @lvl + 'd6'
+      if (!key) throw new Error(`Variable no definida: @${k}`);
+      return String(Math.trunc(ctx[key])) + k.slice(key.length);
+    })
+    .replace(/\+-/g, '-').replace(/--/g, '+');
+  const times = rep ? Number(rep[1]) : 1;
+  if (times < 1 || times > 20) throw new Error('Las repeticiones deben estar entre 1 y 20');
+  const budget = { count: 0 };
+  const rs = Array.from({ length: times }, () => once(expanded, rng, budget));
+  const total = rs.reduce((s, r) => s + r.total, 0);
+  const dice = rs.flatMap((r) => r.dice);
+  if (!rep) return { total, detail: `${src} → ${rs[0].body} = ${total}`, dice };
+  return { total, detail: `${rep[0]}${src} → ${rs.map((r) => `${r.body} = ${r.total}`).join(' | ')}`, dice, totals: rs.map((r) => r.total) };
 }
 
 // ---------- Condiciones ----------
@@ -158,3 +204,4 @@ export const exhaustion2014Effects = (level: number): string[] => EX2014.slice(0
 export * from './combat.ts';
 export * from './encounter.ts';
 export * from './area.ts';
+export * from './rest.ts';

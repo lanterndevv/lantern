@@ -2,6 +2,7 @@ import type { Ability, C2S, Token } from '@lantern/protocol';
 import { CONDITIONS, SKILLS } from '@lantern/rules';
 import { openCreator } from './creator.ts';
 import { tokenImagePicker } from './draw.ts';
+import { mountSheetExtras } from './sheetx.ts';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 const AB: Record<Ability, string> = { str: 'FUE', dex: 'DES', con: 'CON', int: 'INT', wis: 'SAB', cha: 'CAR' };
@@ -36,6 +37,7 @@ export function mountSheet(el: HTMLElement, cx: Ctx) {
     <div id="sh-hp" class="sr" role="status" aria-live="polite"></div>
     <div id="sh-img"></div>
     <div id="sh-dyn"></div>
+    <div id="sh-x"></div>
     <div id="sh-forms" hidden>
       <form id="sh-cond" class="fila"><label>Condición<select id="sh-cid">${Object.entries(CONDITIONS).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</select></label>
         <label>Rondas (opcional)<input id="sh-cr" type="number" min="1" inputmode="numeric"></label>
@@ -46,11 +48,12 @@ export function mountSheet(el: HTMLElement, cx: Ctx) {
       <button type="button" id="sh-crear" class="secondary">Crear personaje</button>
     </div>`;
   const q = <T extends HTMLElement>(id: string) => el.querySelector<T>('#' + id)!;
+  const sx = mountSheetExtras(q('sh-x'), cx);
   let lastHp = '', lastId = '', imgId = '';
   const render = () => {
     const t = cx.token();
     q('sh-vacio').hidden = !!t; q('sh-forms').hidden = !t;
-    if (!t) { q('sh-dyn').replaceChildren(); q('sh-img').replaceChildren(); imgId = ''; return; }
+    if (!t) { q('sh-dyn').replaceChildren(); q('sh-img').replaceChildren(); imgId = ''; sx.render(); return; }
     if (t.id !== imgId) { // el selector de imagen es estático: solo se rehace al cambiar de token (si no, se pierde el estado de la subida)
       imgId = t.id;
       q('sh-img').replaceChildren(...(dm || t.owners.includes(cx.memberId) ? [tokenImagePicker(t, cx)] : []));
@@ -86,6 +89,7 @@ export function mountSheet(el: HTMLElement, cx: Ctx) {
     }).join('')}</ul>` : '<p class="det">Sin condiciones.</p>';
     const ds = t.deathSaves && hp?.cur === 0 ? deathSavesHtml(t) : '';
     q('sh-dyn').innerHTML = head + abl + svs + sks + exh + '<h3>Condiciones</h3>' + conds + ds;
+    sx.render();
   };
   el.addEventListener('click', e => {
     const b = (e.target as HTMLElement).closest('button'); const t = cx.token();

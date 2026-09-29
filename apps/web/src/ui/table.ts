@@ -1,6 +1,6 @@
-import type { C2S, Action, ImportedCharacter, ActionCard, Ability, ChatMsg, ClientState, DiceTheme, Id, Member, Point, Role, S2C, Token } from '@lantern/protocol';
+import type { C2S, Action, ImportedCharacter, ActionCard, Ability, ChatMsg, ClientState, DiceTheme, Id, Member, MoveMode, Point, Role, S2C, Token } from '@lantern/protocol';
 import { MONSTERS } from '@lantern/srd';
-import { createTable } from '../render/table.ts';
+import type { Table, TableOptions } from '../render/api.ts';
 import { net } from '../net.ts';
 import { DICE } from '../dice/themes.ts';
 import { ddbCharacterId } from '@lantern/protocol/link';
@@ -23,8 +23,8 @@ import { mountClock, torchButton } from './clock.ts';
 import { mountDmScreen } from './dmscreen.ts';
 import { mountDdbMonsters } from './ddbmonsters.ts';
 import { mountLasso } from './select.ts';
-import { mountDock } from './dock.ts';
-import { legendaryPips, bindLegendary, combatExtras, combat2RadialItems, pickToken, reactionPrompt, templateTargeting, type C2Ctx } from './combat2.ts';
+import { isPopout, mountDock } from './dock.ts';
+import { legendaryPips, bindLegendary, bindReorder, combatExtras, combatOptions, combat2RadialItems, pickToken, reactionPrompt, spellBanner, templateTargeting, tokenBar, turnReminder, moveRuler, acOf, hpText, type C2Ctx } from './combat2.ts';
 import { mountExtensions, openInstaller } from '../ext/host.ts';
 import { mountLevels } from './levels.ts';
 import { mountCopilot } from './copilot.ts';
@@ -32,7 +32,7 @@ import { mountVoicesToggle, speakNpc } from './voices.ts';
 import { mountBeyond20 } from '../beyond20.ts';
 import { showLobby } from './lobby.ts';
 import { mountSafety, handleSafety, checkProtocol } from './safety.ts';
-import { mountCheckRequester, handleCheckRequest, rollBadges, heroButton } from './checks.ts';
+import { mountCheckRequester, handleCheckRequest, handleSaveRequest, rollBadges, heroButton } from './checks.ts';
 import { showSummary, sessionEndButton } from './summary.ts';
 import { linkCurrentTable } from './account.ts';
 import { mountPalette, defaultCommands } from './palette.ts';
@@ -68,17 +68,17 @@ function cardHtml(c: ActionCard, canConfirm: boolean) {
     const a = t.attack, sv = t.save;
     const at = a ? `<span class="d20" title="d20 ${a.d20}${a.mode === 'normal' ? '' : a.mode === 'adv' ? ' (ventaja)' : ' (desventaja)'}">${a.d20}</span>
       <strong class="tot">${a.total}</strong>
-      <em class="res ${a.hit ? 'ok' : 'ko'}">${a.crit ? 'Crítico' : a.hit ? '¡Impacto!' : 'Fallo'}</em>` : '';
+      ${c.manual ? (a.d20 === 20 ? '<em class="res ok">20 natural</em>' : a.d20 === 1 ? '<em class="res ko">1 natural</em>' : '') : `<em class="res ${a.hit ? 'ok' : 'ko'}">${a.crit ? 'Crítico' : a.hit ? '¡Impacto!' : 'Fallo'}</em>`}` : '';
     const sa = sv ? `<span class="det">${AB[sv.ability]}${sv.dc != null ? ` CD ${sv.dc}` : ''}: <strong class="tot">${sv.total}</strong></span>
-      <em class="res ${sv.success ? 'ok' : 'ko'}">${sv.success ? 'Supera' : 'Falla'}</em>` : '';
+      ${c.manual ? '' : `<em class="res ${sv.success ? 'ok' : 'ko'}">${sv.success ? 'Supera' : 'Falla'}</em>`}` : c.awaiting?.includes(t.id) ? '<em class="det">tira su salvación…</em>' : '';
     const am = t.amount ? `<strong class="amt" style="color:${col}">${c.kind === 'heal' ? '+' : '−'}${t.amount}${c.kind === 'heal' ? '' : ' ' + esc(dmgName(c.damageType))}</strong>` : '';
     const cv = t.cover === 2 || t.cover === 5 ? `<span class="chip cob"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 1l6 2v5c0 3-2.5 5.5-6 7-3.5-1.5-6-4-6-7V3z" fill="currentColor"/></svg>Cobertura ${t.cover === 2 ? '½ (+2)' : '¾ (+5)'}</span>` : '';
     return `<li><span class="obj">${esc(t.name)}</span>${cv}${at}${sa}${am}</li>`;
   }).join('');
   const btns = c.pending && !c.applied && canConfirm
     ? `<div class="conf" data-p="${esc(c.pending)}"><button class="primary" data-m="full" type="button">Aplicar</button>
-       <button data-m="half" type="button">Mitad</button><button class="secondary" data-m="none" type="button">Nada</button></div>` : '';
-  const st = c.applied ? '' : c.pending ? '<em class="det">Pendiente de confirmar</em>' : '';
+       <button data-m="half" type="button">Mitad</button>${c.manual ? '<button data-m="heal" type="button">Curar</button>' : ''}<button class="secondary" data-m="none" type="button">Nada</button></div>` : '';
+  const st = c.applied ? '' : c.awaiting?.length ? '<em class="det">Esperando salvaciones de los jugadores</em>' : c.pending ? '<em class="det">Pendiente de confirmar</em>' : '';
   return `<div class="cab"><span class="quien">${esc(c.actorName)}</span> ${esc(c.actionName)}</div>
     <ul class="filas">${rows}</ul>${c.detail ? `<div class="det">${esc(c.detail)}</div>` : ''}${st}${btns}`;
 }
@@ -151,9 +151,10 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
           <section id="dm" class="dm" aria-label="Controles del DM" hidden>
             <div class="dmbtns" id="cbt">
               <button type="button" data-op="start">Empezar combate</button><button type="button" data-op="next">Siguiente turno</button>
-              <button type="button" data-op="prev">Turno anterior</button><button type="button" data-op="end">Terminar combate</button>
+              <button type="button" data-op="prev">Turno anterior</button><button type="button" data-op="undoTurn">Deshacer turno</button><button type="button" data-op="end">Terminar combate</button>
             </div>
-            <button id="auto" type="button" role="switch" aria-checked="false"></button>
+            <button id="auto" type="button" aria-live="polite"></button>
+            <div id="c2opts"></div>
             <label for="buscar">Buscar monstruo</label>
             <input id="buscar" type="search" autocomplete="off">
             <label class="chk"><input type="checkbox" id="oculto"> Oculto</label>
@@ -171,7 +172,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   let tt = 0;
   const $ = <T extends HTMLElement>(id: string) => root.querySelector<T>('#' + id)!;
   // three.js (~550 kB) se carga aparte, sin retrasar la entrada a la mesa
-  const trayP = import('../dice/dice3d.ts').then(d => d.createDiceTray($('mapa')));
+  const popout = !!isPopout(); // ventana aparte: sin renderer ni dados 3D; las promesas de mesa/bandeja no resuelven nunca
+  const trayP = popout ? new Promise<never>(() => {}) : import('../dice/dice3d.ts').then(d => d.createDiceTray($('mapa')));
   const name = (id: string) => state.members.find(m => m.id === id)?.name ?? '???';
 
   // Estado de interacción
@@ -193,8 +195,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     const t = $('toast'); t.textContent = msg; t.classList.remove('sel'); t.classList.add('show');
     clearTimeout(tt); tt = window.setTimeout(() => t.classList.remove('show'), ms);
   };
-  const fire = (tokenId: Id, actionId: Id, tg: Id[]) => {
-    net.send({ t: 'act', tokenId, actionId, targets: tg });
+  const fire = (tokenId: Id, actionId: Id, tg: Id[], extra?: { at: Point; dir?: Point }) => {
+    net.send({ t: 'act', tokenId, actionId, targets: tg, ...extra });
     armed = undefined; targets = []; tpl?.cancel(); tpl = undefined; renderHud(); marks();
   };
   const atArea = (x: number, y: number) => tpl?.click(x, y);
@@ -204,8 +206,12 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     armed = undefined; spawn = undefined; renderHud(); renderMonsters(); marks();
   };
 
-  const table = createTable($('mapa'), {
+  let ruler: ReturnType<typeof moveRuler> | undefined; // regla viva del arrastre (se monta tras createTable)
+  let bar: ReturnType<typeof tokenBar> | undefined, co: ReturnType<typeof combatOptions> | undefined; // barra de token y opciones de combate (tras c2)
+  // onDrag: el renderer avisa del arrastre con la ruta (inicio + puntos de paso + posición actual) para la regla viva; onMoveToken puede traer path/mode
+  const tableOpts: Omit<TableOptions, 'onMoveToken'> & { onMoveToken(id: Id, x: number, y: number, path?: Point[], mode?: MoveMode): void; onDrag?(id: Id, points: Point[]): void } = {
     role: w.role, memberId: w.memberId,
+    onDrag: (id, pts) => ruler?.drag(id, pts),
     onTokenClick: (id, shift) => {
       if (pickToken(id)) return;
       const t = tok(id); if (!t) return;
@@ -215,7 +221,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
         return fire(armed.tok, armed.a.id, [...new Set([...targets, id])]);
       }
       selected = id; targets = shift ? [...new Set([...targets, id])] : [id]; sheet.render();
-      renderHud(); marks();
+      renderHud(); marks(); renderBar();
     },
     onMapClick: (x, y) => {
       if (ed?.mapClick(x, y)) return;
@@ -229,11 +235,15 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     onPointer: (x, y) => { pointer = { x, y }; drawApi?.pointer(x, y); if (armed?.a.area) tpl?.pointer(x, y); },
     onDraw: (d, persist) => drawApi?.onDraw(d, persist),
     onErase: id => drawApi?.onErase(id),
-    onMoveToken: (id, x, y) => net.send({ t: 'moveToken', id, x, y }),
+    onMoveToken: (id, x, y, path, mode) => {
+      const r = ruler?.end(id);
+      net.send({ t: 'moveToken', id, x, y, ...(path?.length ? { path } : r?.path?.length ? { path: r.path } : {}), ...(mode && mode !== 'walk' ? { mode } : r?.mode ? { mode: r.mode } : {}) });
+    },
     onPing: (x, y) => net.send({ t: 'ping', x, y }),
     onTokenContext: (id, x, y) => { const t = tok(id); if (t) openRadial(x, y, [...tokenRadialItems(t, radialCtx), ...combat2RadialItems(t, c2), ...torchItem(t), ...(exts?.radialItems(id) ?? []), ...(copilot?.radialItems(id) ?? [])], t.name); },
     onDoor: (id, open) => net.send({ t: 'door', id, open }),
-  });
+  };
+  const table: Promise<Table> = popout ? new Promise(() => {}) : import('../render/table.ts').then(m => m.createTable($('mapa'), tableOpts));
 
   // ---- fase 5: edición, diario, biblioteca, encuentros, tutorial ----
   const ctx: UiCtx = { send: m => net.send(m), state: () => state, code: w.state.code, key: () => localStorage.getItem(`lantern:key:${w.state.code}`), role: w.role, toast: m => say(m, 3500), onMapClick: cb => { mapCb = cb; }, setTool: t => void table.then(x => x.setTool({ tool: t })) };
@@ -254,13 +264,16 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   mountMixer($('mezcla'));
   mountVoicesToggle($('voces'));
   copilot = mountCopilot($('copiloto'), { state: () => state, send: m => net.send(m), role: w.role, memberId: w.memberId, table, toast: m => say(m, 3500) });
-  const voz = mountVoice($('voz'), { me: w.memberId, members: () => state.members, getVolume: () => getVolume('voz') });
+  const voz = mountVoice($('voz'), { me: w.memberId, members: () => state.members, getVolume: () => getVolume('voz'), livekit: () => !!state.livekit });
   const audio = mountAudio(root, { own: () => mine()[0], send: m => net.send(m) });
   const story = mountStory(root, $('mapa'), { isDm: w.role === 'dm', send: m => net.send(m) });
   const scenePanel = staff || w.role === 'trusted' ? mountScenePanel($('p-esc'), { role: w.role, code: w.state.code, send: m => net.send(m) }) : undefined;
   $('t-esc').hidden = !scenePanel;
   const c2: C2Ctx = { send: m => net.send(m), state: () => state, role: w.role, memberId: w.memberId, toast: m => say(m, 3500) };
   bindLegendary($('init'), c2);
+  bindReorder($('init'), c2);
+  if (!popout) { ruler = moveRuler(c2, () => table); bar = tokenBar(c2, () => table, () => selected); }
+  if (w.role === 'dm') { co = combatOptions(c2); $('c2opts').append(co.el); }
   const extras = combatExtras(c2);
   root.append(extras.el);
   const chat2 = mountChat2($('chat'), { send: m => net.send(m), state: () => state, me: w.memberId, toast: m => say(m, 3500) });
@@ -278,7 +291,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   let lv: ReturnType<typeof mountLevels> | undefined, lobby: ReturnType<typeof showLobby> | undefined, cr: ReturnType<typeof mountCheckRequester> | undefined;
   const render = (s: ClientState) => {
     voz.onState(s.members); exts?.update(s); copilot?.update(); chat2.update(s); drawApi?.update(s); clock.update(s); extras.update(); lasso?.update();
-    ed?.update(s); jr.update(s); lib?.update(s); enc?.update(s); lv?.update(s); lobby?.update(); cr?.render();
+    co?.update(s); ed?.update(s); jr.update(s); lib?.update(s); enc?.update(s); lv?.update(s); lobby?.update(); cr?.render();
     state = s;
     $('escena').textContent = s.scene.name;
     $('cod').textContent = `${s.code.slice(0, 3)}-${s.code.slice(3)}`;
@@ -292,19 +305,30 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     targets = targets.filter(id => tok(id));
     if (armed && !tok(armed.tok)) armed = undefined;
     $('simple').hidden = state.settings.mode === 'full'; $('cbt').hidden = !layerOn('initiative');
-    story.update(s); audio.update(s.audio); scenePanel?.render(s); sheet.render(); settings?.render(s); renderMios(); renderInit(); renderTurn(); renderHud(); renderDm(); renderClaim(); marks();
+    story.update(s); audio.update(s.audio); scenePanel?.render(s); sheet.render(); settings?.render(s); renderMios(); renderInit(); renderTurn(); renderHud(); renderDm(); renderClaim(); marks(); renderBar();
   };
 
+  const camOn = () => { try { return localStorage.getItem('lantern.camturno') === '1'; } catch { return false; } };
   const renderInit = () => {
     const c = state.combat, el = $('init');
     el.hidden = !c || !layerOn('initiative');
     if (el.hidden || !c) return;
-    el.innerHTML = `<span class="ronda">Ronda ${c.round}</span><ol>` + c.order.map((o, i) => {
+    const cur = c.order[c.turn], nxt = c.order.length > 1 && cur ? tok(c.order[(c.turn + 1) % c.order.length].tokenId) : undefined;
+    const mineTurn = !!tok(cur?.tokenId)?.owners.includes(w.memberId), dm = w.role === 'dm';
+    const hpTxt = (t: Token) => t.faction !== 'ally' && hpText(t) ? `<span class="c2-st ${t.hpState ?? ''}">${esc(hpText(t))}</span>` : '';
+    el.innerHTML = `<span class="ronda">Ronda ${c.round}</span>${c.awaiting?.length ? '<span class="c2-sig">Esperando iniciativa…</span>' : ''}<ol>` + c.order.map((o, i) => {
       const t = tok(o.tokenId); if (!t) return '';
       const on = i === c.turn;
-      return `<li class="${on ? 'act' : ''}" title="${esc(t.name)}"${on ? ' aria-current="true"' : ''}>${portrait(t)}${hpBar(t)}${legendaryPips(t, w.role === 'dm')}<span class="sr">${esc(t.name)}${on ? ', turno activo' : ''}</span></li>`;
-    }).join('') + '</ol>';
+      return `<li class="${on ? 'act' : ''}" title="${esc(t.name)}" data-tid="${esc(t.id)}" data-i="${i}"${dm ? ' draggable="true"' : ''}${on ? ' aria-current="true"' : ''}>${portrait(t)}${hpBar(t)}${hpTxt(t)}${legendaryPips(t, w.role === 'dm')}<span class="sr">${esc(t.name)}${on ? ', turno activo' : ''}</span></li>`;
+    }).join('') + '</ol>'
+      + (nxt && !mineTurn ? `<span class="c2-sig">Siguiente: ${esc(nxt.name)}</span>` : '')
+      + `<button type="button" class="chip" data-cam aria-pressed="${camOn()}" title="La cámara va al token cuando empieza tu turno">Cámara al turno</button>`;
   };
+  $('init').addEventListener('click', e => {
+    if (!(e.target as HTMLElement).closest('[data-cam]')) return;
+    try { localStorage.setItem('lantern.camturno', camOn() ? '0' : '1'); } catch { /* sin almacenamiento */ }
+    renderInit();
+  });
 
   const renderTurn = () => {
     const id = activeId(), key = state.combat && id ? `${state.combat.round}:${id}` : '';
@@ -312,6 +336,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     turnKey = key;
     const t = tok(id);
     if (!t || !t.owners.includes(w.memberId)) return;
+    sfx('bell');
+    if (camOn()) void table.then(tb => tb.focus(t.x, t.y));
     const a = $('aviso');
     a.textContent = `¡Tu turno, ${t.name}!`;
     a.classList.remove('show'); void a.offsetWidth; a.classList.add('show'); // reinicia la animación
@@ -343,8 +369,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       el.innerHTML = `${portrait(t)}<div class="info"><strong>${esc(t.name)}</strong><span>PG 0</span></div>${deathSavesHtml(t)}`;
       return;
     }
-    const pill = (k: 'action' | 'bonus' | 'reaction', n: string) =>
-      `<span class="pill ${k}${u?.[k] ? ' gastada' : ''}"><i aria-hidden="true"></i>${n}${u?.[k] ? '<span class="sr"> (gastada)</span>' : ''}</span>`;
+    const pill = (k: 'action' | 'bonus' | 'reaction' | 'object', n: string) =>
+      `<button type="button" class="pill ${k}${u?.[k] ? ' gastada' : ''}" data-b="${k}" aria-pressed="${!!u?.[k]}" title="Clic: marcar como gastada o devolver"><i aria-hidden="true"></i>${n}${u?.[k] ? '<span class="sr"> (gastada)</span>' : ''}</button>`;
     const acts = (t.actions ?? []).map((a, i) => {
       const tip = `${a.name} · ${a.range <= 5 ? 'cuerpo a cuerpo' : a.range + ' pies'}${a.damage ? ` · ${a.damage} ${dmgName(a.damageType)}` : ''}${a.area ? ` · área ${a.area.size} pies` : ''}`;
       return `<button type="button" class="acc c-${a.cost}" data-i="${i}" title="${esc(tip)}" aria-label="${esc(tip)} (tecla ${(i + 1) % 10})"
@@ -354,29 +380,39 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       `<span class="slot" role="img" aria-label="Nivel ${lv}: ${s.max - s.used} de ${s.max} espacios">N${lv} ${'◆'.repeat(Math.max(0, s.max - s.used))}${'◇'.repeat(Math.min(s.used, s.max))}</span>`).join('');
     // ponytail: hoy `combat` es solo del DM; si el servidor rechaza «next» se muestra su error (toast)
     const end = c && (activeId() === t.id || w.role === 'dm') ? '<button type="button" class="primary" data-end>Fin de turno</button>' : '';
-    const mv = c ? Math.min(u?.moved ?? 0, 9999) : 0, sp = t.speed ?? 30;
+    const mv = c ? Math.min(u?.moved ?? 0, 9999) : 0, sp = (t.speed ?? 30) + (u?.dash ?? 0);
     const move = c ? `<div class="mov"><span>Movimiento ${mv}/${sp} pies</span><span class="hpbar" role="progressbar" aria-label="Movimiento" aria-valuemin="0" aria-valuemax="${sp}" aria-valuenow="${Math.min(mv, sp)}"><i style="width:${Math.min(100, mv / sp * 100)}%"></i></span></div>` : '';
     const ddb = t.ddb ? `<div class="det">Vinculado · nivel ${t.ddb.level} <button type="button" data-sync="${esc(t.id)}">Resincronizar</button></div>` : '';
     el.innerHTML = `${portrait(t)}<div class="info"><strong>${esc(t.name)}</strong>
-      <span>${t.hp ? `PG ${t.hp.cur}/${t.hp.max}${t.hp.temp ? ` (+${t.hp.temp})` : ''}` : ''}${t.ac != null ? ` · CA ${t.ac}` : ''}</span>${move}${ddb}</div>
-      ${c ? `<div class="eco">${pill('action', 'Acción')}${pill('bonus', 'Adicional')}${pill('reaction', 'Reacción')}</div>` : ''}
+      <span>${t.hp ? `PG ${t.hp.cur}/${t.hp.max}${t.hp.temp ? ` (+${t.hp.temp})` : ''}` : ''}${t.ac != null ? ` · CA ${acOf(t)}${t.shielded ? ' (Escudo)' : ''}` : ''}</span>${move}${ddb}</div>
+      ${c ? `<div class="eco">${pill('action', 'Acción')}${pill('bonus', 'Adicional')}${pill('reaction', 'Reacción')}${pill('object', 'Objeto')}</div>` : ''}
       <div class="acts">${acts}</div>${slots ? `<div class="slots">${slots}</div>` : ''}${end}`;
     const hb = t.owners.includes(w.memberId) ? heroButton(t, { send: m => net.send(m), state: () => state }) : null;
     if (hb) el.append(hb);
   };
+  const renderBar = () => bar?.update();
   $('hud').onclick = e => {
     const b = (e.target as HTMLElement).closest('button'); if (!b) return;
     if (b.dataset.sync) void resync(b.dataset.sync);
     else if (b.dataset.i) pick(+b.dataset.i);
     else if (b.dataset.ds) net.send({ t: 'deathSave', tokenId: b.dataset.ds });
+    else if (b.dataset.b) { const t = hudTok(); if (t) net.send({ t: 'budget', tokenId: t.id, slot: b.dataset.b as 'action', used: !state.combat?.used[t.id]?.[b.dataset.b as 'action'] }); }
     else if (b.hasAttribute('data-end')) net.send({ t: 'combat', op: 'next' });
   };
   document.addEventListener('keydown', e => {
+    if (e.key === 'Tab' && ruler?.active) { e.preventDefault(); return ruler.cycle(); } // durante el arrastre, Tab cambia de modo de movimiento
     if (e.key === 'Escape') return cancel();
     if ((e.target as HTMLElement).closest('input,textarea,select,dialog')) return;
     for (let i = 1; i <= 10; i++) if (matchesShortcut(e, 'accion' + i)) return pick(i - 1); // atajos editables en Accesibilidad
     if (matchesShortcut(e, 'fin') && state.combat) net.send({ t: 'combat', op: 'next' });
   });
+
+  // Shift+rueda gira la plantilla que se está colocando (la rueda sola sigue haciendo zoom)
+  root.addEventListener('wheel', e => {
+    if (!e.shiftKey || !armed?.a.area || !tpl) return;
+    e.preventDefault(); e.stopPropagation();
+    tpl.rotate((e.deltaY || e.deltaX) > 0 ? 1 : -1);
+  }, { capture: true, passive: false });
 
   // DM: combate, automatización, monstruos
   const renderMonsters = () => {
@@ -387,18 +423,17 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       : '<li class="rol">Sin resultados</li>';
   };
   const renderDm = () => {
-    const c = state.combat, auto = state.automation === 'auto';
+    const c = state.combat;
     $('dm').hidden = w.role !== 'dm';
     root.querySelector<HTMLButtonElement>('[data-op=start]')!.disabled = !!c;
-    for (const op of ['next', 'prev', 'end']) root.querySelector<HTMLButtonElement>(`[data-op=${op}]`)!.disabled = !c;
-    $('auto').setAttribute('aria-checked', String(auto));
-    $('auto').textContent = `Automatización: ${auto ? 'Automática' : 'Asistida'}`;
+    for (const op of ['next', 'prev', 'end', 'undoTurn']) root.querySelector<HTMLButtonElement>(`[data-op=${op}]`)!.disabled = !c;
+    $('auto').textContent = `Automatización: ${{ assisted: 'Asistida', auto: 'Automática', manual: 'Manual' }[state.automation]}`;
   };
   $('cbt').addEventListener('click', e => {
-    const op = (e.target as HTMLElement).closest('button')?.dataset.op as 'start' | 'next' | 'prev' | 'end' | undefined;
+    const op = (e.target as HTMLElement).closest('button')?.dataset.op as 'start' | 'next' | 'prev' | 'end' | 'undoTurn' | undefined;
     if (op) net.send({ t: 'combat', op });
   });
-  $('auto').onclick = () => net.send({ t: 'automation', value: state.automation === 'auto' ? 'assisted' : 'auto' });
+  $('auto').onclick = () => net.send({ t: 'automation', value: ({ assisted: 'auto', auto: 'manual', manual: 'assisted' } as const)[state.automation] });
   $('buscar').oninput = renderMonsters;
   $('monstruos').onclick = e => {
     const id = (e.target as HTMLElement).closest('button')?.dataset.id; if (!id) return;
@@ -528,7 +563,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       cards.set(m.id, el);
       el.querySelector('.conf')?.addEventListener('click', e => {
         const b = (e.target as HTMLElement).closest('button'); if (!b) return;
-        net.send({ t: 'confirm', pending: c.pending!, mode: b.dataset.m as 'full' | 'half' | 'none' });
+        net.send({ t: 'confirm', pending: c.pending!, mode: b.dataset.m as 'full' | 'half' | 'none' | 'heal' });
         el.querySelectorAll('button').forEach(x => x.disabled = true);
       });
       if (live && (c.applied || c.pending) && !fxDone.has(m.id)) { fxDone.add(m.id); cardFx(c); }
@@ -647,8 +682,9 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   if (matchMedia('(max-width: 700px)').matches && displayModeFromUrl() === 'normal') {
     const own = mine()[0]; if (own) void table.then(t => t.focus(own.x, own.y, 1));
   }
-  if (import.meta.env.DEV) (window as unknown as { __lantern: unknown }).__lantern = { table, state: () => state }; // para pruebas E2E
+  if (import.meta.env.DEV) (window as unknown as { __lantern: unknown }).__lantern = { table, state: () => state, send: (m: C2S) => net.send(m) }; // para pruebas E2E/bench/chaos
   mountA11y($('p-mesa'));
+  if (!popout) void import('./extras.ts').then(x => x.mountExtras(root, w, table)); // fase 11: Compendio, Herramientas del DM, emotes, dados 2D…
   mountScreenReaderMirror(root, () => state);
 
   $('plegar').onclick = () => {
@@ -676,6 +712,10 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       else if (m.t === 'copilot') copilot?.handle(m);
       else if (m.t === 'draw' || m.t === 'cursor' || m.t === 'focus') drawApi?.handle(m);
       else if (m.t === 'reactionPrompt') reactionPrompt(m, c2);
+      else if (m.t === 'spellBanner') spellBanner(m);
+      else if (m.t === 'turnReminder') turnReminder(m, c2);
+      else if (m.t === 'saveRequest') handleSaveRequest(m, { send: x => net.send(x) });
+      else if (m.t === 'route') void table.then(t => t.showGhost(m.tokenId, m.points));
       else if (m.t === 'handout') showHandout(m.entry);
       else if (m.t === 'regionMsg') showRegionMsg(m.text);
       else if (m.t === 'transition') story.transition(m);

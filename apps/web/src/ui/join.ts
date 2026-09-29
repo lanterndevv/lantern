@@ -2,6 +2,11 @@ import type { S2C } from '@lantern/protocol';
 import { CODE_ALPHABET } from '@lantern/protocol';
 import { net, savedName } from '../net.ts';
 import { mountAccount } from './account.ts';
+import { PREGENS, CLASSES, pregenToImported } from '@lantern/srd';
+import { parseSheetJson } from './sheetx.ts';
+
+// El personaje elegido aquí se aplica al entrar en la mesa (extras.ts lo envía con myChar).
+export const PENDING_CHAR = 'lantern:pending-char';
 
 // Acepta el código suelto o el enlace de invitación entero (…?code=XXXXXX).
 const clean = (s: string) => [...(s.match(/code=([^&#\s]+)/i)?.[1] ?? s).toUpperCase()].filter(c => CODE_ALPHABET.includes(c)).join('').slice(0, 6);
@@ -20,6 +25,10 @@ export function mountJoin(app: HTMLElement) {
       <label>Tu nombre
         <input id="name" autocomplete="nickname" maxlength="24" required>
       </label>
+      <label>Personaje inicial (opcional)
+        <select id="pre"><option value="">Lo elegiré después</option>${Object.entries(PREGENS).map(([id, p]) => `<option value="${id}">${p.name} — ${CLASSES[p.class]?.name ?? p.class} (pregenerado)</option>`).join('')}<option value="json">Importar hoja JSON…</option></select>
+      </label>
+      <input type="file" id="prej" accept=".json,application/json" hidden>
       <p id="err" role="alert" class="err" hidden></p>
       <button class="primary" type="submit">Entrar</button>
       <button class="secondary" type="button" id="new">Crear mesa nueva (serás DM)</button>
@@ -33,16 +42,32 @@ export function mountJoin(app: HTMLElement) {
   code.oninput = () => { code.value = fmt(clean(code.value)); };
   const fail = (m: string) => { err.textContent = m; err.hidden = false; };
 
+  let sheet = '';
+  const pre = $<HTMLSelectElement>('pre'), prej = $<HTMLInputElement>('prej');
+  pre.onchange = () => { if (pre.value === 'json') prej.click(); else sheet = ''; };
+  prej.onchange = async () => {
+    const f = prej.files?.[0]; prej.value = '';
+    try { const c = parseSheetJson(await f!.text()); sheet = JSON.stringify(c); pre.options[pre.selectedIndex].text = `Hoja: ${c.name}`; err.hidden = true; }
+    catch (e) { sheet = ''; pre.value = ''; fail((e as Error).message); }
+  };
+  const keep = () => {
+    try {
+      if (pre.value === 'json' && sheet) sessionStorage.setItem(PENDING_CHAR, sheet);
+      else if (pre.value && PREGENS[pre.value]) sessionStorage.setItem(PENDING_CHAR, JSON.stringify(pregenToImported(PREGENS[pre.value])));
+      else sessionStorage.removeItem(PENDING_CHAR);
+    } catch { /* sin almacenamiento */ }
+  };
   $('f').onsubmit = e => {
     e.preventDefault();
     const c = clean(code.value);
     if (c.length !== 6) return fail('El código tiene 6 caracteres.'), code.focus();
-    err.hidden = true;
+    err.hidden = true; keep();
     net.send({ t: 'join', code: c, name: name.value.trim() });
   };
   $('new').onclick = () => {
     if (!name.reportValidity()) return;
     err.hidden = true;
+    try { sessionStorage.removeItem(PENDING_CHAR); } catch { /* sin almacenamiento */ }
     net.send({ t: 'join', name: name.value.trim() });
   };
   mountAccount(main); // cuentas opcionales: «Mis mesas» en cualquier dispositivo

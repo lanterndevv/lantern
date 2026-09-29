@@ -4,7 +4,8 @@ import type { ClientState, Drawing, Id, Point, Role } from '@lantern/protocol';
 export type TableOptions = {
   role: Role;
   memberId: Id;
-  onMoveToken(id: Id, x: number, y: number): void; // al soltar un token arrastrado
+  onMoveToken(id: Id, x: number, y: number, path?: Point[]): void; // al soltar un token arrastrado; path = puntos de paso intermedios
+  onDrag?(id: Id, points: Point[]): void; // durante el arrastre: inicio + puntos de paso + posición actual (regla viva)
   onPing(x: number, y: number): void;               // Alt+clic
   onDoor(id: Id, open: boolean): void;              // clic en una puerta
   onTokenClick?(id: Id, shift: boolean): void;      // clic sin arrastre sobre un token (elegir objetivo, seleccionar)
@@ -23,7 +24,8 @@ export type Marks = {
   area?: { x: number; y: number; radius: number; color: string }; // plantilla esférica en px de mundo
   // plantilla con forma; dir = VECTOR de dirección (no hace falta normalizar). sizePx: radio (sphere), lado (cube), largo (cone, line).
   // cone = 53°; line = ancho grid.size; cube sale de origin hacia dir. Se anima suavemente entre llamadas.
-  template?: { shape: 'sphere' | 'cube' | 'cone' | 'line'; origin: Point; dir: Point; sizePx: number; color: string };
+  aim?: { from: Id; to: Id };  // flecha atacante→objetivo mientras se apunta
+  template?: { shape: 'sphere' | 'cylinder' | 'cube' | 'cone' | 'line'; origin: Point; dir: Point; sizePx: number; color: string };
 };
 
 export type Table = {
@@ -42,6 +44,16 @@ export type Table = {
   drawEphemeral(d: Drawing): void;                  // trazo que se desvanece a los 5 s
   showGhost(tokenId: Id, path: Point[]): void;      // ruta fantasma de otro jugador (se desvanece); hoy nadie la llama en tiempo real
   setCursors(list: { id: Id; name: string; color: string; x: number; y: number }[]): void; // cursores remotos; lista completa cada vez
+  // ---- cámara ----
+  frameParty(): void;                                // encuadra los tokens propios/aliados (o la escena si no hay)
+  followToken(id?: Id): void;                        // la cámara sigue con suavidad a un token; sin id (o al mover a mano) deja de seguir
+  cinematic(on: boolean): void;                      // franjas negras arriba y abajo
+  // ---- rutas y medida ----
+  setRoute(points: Point[] | null, o?: { difficult?: Point[][]; remaining?: number }): void; // ruta con puntos de paso; `difficult` = tramos en terreno difícil (otro color, cuestan doble); `remaining` = pies de movimiento restantes: lo que se pasa se pinta en rojo. null la quita
+  measure(a: Point, b: Point): { cells: number; feet: number }; // distancia según la cuadrícula de la escena (hex = distancia hex)
+  // ---- ajustes locales de post-proceso (localStorage del cliente) ----
+  getPost(): import("./post.ts").PostFx;
+  setPost(p: Partial<import("./post.ts").PostFx>): void; // bloom, vignette, grain, breathing
   destroy(): void;
 };
 
@@ -53,7 +65,10 @@ export type Effect =
   | { kind: 'impact'; at: { x: number; y: number }; damageType?: string; crit?: boolean }
   | { kind: 'burst'; at: { x: number; y: number }; radius: number; damageType?: string } // área (bola de fuego…)
   | { kind: 'heal'; at: { x: number; y: number } }
-  | { kind: 'miss'; at: { x: number; y: number } };
+  | { kind: 'miss'; at: { x: number; y: number } }
+  | { kind: 'fumble'; at: { x: number; y: number } } // pifia: tropiezo
+  // conjuro con receta propia por nombre (es/en, sin acentos: 'Bola de fuego', 'Fireball'…) o efecto genérico por escuela ('evocation'/'evocación'…)
+  | { kind: 'spell'; spell: string; school?: string; from: { x: number; y: number }; to: { x: number; y: number }; radius?: number };
 
 export type TableFx = { effect(e: Effect): void }; // Table también implementa esto (table.effect)
 

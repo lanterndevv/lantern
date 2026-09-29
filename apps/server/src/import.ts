@@ -71,6 +71,12 @@ export function parseCharacter(v: unknown, maxHit = 30): ImportedCharacter | nul
     for (const [k, n] of Object.entries(v.skills)) { if (!int(n, -10, 20)) return null; c.skills[k] = n; }
   }
   if (v.prof !== undefined) { if (!int(v.prof, 2, 6)) return null; c.prof = v.prof; }
+  if (v.hitDice !== undefined) {
+    const h = v.hitDice;
+    if (!obj(h) || !int(h.die, 4, 12) || !int(h.max, 1, 20) || !int(h.used, 0, h.max)) return null;
+    c.hitDice = { die: h.die, max: h.max, used: h.used };
+  }
+  if (v.lucky !== undefined) { if (typeof v.lucky !== 'boolean') return null; c.lucky = v.lucky; }
   if (v.defenses !== undefined) {
     const d = v.defenses;
     if (!obj(d) || !keysIn(d, ['resist', 'immune', 'vuln'])) return null;

@@ -2,7 +2,7 @@
 // El ticker propio solo corre mientras haya efectos vivos, clima o sacudida.
 import { Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import type { Application } from 'pixi.js';
-import type { Weather } from '@lantern/protocol';
+import type { Point, Region, Weather } from '@lantern/protocol';
 import type { Effect } from './api.ts';
 
 const TYPE: Record<string, number> = {
@@ -38,7 +38,21 @@ export const playRecipe = (id: string, from: { x: number; y: number }, to: { x: 
     projectile: { color: [0x3a2a14, 0x5a4a22, 0x1c1a0e], size: 2, trail: 6, speed: 0.5 },
     impact: { color: [0x3a2a14, 0x6b5b2a], particles: 36, radius: 50, ring: false },
     burst: { color: [0x3a2a14, 0x1c1a0e], particles: 60, radius: 90, ring: false } },
+  // escuelas de magia (efecto genérico): clave = 4 primeras letras del nombre, es o en
+  ...Object.entries({ abju: 0x6fa8ff, conj: 0xc29cf5, divi: 0xffe08a, ench: 0xee8ccb, evoc: 0xf58a3c, illu: 0xa78bfa, necr: 0x9dbb86, tran: 0xe8a33d }).map(([k, c]): VfxRecipe => ({
+    id: 'school-' + k, name: k,
+    projectile: { color: [c, 0xffffff], size: 5, trail: 2, speed: 1 },
+    impact: { color: [c, 0xffffff], particles: 22, radius: 40, ring: true },
+    burst: { color: [c], particles: 34, radius: 80 } })),
 ].forEach(registerRecipe);
+const SCHOOL_ALIAS: Record<string, string> = { enca: 'ench', ilus: 'illu', nigr: 'necr' };
+const SPELL_ALIAS: Record<string, string> = {
+  'bola de fuego': 'fireball', fireball: 'fireball', 'proyectil magico': 'missile', 'magic missile': 'missile', rayo: 'bolt', 'lightning bolt': 'bolt',
+  'curar heridas': 'heal', 'cure wounds': 'heal', 'rayo abrasador': 'scorch', 'scorching ray': 'scorch', 'palabra sanadora': 'word', 'healing word': 'word',
+  'toque helado': 'chill', 'chill touch': 'chill', 'descarga sobrenatural': 'eldritch', 'eldritch blast': 'eldritch',
+  'llamarada sagrada': 'flame', 'sacred flame': 'flame', 'tormenta de hielo': 'icestorm', 'ice storm': 'icestorm',
+};
+const norm = (t: string) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
 
 const col = (t?: string) => TYPE[t ?? ''] ?? 0xe4dacb; // slashing/piercing/bludgeoning y desconocidos
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
@@ -48,7 +62,7 @@ export const LITE = (navigator.hardwareConcurrency || 8) <= 4 || (matchMedia('(p
 const F = LITE ? 0.5 : 1;
 const MAX_P = 600 * F, MAX_W = 400;
 
-type P = { x: number; y: number; vx: number; vy: number; age: number; life: number; r: number; c: number; add: boolean; g: number; d: number; a: number; upd?: (p: P, dt: number) => void };
+type P = { top?: boolean; x: number; y: number; vx: number; vy: number; age: number; life: number; r: number; c: number; add: boolean; g: number; d: number; a: number; upd?: (p: P, dt: number) => void };
 type Anim = (dt: number, add: Graphics, nrm: Graphics) => boolean; // false = terminada
 type W = { x: number; y: number; gy: number; z: number; ph: number; s: number; rot: number };
 
@@ -60,7 +74,8 @@ function softTexture(): Texture {
   return Texture.from(c);
 }
 
-export function createVfx(app: Application, world: Container, fxL: Container, reduced: boolean) {
+// topL: capa sobre la luz y bajo la niebla (efectos persistentes de región: llamas, humo de oscuridad…)
+export function createVfx(app: Application, world: Container, fxL: Container, reduced: boolean, topL: Container) {
   const nrmG = new Graphics(), addG = new Graphics();
   addG.blendMode = 'add';
   fxL.addChild(nrmG, addG);
@@ -71,6 +86,9 @@ export function createVfx(app: Application, world: Container, fxL: Container, re
   screenL.addChild(fogL, wG, wA, flashG);
   app.stage.addChild(screenL);
   const soft = softTexture();
+  const regG = new Graphics(), tN = new Graphics(), tA = new Graphics();
+  tA.blendMode = 'add';
+  topL.addChild(regG, tN, tA);
 
   let enabled = true, running = false;
   const parts: P[] = [], anims: Anim[] = [];
@@ -98,6 +116,10 @@ export function createVfx(app: Application, world: Container, fxL: Container, re
   // ---- sacudida ----
   let shakeT = 0, shakeAmp = 0, so = { x: 0, y: 0 };
   const shake = (ms: number, px: number) => { if (!reduced) { shakeT = ms; shakeAmp = px; wake(); } };
+  // zoom breve hacia el centro de pantalla (crítico): se aplica como delta multiplicativo, como la sacudida
+  let zT = 0, zD = 1, zAmp = 0, zf = 1;
+  const punch = (amp: number, ms: number) => { if (!reduced) { zT = zD = ms; zAmp = amp; wake(); } };
+  const later = (ms: number, f: () => void) => { let t = 0; add((dt) => { t += dt; if (t < ms) return true; f(); return false; }); };
 
   // ---- efectos ----
   function impact(at: { x: number; y: number }, type?: string, crit = false) {
@@ -106,7 +128,7 @@ export function createVfx(app: Application, world: Container, fxL: Container, re
     flash(at.x, at.y, R, c, 250);
     add(timed(500, (k, ad) => ad.circle(at.x, at.y, R * (0.3 + ease(k))).stroke({ width: crit ? 4 : 2, color: c, alpha: 0.8 * (1 - k) })));
     radial(at.x, at.y, crit ? 34 : 16, c, crit ? 260 : 170, 500, crit ? 3.5 : 2.5);
-    if (crit) { radial(at.x, at.y, 10, 0xffffff, 200, 350, 2); shake(200, 6); }
+    if (crit) { radial(at.x, at.y, 10, 0xffffff, 200, 350, 2); shake(200, 6); punch(0.05, 300); }
   }
 
   function projectile(e: Extract<Effect, { kind: 'projectile' }>) {
@@ -207,6 +229,125 @@ export function createVfx(app: Application, world: Container, fxL: Container, re
     });
   }
 
+  function fumble(at: { x: number; y: number }) {
+    if (reduced) return flash(at.x, at.y, 24, 0x9a9a9a, 150);
+    const t = new Text({ text: '¡Tropiezo!', style: { fontFamily: 'Georgia, serif', fontSize: 22, fontStyle: 'italic', fill: '#e6c48a', stroke: { color: '#1a0f08', width: 4 } } });
+    t.anchor.set(0.5); fxL.addChild(t);
+    for (let i = 0; i < 10; i++) emit({ x: at.x + rnd(-14, 14), y: at.y + 14, vx: rnd(-90, 90), vy: -rnd(10, 50), g: 60, life: rnd(400, 700), c: 0x8a7a64, r: rnd(3, 6), add: false, a: 0.5, d: 1 });
+    let n = 0;
+    add((dt, ad) => {
+      n += dt;
+      if (n > 1100) { t.destroy(); return false; }
+      const k = n / 1100;
+      t.position.set(at.x, at.y - 26 - 10 * ease(k)); t.rotation = 0.35 * Math.sin(k * 18) * (1 - k); t.alpha = k < 0.7 ? 1 : (1 - k) / 0.3;
+      for (let i = 0; i < 3; i++) { const a = k * 9 + (i * 6.283) / 3; ad.star(at.x + Math.cos(a) * 20, at.y - 20 + Math.sin(a) * 6, 4, 3, 1.4).fill({ color: 0xffe08a, alpha: 1 - k }); }
+      return true;
+    });
+  }
+
+  // haz breve entre dos puntos
+  const beam = (a: Point, b: Point, c: number, w: number, ms: number) =>
+    add(timed(ms, (k, ad) => { const f = 1 - k; ad.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ width: w * (0.5 + f), color: c, alpha: 0.35 * f }).moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ width: Math.max(1.5, w * 0.3 * f), color: 0xffffff, alpha: f }); }));
+  const travel = (a: Point, b: Point) => Math.min(700, Math.max(150, Math.hypot(b.x - a.x, b.y - a.y) / 0.9));
+  const SPELLS: Record<string, (a: Point, b: Point, R: number) => void> = {
+    fireball(a, b, R) { projectile({ kind: 'projectile', from: a, to: b, damageType: 'fire' }); later(travel(a, b), () => { burst({ kind: 'burst', at: b, radius: R, damageType: 'fire' }); shake(250, 4); }); },
+    missile(a, b) { for (let i = 0; i < 3; i++) later(i * 130, () => projectile({ kind: 'projectile', from: a, to: { x: b.x + rnd(-14, 14), y: b.y + rnd(-14, 14) }, damageType: 'force' })); },
+    bolt(a, b) { projectile({ kind: 'projectile', from: a, to: b, damageType: 'lightning' }); flash(b.x, b.y, 70, 0xf2e45a, 320); shake(220, 5); later(120, () => beam(a, b, 0x8fa6f7, 14, 200)); },
+    heal(_, b) { heal(b); later(250, () => radial(b.x, b.y, 10, 0xfff4d0, 60, 700, 2.4, { vy: -50 })); },
+    word(a, b) {
+      for (let i = 0; i < 14; i++) { const k = i / 14; emit({ x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, life: 500 + i * 30, c: i % 2 ? 0xfff4d0 : 0xf5c877, r: 2.4, vy: -30, d: 1 }); }
+      later(300, () => heal(b));
+    },
+    scorch(a, b) { for (let i = 0; i < 3; i++) later(i * 120, () => { const j = { x: b.x + rnd(-18, 18), y: b.y + rnd(-18, 18) }; beam(a, j, 0xf58a3c, 10, 220); impact(j, 'fire'); }); },
+    chill(a, b) { projectile({ kind: 'projectile', from: a, to: b, damageType: 'necrotic' }); later(travel(a, b), () => { impact(b, 'cold'); radial(b.x, b.y, 14, 0xdff4ff, 90, 900, 2.4, { g: -20 }); }); },
+    eldritch(a, b) {
+      beam(a, b, 0xc29cf5, 16, 380); impact(b, 'force');
+      const d = Math.hypot(b.x - a.x, b.y - a.y) || 1, ux = (b.x - a.x) / d, uy = (b.y - a.y) / d;
+      for (let i = 0; i < 24 * F; i++) { const k = Math.random(), o = Math.sin(k * 40) * 8; emit({ x: a.x + (b.x - a.x) * k - uy * o, y: a.y + (b.y - a.y) * k + ux * o, life: rnd(300, 500), c: 0xe4d0ff, r: 2, d: 2 }); }
+    },
+    flame(_, b) {
+      add(timed(650, (k, ad) => { const f = 1 - k, w = 26 * (0.4 + f); ad.rect(b.x - w / 2, b.y - 420, w, 420).fill({ color: 0xffe08a, alpha: 0.3 * f }).rect(b.x - w / 5, b.y - 420, w / 2.5, 420).fill({ color: 0xffffff, alpha: 0.8 * f }); }));
+      flash(b.x, b.y, 44, 0xffe08a, 500); impact(b, 'radiant');
+      radial(b.x, b.y, 16, 0xfff4d0, 80, 800, 2.4, { vy: -70, d: 1 });
+    },
+    icestorm(_, b, R) {
+      let t = 0;
+      add(timed(1600, (k, ad) => ad.circle(b.x, b.y, R).fill({ color: 0x8fd3f5, alpha: 0.14 * (1 - k) }).stroke({ width: 3, color: 0xdff4ff, alpha: 0.7 * (1 - k) })));
+      add((dt) => {
+        t += dt; if (t > 1500) return false;
+        for (let i = 0; i < 3 * F; i++) { const a = rnd(0, 6.283), d = Math.sqrt(Math.random()) * R; emit({ x: b.x + Math.cos(a) * d, y: b.y + Math.sin(a) * d - 90, vy: 380, life: 240, c: 0xe8f8ff, r: rnd(1.5, 3) }); }
+        return true;
+      });
+      later(1300, () => impact(b, 'cold'));
+    },
+  };
+  function spell(e: Extract<Effect, { kind: 'spell' }>) {
+    const f = SPELLS[SPELL_ALIAS[norm(e.spell)]], R = e.radius ?? 100;
+    if (f && !reduced) return f(e.from, e.to, R);
+    const sk = norm(e.school ?? '').slice(0, 4), r = recipes.get('school-' + (SCHOOL_ALIAS[sk] ?? sk));
+    if (r) return R > 100 ? (recipeProjectile(r, e.from, e.to), later(travel(e.from, e.to), () => recipeBurst(r, e.to, R))) : recipeProjectile(r, e.from, e.to);
+    projectile({ kind: 'projectile', from: e.from, to: e.to });
+  }
+
+  // ---- efectos persistentes en bucle dentro de regiones (fx de la región; darkness = humo) ----
+  type RF = { poly: Point[]; fx: string; x0: number; y0: number; x1: number; y1: number; area: number; acc: number };
+  let rfx: RF[] = [], regList: Region[] = [];
+  const inPoly = (p: Point, poly: Point[]) => {
+    let c = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++)
+      if ((poly[i].y > p.y) !== (poly[j].y > p.y) && p.x < ((poly[j].x - poly[i].x) * (p.y - poly[i].y)) / (poly[j].y - poly[i].y) + poly[i].x) c = !c;
+    return c;
+  };
+  const inside = (r: RF): Point => {
+    for (let i = 0; i < 8; i++) { const p = { x: rnd(r.x0, r.x1), y: rnd(r.y0, r.y1) }; if (inPoly(p, r.poly)) return p; }
+    return r.poly[0];
+  };
+  const edgePt = (r: RF): Point => { const i = Math.floor(Math.random() * r.poly.length), a = r.poly[i], b = r.poly[(i + 1) % r.poly.length], k = Math.random(); return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k }; };
+  function buildRegions() {
+    regG.clear(); rfx = [];
+    if (!enabled) return;
+    for (const r of regList) {
+      const fx = r.fx ?? (r.kind === 'darkness' ? 'smoke' : ''); if (!fx || r.points.length < 3) continue;
+      const xs = r.points.map((p) => p.x), ys = r.points.map((p) => p.y), x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+      const q: RF = { poly: r.points, fx, x0, y0, x1, y1, area: (x1 - x0) * (y1 - y0), acc: 0 };
+      rfx.push(q);
+      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, pf = r.points.flatMap((p) => [p.x, p.y]);
+      if (fx === 'web') { // telaraña: radios y anillos concéntricos
+        for (const k of [1, 0.65, 0.35]) regG.poly(r.points.flatMap((p) => [cx + (p.x - cx) * k, cy + (p.y - cy) * k])).stroke({ width: 1, color: 0xf0f0f0, alpha: 0.4 });
+        for (const p of r.points) regG.moveTo(cx, cy).lineTo(p.x, p.y);
+        regG.stroke({ width: 1, color: 0xf0f0f0, alpha: 0.4 });
+      } else if (fx === 'brambles') { // zarzas: bordes con espinas
+        r.points.forEach((a, i) => {
+          const b = r.points[(i + 1) % r.points.length], L = Math.hypot(b.x - a.x, b.y - a.y), n = Math.round(L / 10);
+          for (let j = 0; j < n; j++) { const k = j / n, x = a.x + (b.x - a.x) * k, y = a.y + (b.y - a.y) * k, s = j % 2 ? 1 : -1; regG.moveTo(x, y).lineTo(x + s * 7 * ((b.y - a.y) / L), y - s * 7 * ((b.x - a.x) / L)); }
+        });
+        regG.stroke({ width: 1.5, color: 0x4f7a34, alpha: 0.9 });
+        regG.poly(pf).fill({ color: 0x2f4a20, alpha: 0.22 }).stroke({ width: 3, color: 0x3d5a2a, alpha: 0.8 });
+      } else if (fx === 'ice') {
+        regG.poly(pf).fill({ color: 0x8fd3f5, alpha: 0.16 });
+        for (let i = 0; i < Math.min(30, q.area / 3000 + 4); i++) { const c = inside(q), s = rnd(6, 14); regG.poly([c.x, c.y - s, c.x + s * 0.5, c.y, c.x, c.y + s, c.x - s * 0.5, c.y]).fill({ color: 0xdff4ff, alpha: 0.35 }).stroke({ width: 1, color: 0xffffff, alpha: 0.6 }); }
+      } else if (fx === 'fire') regG.poly(pf).fill({ color: 0xf58a3c, alpha: 0.1 });
+      else if (fx === 'fog' && reduced) for (let i = 0; i < 6; i++) { const c = inside(q); regG.circle(c.x, c.y, 26).fill({ color: 0xd8dde2, alpha: 0.1 }); }
+    }
+    if (rfx.length && !reduced) wake();
+  }
+  function tickRegions(dt: number) {
+    tN.clear(); tA.clear();
+    if (reduced || !rfx.length) return;
+    const wind = wx.wind;
+    for (const r of rfx) {
+      const rate = Math.min(60, Math.max(4, r.area / 3500)) * F * (r.fx === 'smoke' || r.fx === 'fog' ? 0.25 : r.fx === 'ice' ? 0.4 : r.fx === 'fire' ? 1.5 : 0);
+      r.acc += (rate * dt) / 1000;
+      for (; r.acc >= 1; r.acc--) {
+        if (parts.length > MAX_P * 0.6) break;
+        if (r.fx === 'fire') { const p = inside(r); emit({ top: true, x: p.x, y: p.y, vx: wind * 50 + rnd(-8, 8), vy: -rnd(30, 70), life: rnd(500, 900), c: [0xff7a20, 0xffc060, 0xffe0a0][Math.floor(rnd(0, 3))], r: rnd(2, 5), d: 0.5 }); }
+        else if (r.fx === 'ice') { const p = inside(r); emit({ top: true, x: p.x, y: p.y, life: rnd(600, 1000), c: 0xe8f8ff, r: rnd(1, 2.2) }); }
+        else if (r.fx === 'fog') { const p = inside(r); emit({ top: true, x: p.x, y: p.y, vx: rnd(-8, 8) + wind * 15, vy: rnd(-5, 5), life: rnd(3000, 5000), c: 0xd8dde2, r: rnd(14, 26), add: false, a: 0.1, d: 0.2, upd: (q) => { q.r += 0.05; } }); }
+        else { const p = edgePt(r), cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2, a = Math.atan2(p.y - cy, p.x - cx); emit({ top: true, x: p.x, y: p.y, vx: Math.cos(a) * 6 + rnd(-5, 5), vy: Math.sin(a) * 6 + rnd(-5, 5), life: rnd(3000, 4500), c: 0x120a1a, r: rnd(18, 30), add: false, a: 0.5, d: 0.2, upd: (q) => { q.r += 0.04; } }); }
+      }
+    }
+  }
+
   function recipeImpact(r: VfxRecipe, at: { x: number; y: number }) {
     const i = r.impact, b = r.burst;
     if (i) {
@@ -258,6 +399,8 @@ export function createVfx(app: Application, world: Container, fxL: Container, re
     else if (e.kind === 'impact') impact(e.at, e.damageType, e.crit);
     else if (e.kind === 'burst') burst(e);
     else if (e.kind === 'heal') heal(e.at);
+    else if (e.kind === 'fumble') fumble(e.at);
+    else if (e.kind === 'spell') spell(e);
     else miss(e.at);
   }
 
@@ -266,7 +409,7 @@ export function createVfx(app: Application, world: Container, fxL: Container, re
   const banks: { s: Sprite; v: number }[] = [];
   const splashes: { x: number; y: number; age: number }[] = [];
   let nextBolt = 0, boltT = 1e9;
-  const N_MAX = { rain: 400, storm: 400, snow: 250, ash: 250, leaves: 60, embers: 150, fog: 0, none: 0 };
+  const N_MAX = { rain: 400, storm: 400, snow: 250, ash: 250, leaves: 60, embers: 150, fireflies: 60, sand: 300, dust: 120, fog: 0, none: 0 };
   const scr = () => app.screen;
 
   function clearWeather() {
@@ -356,6 +499,34 @@ export function createVfx(app: Application, world: Container, fxL: Container, re
         wG.poly([p.x + c * L, p.y + s * L, p.x - s * L * w, p.y + c * L * w, p.x - c * L, p.y - s * L, p.x + s * L * w, p.y - c * L * w])
           .fill({ color: p.z < 0.5 ? 0xb8792e : 0x9c5f22, alpha: 0.85 });
       }
+    } else if (k === 'fireflies') {
+      for (const p of ws) {
+        p.rot += Math.sin(now * 0.7 + p.ph) * dt * 2.5;
+        p.x += (Math.cos(p.rot) * 22 + wind * 20) * dt; p.y += Math.sin(p.rot) * 16 * dt;
+        if (p.x > W0 + 8) p.x = -8; else if (p.x < -8) p.x = W0 + 8;
+        if (p.y > H0 + 8) p.y = -8; else if (p.y < -8) p.y = H0 + 8;
+        const fl = Math.max(0, Math.sin(now * 1.6 + p.ph * 3)) ** 2;
+        wA.circle(p.x, p.y, 8 * p.s).fill({ color: 0xd8ff6a, alpha: 0.14 * fl }).circle(p.x, p.y, 1.8 * p.s).fill({ color: 0xf4ffb0, alpha: 0.9 * fl });
+      }
+    } else if (k === 'sand') {
+      const dir = wind < 0 ? -1 : 1;
+      wG.rect(0, 0, W0, H0).fill({ color: 0xc9a566, alpha: 0.04 + 0.1 * I });
+      for (const p of ws) {
+        p.x += dir * (220 + 280 * p.z + 400 * Math.abs(wind)) * dt; p.y += Math.sin(now + p.ph) * 18 * dt;
+        if (p.x > W0 + 30) { p.x = -30; p.y = rnd(0, H0); } else if (p.x < -30) { p.x = W0 + 30; p.y = rnd(0, H0); }
+        wG.moveTo(p.x, p.y).lineTo(p.x - dir * (10 + 14 * p.z), p.y + 1);
+      }
+      wG.stroke({ width: 1.2, color: 0xdcbc82, alpha: 0.25 + 0.25 * I });
+    } else if (k === 'dust') { // motas y haces de luz oblicuos: las motas dentro de un haz brillan
+      const xs = [0.2, 0.5, 0.78].map((f, i) => W0 * f + 40 * Math.sin(now * 0.1 + i * 2)), sl = H0 * 0.5;
+      xs.forEach((x0, i) => wA.poly([x0, 0, x0 + 90 + 30 * i, 0, x0 + 90 + 30 * i + sl, H0, x0 + sl, H0]).fill({ color: 0xfff0c8, alpha: 0.015 + 0.025 * I }));
+      for (const p of ws) {
+        p.x += (wind * 30 + Math.sin(now * 0.4 + p.ph) * 8) * dt; p.y += (Math.cos(now * 0.3 + p.ph) * 6 - 3) * dt;
+        if (p.x > W0 + 4) p.x = -4; else if (p.x < -4) p.x = W0 + 4;
+        if (p.y > H0 + 4) p.y = -4; else if (p.y < -4) p.y = H0 + 4;
+        const lit = xs.some((x0, i) => { const l = x0 + (p.y / H0) * sl; return p.x > l && p.x < l + 90 + 30 * i; });
+        wA.circle(p.x, p.y, (lit ? 1.6 : 1) * p.s).fill({ color: 0xfff4d8, alpha: lit ? 0.45 + 0.4 * Math.abs(Math.sin(now + p.ph)) : 0.12 });
+      }
     } else if (k === 'embers') {
       for (const p of ws) {
         p.y -= (40 + 70 * p.z) * dt;
@@ -377,6 +548,7 @@ export function createVfx(app: Application, world: Container, fxL: Container, re
   function tick() {
     const dt = Math.min(50, app.ticker.deltaMS);
     addG.clear(); nrmG.clear();
+    tickRegions(dt);
     for (let i = anims.length - 1; i >= 0; i--) if (!anims[i](dt, addG, nrmG)) anims.splice(i, 1);
     const s = dt / 1000;
     for (let i = parts.length - 1; i >= 0; i--) {
@@ -388,30 +560,41 @@ export function createVfx(app: Application, world: Container, fxL: Container, re
       p.vx *= damp; p.vy = p.vy * damp + p.g * s;
       p.x += p.vx * s; p.y += p.vy * s;
       const k = p.age / p.life;
-      (p.add ? addG : nrmG).circle(p.x, p.y, p.r * (1 - 0.5 * k)).fill({ color: p.c, alpha: p.a * (1 - k) });
+      (p.top ? (p.add ? tA : tN) : p.add ? addG : nrmG).circle(p.x, p.y, p.r * (1 - 0.5 * k)).fill({ color: p.c, alpha: p.a * (1 - k) });
     }
     if (shakeT > 0 || so.x || so.y) {
       shakeT = Math.max(0, shakeT - dt);
       const m = shakeAmp * (shakeT / 200), nx = shakeT ? rnd(-m, m) : 0, ny = shakeT ? rnd(-m, m) : 0;
       world.x += nx - so.x; world.y += ny - so.y; so = { x: nx, y: ny };
     }
+    if (zT > 0 || zf !== 1) {
+      zT = Math.max(0, zT - dt);
+      const nf = zT ? 1 + zAmp * Math.sin(Math.PI * (1 - zT / zD)) : 1, r = nf / zf, c = scr();
+      world.position.set(c.width / 2 - (c.width / 2 - world.x) * r, c.height / 2 - (c.height / 2 - world.y) * r); world.scale.set(world.scale.x * r); zf = nf;
+    }
     if (wx.kind !== 'none') frame(dt);
     else if (boltT < 400) frame(dt);
-    if (!anims.length && !parts.length && !shakeT && wx.kind === 'none') stop();
+    if (!anims.length && !parts.length && !shakeT && !zT && zf === 1 && wx.kind === 'none' && !(rfx.length && !reduced)) stop();
   }
   function wake() { if (!running) { running = true; app.ticker.add(tick); } }
-  function stop() { running = false; app.ticker.remove(tick); addG.clear(); nrmG.clear(); }
+  function stop() { running = false; app.ticker.remove(tick); addG.clear(); nrmG.clear(); tN.clear(); tA.clear(); }
 
   function sync(on: boolean, w?: Weather) {
-    enabled = on;
+    if (on !== enabled) { enabled = on; buildRegions(); }
     if (!on) { anims.splice(0).forEach(() => 0); parts.length = 0; addG.clear(); nrmG.clear(); }
     setWeather(on ? w : undefined);
   }
+  function setRegions(rs: Region[]) {
+    const k = JSON.stringify(rs.map((r) => [r.id, r.kind, r.fx, r.points]));
+    if (k === regKey) return;
+    regKey = k; regList = rs; buildRegions();
+  }
+  let regKey = '';
   function destroy() {
     playFn = undefined;
     if (running) app.ticker.remove(tick);
     running = false;
     soft.destroy(true);
   }
-  return { effect, sync, destroy };
+  return { effect, sync, setRegions, wind: () => wx.wind, destroy };
 }

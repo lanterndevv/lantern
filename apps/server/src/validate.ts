@@ -1,5 +1,5 @@
 // Validación de todo lo que entra al servidor (mensajes de cliente e importaciones): nada es de fiar.
-import type { ExtensionManifest, ExtensionPermission, Ability, AudioState, Id, JournalEntry, Light, Point, Region, Scene, Token, Wall } from '@lantern/protocol';
+import type { ExtensionManifest, ExtensionPermission, Ability, AudioState, Grid, Id, JournalEntry, Light, Point, Region, Scene, Token, TurnEffect, Wall } from '@lantern/protocol';
 import { CONDITIONS, roll } from '@lantern/rules';
 import { parseCharacter } from './import.ts';
 
@@ -20,11 +20,23 @@ export const parseLevel = (s: Scene, v: unknown): Id | undefined | null =>
   v === undefined ? undefined : str(v, 64) && s.levels?.some((l) => l.id === v) ? v : null;
 export const MAX_LEVELS = 10;
 
-export const WEATHER = ['none', 'rain', 'snow', 'fog', 'ash', 'storm', 'leaves', 'embers'];
+export const WEATHER = ['none', 'rain', 'snow', 'fog', 'ash', 'storm', 'leaves', 'embers', 'fireflies', 'sand', 'dust'];
 export const SFX = ['door', 'thunder', 'roar', 'collapse', 'bell', 'scream', 'magic', 'coins', 'trap', 'hit', 'crit', 'heal', 'miss'];
 export const MAX_ITEMS = 500, MAX_WALLS = 5000, MAX_REGIONS = 100, MAX_LAYERS = 12, MAX_SCENES = 100, MAX_JOURNAL = 500;
 const ABILITIES = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
 const REGION_KINDS = ['difficult', 'trap', 'teleport', 'fog', 'darkness', 'sound', 'message'];
+
+// Efecto de turno (recordatorio de inicio/fin): validado igual venga del DM o de un token guardado.
+export function parseEffect(v: unknown): TurnEffect | null {
+  if (!obj(v) || !str(v.id, 64) || !str(v.name, 60) || (v.when !== 'start' && v.when !== 'end')) return null;
+  const e: TurnEffect = { id: v.id, name: v.name, when: v.when };
+  if (v.save !== undefined) { const sv = v.save; if (!obj(sv) || !ABILITIES.includes(sv.ability as string) || !int(sv.dc, 1, 30)) return null; e.save = { ability: sv.ability as Ability, dc: sv.dc }; }
+  for (const k of ['damage', 'heal'] as const) if (v[k] !== undefined) { if (!diceOk(v[k])) return null; e[k] = v[k] as string; }
+  if (v.damageType !== undefined) { if (typeof v.damageType !== 'string' || !/^[a-z]{1,30}$/.test(v.damageType)) return null; e.damageType = v.damageType; }
+  if (v.endsCondition !== undefined) { if (typeof v.endsCondition !== 'string' || !Object.hasOwn(CONDITIONS, v.endsCondition)) return null; e.endsCondition = v.endsCondition; }
+  if (v.sourceId !== undefined) { if (!str(v.sourceId, 80)) return null; e.sourceId = v.sourceId; }
+  return e;
+}
 
 export function parseToken(s: Scene, v: unknown): Token | null {
   if (!obj(v) || !str(v.id, 64) || !str(v.name, 64) || !inScene(s, v.x, v.y)) return null;
@@ -35,6 +47,7 @@ export function parseToken(s: Scene, v: unknown): Token | null {
   const t: Token = { id: v.id, name: v.name, x: v.x as number, y: v.y as number, size: v.size, faction: v.faction, hidden: v.hidden,
     owners: [...v.owners] as string[], darkvision: v.darkvision, conditions: [...v.conditions] as string[] };
   if (v.img !== undefined) { if (!str(v.img, 512) || !/^(https?:\/\/|\/)/.test(v.img)) return null; t.img = v.img; }
+  if (v.shape !== undefined) { if (v.shape !== 'round' && v.shape !== 'free') return null; t.shape = v.shape; }
   if (v.ac !== undefined) { if (!num(v.ac)) return null; t.ac = v.ac; }
   if (v.hp !== undefined) {
     const h = v.hp;
@@ -62,7 +75,21 @@ export function parseToken(s: Scene, v: unknown): Token | null {
   }
   if (v.level !== undefined) { const l = parseLevel(s, v.level); if (!l) return null; t.level = l; }
   if (v.carriedBy !== undefined) { if (!str(v.carriedBy, 64)) return null; t.carriedBy = v.carriedBy; }
+  if (v.edition !== undefined) { if (v.edition !== '2014' && v.edition !== '2024') return null; t.edition = v.edition; }
+  if (v.senses !== undefined) {
+    const n = v.senses;
+    if (!obj(n) || !Object.entries(n).every(([k, r]) => ['darkvision', 'blindsight', 'truesight', 'tremorsense', 'devilsSight'].includes(k) && inr(r, 0, 2400))) return null;
+    t.senses = { ...n } as Token['senses'];
+  }
+  if (v.hitDice !== undefined) {
+    const h = v.hitDice;
+    if (!obj(h) || !int(h.die, 4, 12) || !int(h.max, 1, 20) || !int(h.used, 0, h.max)) return null;
+    t.hitDice = { die: h.die, max: h.max, used: h.used };
+  }
   if (v.heroPoints !== undefined) { if (!int(v.heroPoints, 0, 20)) return null; t.heroPoints = v.heroPoints; }
+  if (v.asi !== undefined) { if (!int(v.asi, 0, 10)) return null; t.asi = v.asi; }
+  if (v.encounter !== undefined) { if (!str(v.encounter, 40)) return null; t.encounter = v.encounter; }
+  for (const k of ['lucky', 'inspiration'] as const) if (v[k] !== undefined) { if (typeof v[k] !== 'boolean') return null; t[k] = v[k]; }
   if (v.elevation !== undefined) { if (!inr(v.elevation, -500, 5000)) return null; t.elevation = v.elevation; }
   if (v.legendary !== undefined) {
     const l = v.legendary;
@@ -70,6 +97,23 @@ export function parseToken(s: Scene, v: unknown): Token | null {
     t.legendary = { max: l.max, used: l.used };
   }
   if (v.lair !== undefined) { if (typeof v.lair !== 'boolean') return null; t.lair = v.lair; }
+  for (const k of ['initAdv', 'shielded'] as const) if (v[k] !== undefined) { if (typeof v[k] !== 'boolean') return null; t[k] = v[k]; }
+  if (v.speeds !== undefined) {
+    const n = v.speeds;
+    if (!obj(n) || !Object.entries(n).every(([k, r]) => ['fly', 'swim', 'climb'].includes(k) && inr(r, 0, 500))) return null;
+    t.speeds = { ...n } as Token['speeds'];
+  }
+  if (v.condSource !== undefined) {
+    const n = v.condSource;
+    if (!obj(n) || Object.keys(n).length > 50 || !Object.entries(n).every(([k, r]) => k.length <= 64 && str(r, 80))) return null;
+    t.condSource = { ...n } as Record<string, string>;
+  }
+  if (v.effects !== undefined) {
+    if (!Array.isArray(v.effects) || v.effects.length > 10) return null;
+    const es = v.effects.map(parseEffect);
+    if (es.some((e) => !e)) return null;
+    t.effects = es as TurnEffect[];
+  }
   if (v.ddb !== undefined) {
     const d = v.ddb;
     if (!obj(d) || !int(d.id, 0, Number.MAX_SAFE_INTEGER) || !int(d.level, 1, 20) || !short(d.classes, 60) || !num(d.syncedAt)) return null;
@@ -81,11 +125,13 @@ export function parseToken(s: Scene, v: unknown): Token | null {
 export function parseWall(s: Scene, v: unknown): Wall | null {
   if (!obj(v) || !str(v.id, 64)) return null;
   const a = pt(s, v.a), b = pt(s, v.b);
-  if (!a || !b || !['wall', 'door', 'window', 'terrain'].includes(v.kind as string)) return null;
+  if (!a || !b || !['wall', 'door', 'window', 'terrain', 'invisible', 'ethereal'].includes(v.kind as string)) return null;
   const w: Wall = { id: v.id, a, b, kind: v.kind as Wall['kind'] };
   if (v.open !== undefined) { if (typeof v.open !== 'boolean') return null; w.open = v.open; }
   if (v.secret !== undefined) { if (typeof v.secret !== 'boolean') return null; w.secret = v.secret; }
   if (v.locked !== undefined) { if (typeof v.locked !== 'boolean') return null; w.locked = v.locked; }
+  if (v.oneWay !== undefined) { if (v.oneWay !== 'left' && v.oneWay !== 'right') return null; w.oneWay = v.oneWay; }
+  if (v.lock !== undefined) { if (!obj(v.lock) || !int(v.lock.dc, 1, 40)) return null; w.lock = { dc: v.lock.dc }; }
   if (v.note !== undefined) { if (!short(v.note, 1000)) return null; w.note = v.note; }
   if (v.level !== undefined) { const l = parseLevel(s, v.level); if (!l) return null; w.level = l; }
   return w;
@@ -98,13 +144,14 @@ export function parseLight(s: Scene, v: unknown): Light | null {
   const l: Light = { id: v.id, x: v.x as number, y: v.y as number, bright: v.bright, dim: v.dim, color: v.color };
   if (v.burnUntil !== undefined) { if (!inr(v.burnUntil, 0, 1e9)) return null; l.burnUntil = v.burnUntil; }
   if (v.follow !== undefined) { if (!str(v.follow, 64)) return null; l.follow = v.follow; }
-  if (v.anim !== undefined) { if (v.anim !== 'none' && v.anim !== 'torch' && v.anim !== 'pulse') return null; l.anim = v.anim; }
+  if (v.anim !== undefined) { if (!['none', 'torch', 'pulse', 'candle', 'magic', 'lightning'].includes(v.anim as string)) return null; l.anim = v.anim as Light['anim']; }
+  if (v.cone !== undefined) { const c = v.cone; if (!obj(c) || !inr(c.dir, -360, 360) || !inr(c.angle, 1, 360)) return null; l.cone = { dir: c.dir, angle: c.angle }; }
   if (v.level !== undefined) { const lv = parseLevel(s, v.level); if (!lv) return null; l.level = lv; }
   return l;
 }
 
 // Expresión de dados válida y acotada: 0 ≤ mínimo y máximo ≤ 1000
-const diceOk = (e: unknown): e is string => {
+export const diceOk = (e: unknown): e is string => {
   if (!str(e, 64)) return false;
   try { return roll(e, () => 0).total >= 0 && roll(e, () => 0.999999).total <= 1000; } catch { return false; }
 };
@@ -127,12 +174,17 @@ export function parseRegion(s: Scene, v: unknown): Region | null {
   if (v.to !== undefined) { const to = pt(s, v.to); if (!to) return null; r.to = to; }
   if (v.sfx !== undefined) { if (typeof v.sfx !== 'string' || !SFX.includes(v.sfx)) return null; r.sfx = v.sfx; }
   if (v.text !== undefined) { if (!short(v.text, 400)) return null; r.text = v.text; }
+  if (v.fx !== undefined) { if (!['fire', 'web', 'fog', 'ice', 'brambles'].includes(v.fx as string)) return null; r.fx = v.fx as Region['fx']; }
   if (v.level !== undefined) { const l = parseLevel(s, v.level); if (!l) return null; r.level = l; }
-  if (v.trigger !== undefined) { if (v.trigger !== 'enter' && v.trigger !== 'turnStart' && v.trigger !== 'turnEnd') return null; r.trigger = v.trigger; }
+  if (v.trigger !== undefined) { if (!['enter', 'exit', 'interact', 'turnStart', 'turnEnd'].includes(v.trigger as string)) return null; r.trigger = v.trigger as Region['trigger']; }
+  if (v.action !== undefined) { if (!['silence', 'doc', 'scene', 'encounter'].includes(v.action as string)) return null; r.action = v.action as Region['action']; }
+  for (const k of ['docId', 'sceneId'] as const) if (v[k] !== undefined) { if (!str(v[k], 64)) return null; r[k] = v[k] as string; }
+  if (v.encounter !== undefined) { if (!str(v.encounter, 40)) return null; r.encounter = v.encounter; }
   if (v.untilRound !== undefined) { if (!int(v.untilRound, 1, 9999)) return null; r.untilRound = v.untilRound; }
+  if (v.sourceId !== undefined) { if (!str(v.sourceId, 80)) return null; r.sourceId = v.sourceId; }
   if (v.toLevel !== undefined) { const l = parseLevel(s, v.toLevel); if (!l) return null; r.toLevel = l; }
   if (r.kind === 'teleport' && !r.to && !r.toLevel) return null;
-  if (r.kind === 'message' && !r.text) return null;
+  if (r.kind === 'message' && !r.text && !r.action) return null;
   return r;
 }
 
@@ -178,6 +230,7 @@ export function parseJournal(v: unknown, members: ReadonlyMap<Id, unknown>): Jou
   const e: JournalEntry = { id: v.id, title: v.title, body: v.body, visibleTo };
   if (v.image !== undefined) { if (!urlOk(v.image)) return null; e.image = v.image; }
   if (v.folder !== undefined) { if (!str(v.folder, 40)) return null; e.folder = v.folder; }
+  if (v.pdf !== undefined) { if (typeof v.pdf !== 'string' || !/^\/assets\/[0-9a-f]{64}\.pdf$/.test(v.pdf)) return null; e.pdf = v.pdf; }
   if (v.table !== undefined) { const t = parseTable(v.table); if (!t) return null; e.table = t; }
   return e;
 }
@@ -209,9 +262,10 @@ export function patchScene(s: Scene, patch: unknown): boolean {
     const g = p.grid;
     if (!obj(g)) return false;
     const m = { ...s.grid, ...g };
-    for (const k of Object.keys(g)) if (!['size', 'offsetX', 'offsetY', 'feet'].includes(k)) return false;
+    for (const k of Object.keys(g)) if (!['type', 'size', 'offsetX', 'offsetY', 'feet'].includes(k)) return false;
+    if (g.type !== undefined && !['square', 'hex', 'none'].includes(g.type as string)) return false;
     if (!inr(m.size, 20, 400) || !inr(m.offsetX, 0, m.size) || !inr(m.offsetY, 0, m.size) || !inr(m.feet, 1, 20)) return false;
-    n.grid = { size: m.size, offsetX: m.offsetX, offsetY: m.offsetY, feet: m.feet };
+    n.grid = { size: m.size, offsetX: m.offsetX, offsetY: m.offsetY, feet: m.feet, ...(m.type && { type: m.type as Grid['type'] }) };
   }
   Object.assign(s, n);
   return true;
@@ -239,6 +293,10 @@ export function parseScene(v: unknown): Scene | null {
   Object.assign(s, { walls, lights, tokens });
   if (regions.length) s.regions = regions;
   if (v.folder !== undefined) { if (!str(v.folder, 40)) return null; s.folder = v.folder; }
+  if (v.pins !== undefined) {
+    if (!Array.isArray(v.pins) || v.pins.length > 100 || !v.pins.every((p) => obj(p) && str(p.id, 64) && str(p.entryId, 64) && inScene(s, p.x, p.y) && num(p.y))) return null;
+    s.pins = v.pins.map((p) => ({ id: p.id as string, x: p.x as number, y: p.y as number, entryId: p.entryId as string }));
+  }
   if (v.dmNotes !== undefined) { if (!short(v.dmNotes, 5000)) return null; s.dmNotes = v.dmNotes; }
   if (v.audioPreset !== undefined) { const a = parseAudio(v.audioPreset); if (!a) return null; s.audioPreset = a; }
   return s;

@@ -1,4 +1,4 @@
-import { blocksSight, type Point, type Wall } from '@lantern/protocol';
+import { blocksSight, type Point, type Token, type Wall } from '@lantern/protocol';
 
 export type Seg = [Point, Point];
 
@@ -36,8 +36,24 @@ export function visibility(origin: Point, segs: Seg[], w: number, h: number): Po
   return poly;
 }
 
-export const sightSegments = (walls: Wall[]): Seg[] =>
-  walls.filter(blocksSight).map((w) => [w.a, w.b]);
+export const sightSegments = (walls: Wall[], from?: Point): Seg[] =>
+  walls.filter((w) => blocksSight(w, from)).map((w) => [w.a, w.b]);
+
+// Iluminación del punto: magic = oscuridad mágica (Oscuridad); dark = sin luz.
+export type Light = 'bright' | 'dim' | 'dark' | 'magic';
+type Viewer = Pick<Token, 'x' | 'y' | 'darkvision' | 'senses'>;
+
+// ¿Percibe `viewer` a `target`? `los` = sin muro de visión entre ambos. Todos los sentidos exigen línea de visión.
+// ponytail: tremorsense no distingue voladores (usar target.grounded); la luz la aporta quien llama.
+export function perceives(viewer: Viewer, target: Pick<Token, 'x' | 'y' | 'conditions'> & { grounded?: boolean }, o: { light: Light; los: boolean }): boolean {
+  if (!o.los) return false;
+  const d = Math.hypot(target.x - viewer.x, target.y - viewer.y), v = viewer.senses ?? {}, within = (r = 0) => d <= r;
+  if (within(v.blindsight) || within(v.truesight) || (target.grounded !== false && within(v.tremorsense))) return true; // ignoran luz e invisibilidad
+  if (target.conditions.includes('invisible')) return false;
+  if (o.light === 'bright' || o.light === 'dim') return true;
+  if (within(v.devilsSight)) return true;
+  return o.light === 'dark' && within(Math.max(viewer.darkvision, v.darkvision ?? 0));
+}
 
 export function pointInPolygon(p: Point, poly: Point[]): boolean {
   let inside = false;
@@ -57,3 +73,4 @@ export function cover(from: Point, to: Point, targetRadius: number, segs: Seg[])
   const n = [{ x: to.x, y: to.y }, { x: to.x - r, y: to.y - r }, { x: to.x + r, y: to.y - r }, { x: to.x - r, y: to.y + r }, { x: to.x + r, y: to.y + r }].filter(blocked).length;
   return n === 0 ? 0 : n <= 2 ? 2 : n <= 4 ? 5 : 'total';
 }
+export * from './brush.ts';

@@ -1,4 +1,5 @@
 import type { C2S, Token } from '@lantern/protocol';
+import { CONDITIONS } from '@lantern/rules';
 import './mobile.css';
 
 export type RadialItem = { id: string; label: string; icon: string; disabled?: boolean; run(): void };
@@ -60,8 +61,29 @@ export function openRadial(clientX: number, clientY: number, items: RadialItem[]
   });
   const live = () => btns.filter(b => !b.disabled);
 
+  // Selección por gesto: con el botón (o el dedo) aún pulsado, arrastrar hacia un sector y soltar lo ejecuta.
+  let hot = -1;
+  const drag = (e: PointerEvent) => {
+    if (!e.buttons) return;
+    const dx = e.clientX - cx, dy = e.clientY - cy;
+    let h = -1;
+    if (Math.hypot(dx, dy) > 36) {
+      const a = (Math.atan2(dy, dx) + Math.PI / 2 + 2 * Math.PI) % (2 * Math.PI); // 0 = arriba, en sentido horario
+      h = Math.round(a / (2 * Math.PI / n)) % n;
+      if (btns[h].disabled) h = -1;
+    }
+    if (h === hot) return;
+    hot = h;
+    btns.forEach((b, i) => { b.style.filter = i === h ? 'brightness(1.5)' : ''; b.style.boxShadow = i === h ? '0 0 0 3px var(--ambar)' : ''; });
+    centro.textContent = h >= 0 ? items[h].label : idle;
+  };
+  const release = () => { if (hot >= 0) { const it = items[hot]; done(false); it.run(); } };
+  addEventListener('pointermove', drag);
+  addEventListener('pointerup', release);
+
   const done = (restore = true) => {
     close = undefined;
+    removeEventListener('pointermove', drag); removeEventListener('pointerup', release);
     removeEventListener('keydown', key, true);
     back.remove(); menu.remove();
     if (restore) opener?.isConnected && opener.focus?.();
@@ -106,6 +128,7 @@ export function tokenRadialItems(t: Token, c: RadialCtx): RadialItem[] {
   // ponytail: «conjuro» = acción con slot definido (0 = truco) o que no es ataque; sin campo explícito de conjuro en Action
   const spells = acts.filter(a => a.slot != null || a.kind !== 'attack');
   const say = (verb: string) => () => c.send({ t: 'chat', text: `${t.name} ${verb}.` });
+  const turn = (op: 'dodge' | 'dash' | 'disengage' | 'hide' | 'useObject') => c.send({ t: 'turnAction', tokenId: t.id, op });
   const luz = `luz-${t.id}`, lit = c.lit?.(t.id) ?? false, g = c.grid ?? 70;
   const it: RadialItem[] = [
     { id: 'attack', label: 'Atacar', icon: 'attack', disabled: !atk, run: () => atk && c.arm(t.id, atk.id) },
@@ -113,9 +136,18 @@ export function tokenRadialItems(t: Token, c: RadialCtx): RadialItem[] {
       run: () => openRadial(last.x, last.y, spells.map(a => ({
         id: a.id, label: a.name, icon: 'spell', run: () => c.arm(t.id, a.id),
       })), t.name) },
-    { id: 'dodge', label: 'Esquivar', icon: 'dodge', run: say('se pone a la defensiva (Esquivar)') },
-    { id: 'help', label: 'Ayudar', icon: 'help', run: say('ayuda (Ayudar)') },
-    { id: 'disengage', label: 'Destrabarse', icon: 'disengage', run: say('se destraba (Destrabarse)') },
+    { id: 'actions', label: 'Acción…', icon: 'dodge', disabled: !(dm || own), run: () => openRadial(last.x, last.y, [
+      { id: 'dodge', label: 'Esquivar', icon: 'dodge', run: () => turn('dodge') },
+      { id: 'dash', label: 'Correr', icon: 'disengage', run: () => turn('dash') },
+      { id: 'disengage', label: 'Destrabarse', icon: 'disengage', run: () => turn('disengage') },
+      { id: 'hide', label: 'Esconderse', icon: 'hide', run: () => turn('hide') },
+      { id: 'object', label: 'Usar objeto', icon: 'notes', run: () => turn('useObject') },
+      { id: 'help', label: 'Ayudar', icon: 'help', run: say('ayuda (Ayudar)') },
+    ], t.name) },
+    { id: 'conds', label: 'Condiciones…', icon: 'status', disabled: !(dm || own), run: () => openRadial(last.x, last.y, Object.entries(CONDITIONS).filter(([k]) => k !== 'dead').map(([k, n]) => {
+      const on = t.conditions.includes(k);
+      return { id: k, label: `${on ? '✓ ' : ''}${n}`, icon: on ? 'trash' : 'status', run: () => c.send({ t: 'condition', tokenId: t.id, condition: k, on: !on }) };
+    }), t.name) },
     { id: 'status', label: 'Estado', icon: 'status', run: () => c.openSheet(t.id) },
   ];
   if (own || dm) it.push({ id: 'light', label: lit ? 'Apagar luz' : 'Luz', icon: 'light', run: () => lit

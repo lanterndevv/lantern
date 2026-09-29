@@ -250,3 +250,20 @@ test('spawnCustom: solo DM, valida cr y tamaño, crea enemigo con sufijo', () =>
   assert.equal(handle(room, dm, { t: 'spawnCustom', monster, x: 300, y: 600, hidden: true } as never, roll).state, true);
   assert.equal(room.scene.tokens.at(-1)!.hidden, true);
 });
+
+test('Escudo: el +5 CA persiste para otros ataques hasta el inicio del turno del lanzador', () => {
+  const { room, dm, player } = shieldSetup();
+  combat(room, ['trasgo-a', 'kael']);
+  withDie(() => handle(room, dm, { t: 'act', tokenId: 'trasgo-a', actionId: 'lanza', targets: ['kael'] }, roll, 1000));
+  assert.equal(handle(room, player, { t: 'react', pending: room.pending[0].pending!, tokenId: 'kael', actionId: 'shield' }, roll, 2000).error, undefined);
+  assert.equal(tok(room, 'kael').shielded, true);
+  assert.equal(tok(room, 'kael').ac, 15); // la CA base no se toca
+  room.combat!.used = {}; // el goblin vuelve a tener acción
+  // segundo ataque (total 16 < 20): falla
+  const fx = withDie(() => handle(room, dm, { t: 'act', tokenId: 'trasgo-a', actionId: 'lanza', targets: ['kael'] }, roll, 3000));
+  assert.equal(fx.error, undefined);
+  assert.equal(room.chat.at(-1)!.card!.targets[0].attack!.hit, false);
+  handle(room, dm, { t: 'combat', op: 'next' }, roll); // turno de Kael: caduca
+  assert.equal(tok(room, 'kael').shielded, undefined);
+  assert.equal(tok(room, 'kael').ac, 15);
+});

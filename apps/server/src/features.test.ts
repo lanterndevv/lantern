@@ -152,15 +152,15 @@ test('teleport, sonido, mensaje (solo dueños y DM), onlyAllies', () => {
   assert.deepEqual(to(other.member), [{ t: 'sfx', name: 'bell' }]);
 });
 
-test('terreno difícil: el destino dentro cuesta el doble en combate', () => {
+test('terreno difícil: cuesta el doble solo en el tramo que atraviesa la región', () => {
   const { room, dm, player, H } = setup();
   H(dm, { t: 'upsert', kind: 'region', item: region({ id: 'd', kind: 'difficult', hidden: false, points: rect(400, 500, 560, 620) }) });
   H(dm, { t: 'combat', op: 'start' });
   room.combat!.turn = room.combat!.order.findIndex((o) => o.tokenId === 'kael');
   H(player, { t: 'moveToken', id: 'kael', x: 450, y: 570 }); // 60 px = 1 casilla = 5 ft ×2
   assert.equal(room.combat!.used.kael.moved, 10);
-  H(player, { t: 'moveToken', id: 'kael', x: 300, y: 570 }); // destino fuera: normal, 150 px = 12.5 ft
-  assert.equal(room.combat!.used.kael.moved, 22.5);
+  H(player, { t: 'moveToken', id: 'kael', x: 300, y: 570 }); // sale de la región: 50 px dentro (×2 = 8,33 ft) + 100 px fuera (8,33 ft)
+  assert.ok(Math.abs(room.combat!.used.kael.moved - (10 + 50 / 60 * 10 + 100 / 60 * 5)) < 1e-6);
 });
 
 test('notas del DM ocultas a jugadores; puerta con llave', () => {

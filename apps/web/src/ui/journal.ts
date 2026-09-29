@@ -14,6 +14,22 @@ const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.char
 const isUrl = (s: string) => /^(https?:\/\/|\/)\S+$/.test(s);
 const rid = () => Math.random().toString(36).slice(2, 10);
 const MAX_UPLOAD = 30e6;
+// Cuerpo con enlaces [[Título]] a otras entradas; sin innerHTML (el texto nunca se interpreta como HTML).
+function linkify(el: HTMLElement, text: string, open: (title: string) => boolean) {
+  el.replaceChildren();
+  text.split(/(\[\[[^\]\n]{1,120}\]\])/).forEach(part => {
+    const m = /^\[\[(.+)\]\]$/.exec(part);
+    if (!m) return void el.append(part);
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'dj-enlace'; b.textContent = m[1];
+    b.onclick = () => { if (!open(m[1])) { b.disabled = true; b.title = 'No existe o no puedes leerla'; } };
+    el.append(b);
+  });
+}
+
+// Visor de PDF: el fragmento #zoom=…&page=… lo entienden los visores de los navegadores.
+const pdfFrame = (url: string, zoom: number, page = 1) => Object.assign(document.createElement('iframe'), { src: `${url}#zoom=${zoom}&page=${page}`, className: 'dj-pdf', title: 'Documento PDF' });
+
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 async function upload(code: string, f: File): Promise<string> {
@@ -55,9 +71,22 @@ export function mountJournal(el: HTMLElement, ctx: JrCtx) {
     const e = entries().find(x => x.id === selId);
     if (!e) { main.innerHTML = '<p class="det">Elige una entrada.</p>'; return; }
     main.innerHTML = `<h3></h3>${e.image ? '<img alt="">' : ''}<p class="dj-cuerpo"></p>` +
-      (staff ? '<div class="ed-btns"><button type="button" data-a="edit">Editar</button><button type="button" class="primary" data-a="show">Mostrar a jugadores</button><button type="button" data-a="del">Borrar</button></div>' : '');
+      (staff ? '<div class="ed-btns"><button type="button" data-a="edit">Editar</button><button type="button" class="primary" data-a="show">Mostrar a jugadores</button><button type="button" data-a="pin">Fijar en el mapa</button><button type="button" data-a="del">Borrar</button></div>' : '');
     main.querySelector('h3')!.textContent = e.title;
-    main.querySelector('.dj-cuerpo')!.textContent = e.body; // nunca innerHTML con el cuerpo
+    linkify(main.querySelector('.dj-cuerpo')!, e.body, title => { // nunca innerHTML con el cuerpo
+      const t = entries().find(x => x.title.toLowerCase() === title.toLowerCase());
+      if (!t) return false;
+      selId = t.id; renderList(); renderMain(); return true;
+    });
+    if (e.pdf) {
+      const box = document.createElement('div'); box.className = 'dj-pdfbox';
+      const draw = () => { box.querySelector('iframe')?.remove(); box.append(pdfFrame(e.pdf!, +box.querySelector<HTMLInputElement>('[name=z]')!.value, +box.querySelector<HTMLInputElement>('[name=p]')!.value || 1)); };
+      box.innerHTML = staff ? `<div class="fila"><label>Zoom %<input name="z" type="number" min="25" max="500" step="25" value="100"></label><label>Página<input name="p" type="number" min="1" value="1"></label>
+        <label class="chk"><input name="s" type="checkbox"> Sincronizar con los jugadores</label></div>` : '<input name="z" type="hidden" value="100"><input name="p" type="hidden" value="1">';
+      box.addEventListener('change', () => { draw(); if (box.querySelector<HTMLInputElement>('[name=s]')?.checked) ctx.send({ t: 'docView', entryId: e.id, zoom: +box.querySelector<HTMLInputElement>('[name=z]')!.value, page: +box.querySelector<HTMLInputElement>('[name=p]')!.value || 1 }); });
+      draw();
+      main.querySelector('.dj-cuerpo')!.after(box);
+    }
     if (e.table) main.querySelector('.dj-cuerpo')!.after(tableView(e, ctx));
     if (e.image) { const i = main.querySelector('img')!; i.src = e.image; i.className = 'dj-img'; }
   }
@@ -71,6 +100,7 @@ export function mountJournal(el: HTMLElement, ctx: JrCtx) {
       <label>Cuerpo<textarea id="dj-b" rows="8">${esc(e.body)}</textarea></label>
       <label>Imagen (URL)<input id="dj-iu" type="url" placeholder="https://…" value="${esc(e.image)}"></label>
       <label>o subir imagen<input id="dj-if" type="file" accept="image/*"></label>
+      <label>Documento PDF${e.pdf ? ' (ya tiene uno; sube otro para cambiarlo)' : ''}<input id="dj-pf" type="file" accept="application/pdf"></label>
       <fieldset><legend>Visible para</legend>
         <label class="chk"><input type="radio" name="dj-v" value="dm"${vis === 'dm' ? ' checked' : ''}> Solo DM</label>
         <label class="chk"><input type="radio" name="dj-v" value="all"${vis === 'all' ? ' checked' : ''}> Todos</label>
@@ -99,10 +129,18 @@ export function mountJournal(el: HTMLElement, ctx: JrCtx) {
       st('Subiendo…');
       try { image = await upload(ctx.state().code, f); } catch (e) { return st((e as Error).message); }
     } else if (image && !isUrl(image)) return st('La URL debe empezar por http:// o https://');
+    let pdf = editing.pdf;
+    const pf = v('dj-pf').files?.[0];
+    if (pf) {
+      if (pf.type !== 'application/pdf') return st('Eso no es un PDF');
+      if (pf.size > MAX_UPLOAD) return st('El archivo pesa más de 30 MB');
+      st('Subiendo PDF…');
+      try { pdf = await upload(ctx.state().code, pf); } catch (e) { return st((e as Error).message); }
+    }
     const mode = main.querySelector<HTMLInputElement>('input[name=dj-v]:checked')?.value;
     const visibleTo: JournalEntry['visibleTo'] = mode === 'all' ? 'all' : mode === 'some'
       ? [...main.querySelectorAll<HTMLInputElement>('[data-m]:checked')].map(c => c.dataset.m!) : 'dm';
-    const entry: JournalEntry = { id: editing.id, title, body: v('dj-b').value, visibleTo, ...(v('dj-f').value.trim() ? { folder: v('dj-f').value.trim() } : {}), ...(image ? { image } : {}), ...(r?.table ? { table: r.table } : {}) };
+    const entry: JournalEntry = { id: editing.id, title, body: v('dj-b').value, visibleTo, ...(v('dj-f').value.trim() ? { folder: v('dj-f').value.trim() } : {}), ...(image ? { image } : {}), ...(pdf ? { pdf } : {}), ...(r?.table ? { table: r.table } : {}) };
     ctx.send({ t: 'journal', entry });
     selId = entry.id; editing = null; sig = ''; renderList(); renderMain();
   }
@@ -117,6 +155,7 @@ export function mountJournal(el: HTMLElement, ctx: JrCtx) {
     if (a === 'edit' && cur) { editing = cur; renderList(); renderMain(); }
     else if (a === 'save') void save();
     else if (a === 'cancel') { editing = null; renderList(); renderMain(); }
+    else if (a === 'pin' && cur) document.dispatchEvent(new CustomEvent('lantern:pin', { detail: { entryId: cur.id } }));
     else if (a === 'show' && cur) { ctx.send({ t: 'handout', entryId: cur.id }); ctx.toast('Mostrado a los jugadores'); }
     else if (a === 'del' && cur && confirm(`¿Borrar «${cur.title}»?`)) { ctx.send({ t: 'journalDelete', id: cur.id }); selId = undefined; }
   });
@@ -135,7 +174,12 @@ export function mountJournal(el: HTMLElement, ctx: JrCtx) {
   };
 }
 
-let hand: HTMLDialogElement | undefined;
+let hand: HTMLDialogElement | undefined, handId = '', handUrl = '';
+/** S2C docView: el DM ajusta el zoom del PDF que estás viendo. */
+export function syncDoc(m: { entryId: string; zoom: number; page?: number }) {
+  if (!hand?.open || handId !== m.entryId) return;
+  hand.querySelector('iframe')?.replaceWith(pdfFrame(handUrl, m.zoom, m.page));
+}
 /** S2C handout: diálogo modal con imagen (clic = zoom) y texto. */
 export function showHandout(e: JournalEntry) {
   hand ??= Object.assign(document.createElement('dialog'), { className: 'dj-hand' });
@@ -143,6 +187,8 @@ export function showHandout(e: JournalEntry) {
   hand.innerHTML = `<h2 id="dj-ht" style="margin-top:0;font-family:var(--serif)"></h2>${e.image ? '<div class="dj-z"><img alt="" tabindex="0" role="button" aria-label="Ampliar imagen"></div>' : ''}<p class="dj-cuerpo"></p><form method="dialog"><button class="primary" autofocus>Cerrar</button></form>`;
   hand.querySelector('h2')!.textContent = e.title;
   hand.querySelector('.dj-cuerpo')!.textContent = e.body;
+  handId = e.id; hand.classList.toggle('pdf', !!e.pdf);
+  if (e.pdf) { handUrl = e.pdf; hand.querySelector('.dj-cuerpo')!.after(pdfFrame(e.pdf, 100)); }
   const img = hand.querySelector('img');
   if (img) {
     img.src = e.image!; img.alt = e.title;

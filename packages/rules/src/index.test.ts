@@ -104,3 +104,37 @@ test('roll devuelve dice con kept', () => {
   assert.deepEqual(d, [{ sides: 20, value: 19, kept: true }, { sides: 20, value: 3, kept: false }, { sides: 6, value: 4, kept: true }]);
   assert.equal(r.roll('5').dice.length, 0);
 });
+
+test('roll variables @str/@prof/@lvl (negativos incluidos)', () => {
+  const ctx = r.diceContext({ abilities: { str: 8, dex: 16, con: 10, int: 10, wis: 10, cha: 10 }, prof: 3, lvl: 9 });
+  assert.equal(r.roll('1d20+@dex+@prof', seq(face(10, 20)), ctx).total, 10 + 3 + 3);
+  assert.equal(r.roll('1d20+@str', seq(face(10, 20)), ctx).total, 9);
+  assert.equal(r.roll('1d20-@str', seq(face(10, 20)), ctx).total, 11);
+  assert.equal(r.roll('@lvld6', seq(face(1, 6)), ctx).dice.length, 9);
+  assert.throws(() => r.roll('1d20+@foo', Math.random, ctx), /@foo/);
+});
+
+test('roll explosión d6!', () => {
+  const x = r.roll('1d6!', seq(face(6, 6), face(6, 6), face(2, 6)));
+  assert.equal(x.total, 14);
+  assert.equal(x.dice.length, 3);
+  assert.equal(r.roll('1d2!', () => 0.99).dice.length, 100); // tope de dados
+});
+
+test('roll repetición N#', () => {
+  const x = r.roll('3#1d20+5', seq(face(1, 20), face(10, 20), face(20, 20)));
+  assert.deepEqual(x.totals, [6, 15, 25]);
+  assert.equal(x.total, 46);
+  assert.equal(x.dice.length, 3);
+  assert.throws(() => r.roll('21#1d4'));
+  assert.throws(() => r.roll('20#6d6'), /Demasiados dados/);
+});
+
+test('roll reroll rN y min/max', () => {
+  const x = r.roll('2d6r2', seq(face(1, 6), face(5, 6), face(4, 6)));
+  assert.equal(x.total, 9);
+  assert.deepEqual(x.dice.map((d) => d.kept), [false, true, true]);
+  assert.equal(r.roll('2d6min3', seq(face(1, 6), face(5, 6))).total, 8);
+  assert.equal(r.roll('2d6max4', seq(face(6, 6), face(2, 6))).total, 6);
+  assert.equal(r.roll('4d6r1kh3min2', seq(face(1, 6), face(1, 6), face(4, 6), face(6, 6), face(5, 6))).total, 15);
+});

@@ -1,9 +1,11 @@
+import type { Room, RemoteParticipant } from 'livekit-client';
 import { net } from '../net';
 
 type Mem = { id: string; name: string; role: string; online: boolean };
 type Peer = { pc: RTCPeerConnection; audio: HTMLAudioElement; an?: AnalyserNode; vol: number; queue: RTCIceCandidateInit[] };
 type Sig = { type: 'hello' | 'offer' | 'answer' | 'ice' | 'bye'; sdp?: RTCSessionDescriptionInit; ice?: RTCIceCandidateInit };
 
+// Con state.livekit la voz va por un SFU LiveKit (livekit-client, import dinámico); sin él, malla WebRTC.
 // ponytail: malla completa (n*(n-1)/2 conexiones), vale hasta ~6 personas. Con más, SFU tipo LiveKit en una fase posterior.
 // ponytail: solo STUN, sin TURN; tras NAT simétrico algunos pares no conectarán. Añadir TURN si hay quejas.
 const ICE: RTCConfiguration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
@@ -18,7 +20,7 @@ const rms = (an: AnalyserNode, buf: Uint8Array<ArrayBuffer>) => {
 };
 const store = (k: string, v?: string) => { try { if (v !== undefined) localStorage.setItem(k, v); return localStorage.getItem(k); } catch { return null; } };
 
-export function mountVoice(el: HTMLElement, opts: { me: string; members: () => Mem[]; getVolume?: () => number }): { destroy(): void; onState(members: Mem[]): void } {
+export function mountVoice(el: HTMLElement, opts: { me: string; members: () => Mem[]; getVolume?: () => number; livekit?: () => boolean }): { destroy(): void; onState(members: Mem[]): void } {
   const { me } = opts;
   let mems = opts.members();
   let stream: MediaStream | undefined, ctx: AudioContext | undefined, meAn: AnalyserNode | undefined, probe: MediaStream | undefined;
@@ -27,6 +29,8 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
   let key = store('lantern:voice:key') ?? 'v';
   let capturing = false;
   const peers = new Map<string, Peer>();
+  let lk: Room | undefined;
+  const lkVol = new Map<string, number>(); // volumen por participante remoto en modo SFU
   const buf = new Uint8Array(new ArrayBuffer(512));
 
   el.innerHTML = `<section class="voz" aria-labelledby="voz-h"><h3 id="voz-h">Voz</h3>
@@ -41,6 +45,7 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
   const say = (t: string) => { st.textContent = t; };
   const nameOf = (id: string) => mems.find(m => m.id === id)?.name ?? 'Jugador';
 
+  const lkGain = (id: string) => { (lk?.remoteParticipants.get(id) as RemoteParticipant | undefined)?.setVolume(Math.min(1, (lkVol.get(id) ?? 1) * (opts.getVolume?.() ?? 1))); };
   const gain = (p: Peer) => { p.audio.volume = Math.min(1, p.vol * (opts.getVolume?.() ?? 1)); };
   const gate = () => {
     const on = joined && !muted && (mode === 'ptt' ? ptt : vadOn);
@@ -56,20 +61,21 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
     $('.voz-key').hidden = mode !== 'ptt';
     cfg.textContent = capturing ? 'Pulsa la nueva tecla…' : `Tecla para hablar: ${key.toUpperCase()} (cambiar)`;
     list.replaceChildren();
-    const row = (id: string, name: string, p?: Peer) => {
+    const row = (id: string, name: string, p?: { vol: number }) => {
       const li = document.createElement('li'); li.dataset.id = id;
       li.innerHTML = '<span class="voz-ring" aria-hidden="true"></span><span class="voz-n"></span><span class="voz-s"></span>';
       li.querySelector('.voz-n')!.textContent = name;
       if (p) {
         const r = document.createElement('input'); r.type = 'range'; r.min = '0'; r.max = '1'; r.step = '0.05'; r.value = String(p.vol);
         r.setAttribute('aria-label', `Volumen de ${name}`);
-        r.oninput = () => { p.vol = +r.value; gain(p); };
+        r.oninput = () => { p.vol = +r.value; if ('audio' in p) gain(p as Peer); else { lkVol.set(id, p.vol); lkGain(id); } };
         li.append(r);
       }
       list.append(li);
     };
     if (joined) row(me, 'Tú');
     peers.forEach((p, id) => row(id, nameOf(id), p));
+    lk?.remoteParticipants.forEach((_, id) => { if (!lkVol.has(id)) lkVol.set(id, 1); row(id, nameOf(id), { get vol() { return lkVol.get(id)!; }, set vol(v) { lkVol.set(id, v); } }); });
   }
 
   const send = (to: string, data: Sig) => net.send({ t: 'rtc', to, data });
@@ -106,7 +112,7 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
   }
 
   const off = net.on(async m => {
-    if (m.t !== 'rtc' || !joined) return;
+    if (m.t !== 'rtc' || !joined || lk) return;
     const d = m.data as Sig, from = m.from;
     try {
       if (d.type === 'hello') { if (me > from) await offer(from); else send(from, { type: 'hello' }); }
@@ -143,12 +149,37 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
     ctx.createMediaStreamSource(probe).connect(meAn);
     joined = true; joinB.disabled = false; gate();
     say(mode === 'ptt' ? `Conectado a la voz. Mantén ${key.toUpperCase()} para hablar.` : 'Conectado a la voz. Detección de voz activa.');
-    mems.filter(m => m.online && m.id !== me && m.role !== 'spectator').forEach(m => send(m.id, { type: 'hello' }));
+    if (opts.livekit?.()) { if (!await joinSfu()) { const t = st.textContent!; leave(); say(t); return; } }
+    else mems.filter(m => m.online && m.id !== me && m.role !== 'spectator').forEach(m => send(m.id, { type: 'hello' }));
     paint();
+  }
+
+  // SFU: pide token al servidor, conecta y publica la pista del micro (gate() la activa/desactiva como en la malla).
+  async function joinSfu(): Promise<boolean> {
+    try {
+      const got = new Promise<{ url: string; token: string }>((ok, ko) => {
+        const o = net.on(m => { if (m.t === 'livekit') { o(); ok(m); } else if (m.t === 'error') { o(); ko(new Error(m.msg)); } });
+        setTimeout(() => { o(); ko(new Error('sin respuesta')); }, 8000);
+      });
+      net.send({ t: 'livekit' });
+      const { url, token } = await got;
+      const { Room, RoomEvent, Track } = await import('livekit-client');
+      const room = new Room();
+      room.on(RoomEvent.TrackSubscribed, (t) => { if (t.kind === Track.Kind.Audio) document.body.append(t.attach()); });
+      room.on(RoomEvent.TrackUnsubscribed, (t) => t.detach().forEach(e => e.remove()));
+      room.on(RoomEvent.ParticipantConnected, () => paint());
+      room.on(RoomEvent.ParticipantDisconnected, (p) => { talking.delete(p.identity); lkVol.delete(p.identity); paint(); });
+      room.on(RoomEvent.Disconnected, () => { if (lk === room) { say('Se perdió la conexión de voz.'); leave(); } });
+      await room.connect(url, token);
+      lk = room;
+      if (mems.find(m => m.id === me)?.role !== 'spectator') await room.localParticipant.publishTrack(stream!.getAudioTracks()[0], { source: Track.Source.Microphone });
+      return true;
+    } catch (e) { say(`No se pudo conectar a la voz: ${e instanceof Error ? e.message : 'error'}`); return false; }
   }
 
   function leave() {
     [...peers.keys()].forEach(id => drop(id, true));
+    const r = lk; lk = undefined; void r?.disconnect(); lkVol.clear();
     stream?.getTracks().forEach(t => t.stop()); probe?.getTracks().forEach(t => t.stop());
     void ctx?.close();
     stream = probe = ctx = meAn = undefined; joined = false; ptt = vadOn = false; talking.delete(me);
@@ -183,6 +214,7 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
       gate();
     }
     if (meAn) { const on = gate() && rms(meAn, buf) > THRESH; on ? talking.add(me) : talking.delete(me); }
+    lk?.remoteParticipants.forEach((p, id) => { p.isSpeaking ? talking.add(id) : talking.delete(id); lkGain(id); });
     peers.forEach((p, id) => { (p.an && rms(p.an, buf) > THRESH) ? talking.add(id) : talking.delete(id); gain(p); });
     list.querySelectorAll<HTMLElement>('li').forEach(li => {
       const on = talking.has(li.dataset.id!);

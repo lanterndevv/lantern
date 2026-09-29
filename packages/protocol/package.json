@@ -5,6 +5,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./demo": "./src/demo.ts",
+    "./move": "./src/move.ts",
     "./link": "./src/link.ts"
   }
 }
