@@ -23,6 +23,8 @@ export function demoScene(): Scene {
   return {
     id: 'cueva-osgo', name: 'Cueva del osgo',
     width: 1440, height: 900, globalLight: 0,
+    weather: { kind: 'fog', intensity: 0.3, wind: 0.2 },
+    story: { title: 'Risco del Cuervo', subtitle: 'antes del alba' },
     grid: { size: 60, offsetX: 0, offsetY: 0, feet: 5 },
     walls: [
       // sala de guardia

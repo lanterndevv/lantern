@@ -542,3 +542,83 @@ test('curar a un muerto no lo devuelve a la vida; salvación de muerte fuera de 
   assert.ok('error' in h && h.error);
   assert.equal(kael.hp!.cur, 0);
 });
+
+// ---- escena, audio, rtc ----
+const Hd = (r: Room, m: Parameters<typeof handle>[1], msg: unknown, now?: number) => handle(r, m, msg, fakeRoll, now);
+function withRoles() {
+  const b = setup();
+  const t = joinRoom(b.room, 'Tru', undefined) as { member: typeof b.dm };
+  const sp = joinRoom(b.room, 'Esp', undefined) as { member: typeof b.dm };
+  t.member.role = 'trusted'; sp.member.role = 'spectator';
+  return { ...b, trusted: t.member, spectator: sp.member };
+}
+
+test('scene patch: válido se mezcla; malicioso se rechaza sin tocar nada', () => {
+  const { room, dm } = withRoles();
+  const ok = Hd(room, dm, { t: 'scene', patch: { name: 'Nueva', background: '/assets/x.png', globalLight: 0.5, weather: { kind: 'rain', intensity: 1, wind: -1 },
+    story: { title: 'T' }, grid: { size: 100, feet: 10 }, width: 2000 } });
+  assert.equal(ok.state, true);
+  assert.equal(room.scene.name, 'Nueva'); assert.equal(room.scene.grid.size, 100); assert.equal(room.scene.grid.offsetX, 0);
+  assert.equal(room.scene.story?.subtitle, 'antes del alba'); assert.equal(room.scene.story?.title, 'T');
+  const before = JSON.stringify(room.scene);
+  for (const patch of [{ background: 'javascript:alert(1)' }, { story: { image: 'javascript:x' } }, { background: '//evil.com/x.png' }, { grid: { size: 0 } }, { grid: { size: 30, offsetX: 31 } },
+    { globalLight: 2 }, { weather: { kind: 'lava', intensity: 0, wind: 0 } }, { weather: { kind: 'fog', intensity: 0, wind: 2 } }, { name: 'x'.repeat(61) },
+    { width: 50 }, { walls: [] }, { story: { title: 'x'.repeat(81) } }, { name: 'ok', grid: { feet: 0 } }])
+    assert.ok(Hd(room, dm, { t: 'scene', patch }).error, JSON.stringify(patch));
+  assert.equal(JSON.stringify(room.scene), before);
+});
+
+test('un jugador no puede usar scene, view, npcSay, transition, audio ni sfx', () => {
+  const { room, player } = withRoles();
+  for (const m of [{ t: 'scene', patch: { name: 'x' } }, { t: 'view', value: 'story' }, { t: 'npcSay', name: 'A', text: 'b' }, { t: 'transition', title: 'x' },
+    { t: 'audio', op: 'play', url: '/assets/a.mp3', name: 'a' }, { t: 'sfx', name: 'door' }])
+    assert.ok(Hd(room, player, m).error, m.t);
+  assert.equal(room.view, 'tactical');
+});
+
+test('view y npcSay (con chat) y transition', () => {
+  const { room, dm } = withRoles();
+  assert.equal(Hd(room, dm, { t: 'view', value: 'story' }).state, true); assert.equal(room.view, 'story');
+  assert.ok(Hd(room, dm, { t: 'view', value: 'x' }).error);
+  const r = Hd(room, dm, { t: 'npcSay', name: 'Bruja', text: 'Hola', portrait: 'https://x.io/a.png' });
+  assert.equal(r.all?.t, 'npcSay'); assert.equal(r.chat?.text, 'Bruja: Hola');
+  assert.ok(Hd(room, dm, { t: 'npcSay', name: 'B', text: 'h', portrait: 'javascript:1' }).error);
+  assert.ok(Hd(room, dm, { t: 'npcSay', name: 'B'.repeat(41), text: 'h' }).error);
+  assert.equal(Hd(room, dm, { t: 'transition', title: 'Acto', subtitle: 's' }).all?.t, 'transition');
+  assert.ok(Hd(room, dm, { t: 'transition', title: 'x'.repeat(81) }).error);
+});
+
+test('audio: trusted puede; pause/resume ajusta startedAt; capas', () => {
+  const { room, trusted } = withRoles();
+  assert.equal(Hd(room, trusted, { t: 'audio', op: 'play', url: '/assets/a.mp3', name: 'Tema', loop: true }, 1000).state, true);
+  assert.deepEqual(room.audio.track, { url: '/assets/a.mp3', name: 'Tema', startedAt: 1000, loop: true });
+  Hd(room, trusted, { t: 'audio', op: 'pause' }, 1500);
+  assert.equal(room.audio.track!.pausedAt, 1500);
+  Hd(room, trusted, { t: 'audio', op: 'resume' }, 4000);
+  assert.equal(room.audio.track!.startedAt, 3500); assert.ok(!('pausedAt' in room.audio.track!));
+  assert.ok(Hd(room, trusted, { t: 'audio', op: 'play', url: 'javascript:1', name: 'x' }).error);
+  Hd(room, trusted, { t: 'audio', op: 'stop' }); assert.equal(room.audio.track, undefined);
+  const L = (id: string, volume = 0.5) => ({ t: 'audio', op: 'layer', layer: { id, url: 'https://x.io/l.ogg', name: id, volume } });
+  for (let i = 0; i < 12; i++) assert.equal(Hd(room, trusted, L('l' + i)).state, true);
+  assert.ok(Hd(room, trusted, L('otra')).error);
+  assert.equal(Hd(room, trusted, L('l0', 1)).state, true); assert.equal(room.audio.layers[0].volume, 1);
+  assert.ok(Hd(room, trusted, L('l0', 1.5)).error);
+  Hd(room, trusted, { t: 'audio', op: 'unlayer', id: 'l0' }); assert.equal(room.audio.layers.length, 11);
+  assert.equal(filterFor(room, room.members.values().next().value!).audio.layers.length, 11);
+});
+
+test('sfx: lista blanca', () => {
+  const { room, trusted } = withRoles();
+  assert.deepEqual(Hd(room, trusted, { t: 'sfx', name: 'thunder' }).all, { t: 'sfx', name: 'thunder' });
+  assert.ok(Hd(room, trusted, { t: 'sfx', name: 'rm -rf' }).error);
+});
+
+test('rtc: solo al destinatario; espectador no; tamaño limitado', () => {
+  const { room, player, dm, spectator } = withRoles();
+  const r = Hd(room, player, { t: 'rtc', to: dm.id, data: { sdp: 'x' } });
+  assert.deepEqual(r.to, { id: dm.id, msg: { t: 'rtc', from: player.id, data: { sdp: 'x' } } });
+  assert.equal(r.all, undefined); assert.equal(r.state, undefined);
+  assert.ok(Hd(room, spectator, { t: 'rtc', to: dm.id, data: 1 }).error);
+  assert.ok(Hd(room, player, { t: 'rtc', to: dm.id, data: 'x'.repeat(16 * 1024) }).error);
+  assert.ok(Hd(room, player, { t: 'rtc', to: 'nadie', data: 1 }).error);
+});

@@ -1,10 +1,19 @@
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
+import { mkdirSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { ChatMsg, Id, S2C } from '@lantern/protocol';
 import { roll } from '@lantern/rules';
 import { openDb } from './db.ts';
-import { canSee, chatFor, redact, createRoom, filterFor, genCode, handle, joinRoom, normCode, type MemberRec, type Room, type RollFn } from './room.ts';
+import { canSee, chatFor, redact, createRoom, filterFor, genCode, handle, joinRoom, normCode, sha, type MemberRec, type Room, type RollFn } from './room.ts';
+
+const MAX_ASSET = 25 * 1024 * 1024;
+const EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/webm': 'webm', 'video/webm': 'webm', 'video/mp4': 'mp4' };
+const TYPE: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', mp3: 'audio/mpeg', ogg: 'audio/ogg', webm: 'video/webm', mp4: 'video/mp4' };
 
 type Conn = { room: Room; member: MemberRec };
 
@@ -31,8 +40,54 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
     for (const [ws, c] of conns) if (c.room === r) send(ws, { t: 'state', state: filterFor(r, c.member, on) });
   };
 
-  const http = createServer((req, res) => {
+  const assets = process.env.LANTERN_ASSETS ?? './assets';
+  const fail = (req: IncomingMessage, res: ServerResponse, code: number) => { // responde y corta el stream de subida
+    res.writeHead(code, { connection: 'close' });
+    res.end(() => req.destroy());
+  };
+  const http = createServer(async (req, res) => {
     if (req.url === '/health') { res.end('ok'); return; }
+    if (req.method === 'POST' && req.url === '/api/assets') {
+      const code = req.headers['x-lantern-code'], key = req.headers['x-lantern-key'], type = req.headers['content-type'] ?? '';
+      const room = typeof code === 'string' && code.length < 32 ? getRoom(normCode(code)) : undefined;
+      const h = typeof key === 'string' && key.length < 200 ? sha(key) : '';
+      const who = h && [...(room?.members.values() ?? [])].find((m) => m.keyHash === h);
+      if (!who || !['dm', 'assistant', 'trusted'].includes(who.role)) return fail(req, res, 403);
+      const ext = EXT[type];
+      if (!ext) return fail(req, res, 415);
+      if (Number(req.headers['content-length']) > MAX_ASSET) return fail(req, res, 413);
+      const parts: Buffer[] = []; let n = 0;
+      for await (const c of req) {
+        n += c.length;
+        if (n > MAX_ASSET) return fail(req, res, 413);
+        parts.push(c);
+      }
+      const body = Buffer.concat(parts), name = createHash('sha256').update(body).digest('hex') + '.' + ext;
+      mkdirSync(assets, { recursive: true });
+      await writeFile(join(assets, name), body);
+      res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ url: '/assets/' + name }));
+      return;
+    }
+    const f = req.method === 'GET' && /^\/assets\/([0-9a-f]{64}\.(png|jpg|webp|mp3|ogg|webm|mp4))$/.exec(req.url ?? '');
+    if (f) {
+      // Range es necesario para que <audio>/<video> puedan saltar (sincronizar el jukebox a mitad de pista).
+      // ponytail: el archivo entero en memoria (≤25 MB); .webm se sirve como video/webm también para audio.
+      const data = await readFile(join(assets, f[1])).catch(() => null);
+      if (data) {
+        const head = { 'content-type': TYPE[f[2]], 'cache-control': 'public, max-age=31536000, immutable', 'x-content-type-options': 'nosniff', 'accept-ranges': 'bytes' };
+        const r = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+        if (r && (r[1] || r[2])) {
+          const size = data.length;
+          let start = r[1] ? Number(r[1]) : size - Number(r[2]), end = r[1] && r[2] ? Number(r[2]) : size - 1;
+          start = Math.max(0, start); end = Math.min(end, size - 1);
+          if (start > end) { res.writeHead(416, { 'content-range': `bytes */${size}` }); res.end(); return; }
+          res.writeHead(206, { ...head, 'content-range': `bytes ${start}-${end}/${size}`, 'content-length': end - start + 1 });
+          res.end(data.subarray(start, end + 1)); return;
+        }
+        res.writeHead(200, { ...head, 'content-length': data.length });
+        res.end(data); return;
+      }
+    }
     res.statusCode = 404; res.end();
   });
   const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 64 * 1024 });
@@ -62,7 +117,8 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
         conns.set(ws, { room, member });
         dirty(room);
         send(ws, { t: 'welcome', memberId: member.id, key, role: member.role, state: filterFor(room, member, online(room)), chat: chatFor(room, member) });
-        broadcastState(room); // el resto ve el nuevo miembro / online
+        send(ws, { t: 'clock', now: Date.now() });
+    broadcastState(room); // el resto ve el nuevo miembro / online
         return;
       }
 
@@ -72,6 +128,9 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
       if (fx.error) return send(ws, { t: 'error', msg: fx.error });
       for (const cm of [fx.chat, ...(fx.chats ?? [])]) if (cm) for (const [w, c] of conns) if (c.room === room && canSee(cm, c.member)) send(w, { t: 'chat', msg: redact(room, cm, c.member) as ChatMsg });
       if (fx.ping) for (const [w, c] of conns) if (c.room === room) send(w, { t: 'ping', ...fx.ping });
+      if (fx.all) for (const [w, c] of conns) if (c.room === room) send(w, fx.all);
+      if (fx.to) for (const [w, c] of conns) if (c.room === room && c.member.id === fx.to.id) send(w, fx.to.msg);
+      if (fx.clock) send(ws, { t: 'clock', now: Date.now() });
       if (fx.state) broadcastState(room);
       dirty(room);
     });

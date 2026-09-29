@@ -6,6 +6,7 @@ import type { FederatedPointerEvent } from 'pixi.js';
 import { sightSegments, visibility } from '@lantern/vision';
 import type { ClientState, Id, Light, Point, Scene, Token, Wall } from '@lantern/protocol';
 import type { CreateTable, Marks } from './api.ts';
+import { createVfx } from './vfx.ts';
 
 const FACTION = { ally: '#5B9BE0', enemy: '#E0643A', neutral: '#BFAE86' } as const;
 const MINE = '#F5C877', AMBER = '#E8A33D', TEXT = '#F2E8DA', SERIF = 'Georgia, "Times New Roman", serif';
@@ -73,13 +74,14 @@ export const createTable: CreateTable = async (el, opts) => {
   const world = new Container();
   stage.addChild(world);
   const floorL = new Container(), gridG = new Graphics(), wallsG = new Graphics(), doorsL = new Container(),
-    tokensL = new Container(), glowL = new Container(), marksG = new Graphics(), uiL = new Container();
+    tokensL = new Container(), fxL = new Container(), glowL = new Container(), marksG = new Graphics(), uiL = new Container();
   const lightSprite = new Sprite(), fogSprite = new Sprite();
   lightSprite.blendMode = 'multiply';
   glowL.blendMode = 'add';
-  world.addChild(floorL, gridG, wallsG, doorsL, tokensL, lightSprite, glowL, fogSprite, marksG, uiL);
+  world.addChild(floorL, gridG, wallsG, doorsL, tokensL, fxL, lightSprite, glowL, fogSprite, marksG, uiL);
   const stone = stoneTexture();
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const vfx = createVfx(app, world, fxL, reduced);
 
   // ---- estado ----
   let cur: ClientState | undefined;
@@ -498,6 +500,7 @@ export const createTable: CreateTable = async (el, opts) => {
       if (vk !== visKey || changed) { visKey = vk; renderFog(s, st.visible); lmDirty = true; }
     }
     if (lmDirty && lit) renderLightmap();
+    vfx.sync(st.settings.layers.effects !== false && st.settings.mode !== 'simple', s.weather);
   }
 
   // ---- ticker: solo animaciones ----
@@ -538,6 +541,7 @@ export const createTable: CreateTable = async (el, opts) => {
     app.canvas.removeEventListener('wheel', onWheel);
     removeEventListener('keydown', kd); removeEventListener('keyup', ku);
     for (const m of memories.values()) m.destroy(true);
+    vfx.destroy();
     lmRT?.destroy(true); fogRT?.destroy(true);
     for (const t of grads.values()) t.destroy(true);
     grads.clear();
@@ -546,5 +550,5 @@ export const createTable: CreateTable = async (el, opts) => {
     app.destroy(true, { children: true });
   }
 
-  return { setState, setMarks, ping, floatText, destroy };
+  return { setState, setMarks, ping, floatText, effect: vfx.effect, destroy };
 };

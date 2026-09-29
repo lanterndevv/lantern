@@ -21,7 +21,7 @@ const vis = (): Point[][] =>
   scene.tokens.filter((t) => t.faction === 'ally').map((t) => visibility(t, sightSegments(scene.walls), scene.width, scene.height));
 const state = (): ClientState => ({
   code: 'DEMO', members: [{ id: 'yo', name: 'Yo', role: dm ? 'dm' : 'player', online: true, dice: 'linterna' }],
-  scene: structuredClone(scene), automation: 'assisted', settings: DEFAULT_SETTINGS, visible: dm ? undefined : vis(),
+  scene: structuredClone(scene), automation: 'assisted', view: 'tactical', audio: { layers: [] }, settings: DEFAULT_SETTINGS, visible: dm ? undefined : vis(),
 });
 
 const marks: Marks = { targets: [] };
@@ -46,9 +46,20 @@ const table = await createTable(document.body, {
 });
 table.setState(state());
 table.setMarks(marks);
+const at = (id: string) => ({ x: tk(id).x, y: tk(id).y });
+const KINDS = ['none', 'rain', 'storm', 'snow', 'fog', 'ash', 'leaves', 'embers'] as const;
+let wi = 0;
 addEventListener('keydown', (e) => {
   if (e.key === 'n') {
     const ids = scene.tokens.map((t) => t.id), i = ids.indexOf(marks.active ?? '');
     marks.active = ids[(i + 1) % ids.length]; table.setMarks(marks);
+  } else if (e.key === '1') table.effect({ kind: 'projectile', from: at('kael'), to: at('trasgo-b'), damageType: 'fire' });
+  else if (e.key === '2') table.effect({ kind: 'projectile', from: at('kael'), to: at('trasgo-b'), damageType: 'lightning' });
+  else if (e.key === '3') table.effect({ kind: 'burst', at: at('osgo'), radius: 240, damageType: 'fire' });
+  else if (e.key === '4') table.effect({ kind: 'heal', at: at('brida') });
+  else if (e.key === '5') { table.effect({ kind: 'projectile', from: at('kael'), to: at('osgo'), damageType: 'slashing' }); setTimeout(() => table.effect({ kind: 'impact', at: at('osgo'), damageType: 'slashing', crit: true }), 0); }
+  else if (e.key === 'w') {
+    wi = (wi + 1) % KINDS.length; scene.weather = { kind: KINDS[wi], intensity: 0.7, wind: 0.4 };
+    table.setState(state()); console.log('clima', KINDS[wi]);
   } else if (e.key === 'f') table.floatText('trasgo-b', '−9', '#8FD3F5');
 });

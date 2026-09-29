@@ -1,7 +1,7 @@
 // Lógica pura de una mesa: sin sockets ni BD. Todo lo que llega de un cliente se valida aquí.
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { CODE_ALPHABET, DEFAULT_SETTINGS, DICE_THEMES, blocksMove } from '@lantern/protocol';
-import type { Ability, ActionCard, C2S, ChatMsg, ClientState, Combat, DiceTheme, Die, Hp, Id, Light, Member, Point, Role, Scene, TableSettings, Token, Wall } from '@lantern/protocol';
+import type { Ability, ActionCard, AudioState, C2S, ChatMsg, ClientState, Combat, DiceTheme, Die, Hp, Id, Light, Member, Point, Role, S2C, Scene, TableSettings, Token, Wall } from '@lantern/protocol';
 import { ABILITY_ES, CONDITIONS, SKILLS, abilityMod, applyCard, applyDamage, autoFailSave, concentrationDC, d20Penalty, deathSave, grantTemp, heal, resolveAction } from '@lantern/rules';
 import { MONSTERS } from '@lantern/srd';
 import { parseCharacter } from './import.ts';
@@ -9,12 +9,12 @@ import { demoScene } from '@lantern/protocol/demo';
 import { cover, pointInPolygon, sightSegments, visibility } from '@lantern/vision';
 
 export type MemberRec = { id: Id; name: string; role: Role; keyHash: string; dice: DiceTheme };
-export type Room = { code: string; scene: Scene; members: Map<Id, MemberRec>; chat: ChatMsg[]; automation: 'assisted' | 'auto'; combat?: Combat; pending: ActionCard[]; settings: TableSettings };
+export type Room = { code: string; scene: Scene; members: Map<Id, MemberRec>; chat: ChatMsg[]; automation: 'assisted' | 'auto'; combat?: Combat; pending: ActionCard[]; settings: TableSettings; view: 'tactical' | 'story'; audio: AudioState };
 export type RollFn = (expr: string) => { total: number; detail: string; dice?: Die[] };
-export type Effect = { error?: string; state?: boolean; chat?: ChatMsg; chats?: ChatMsg[]; ping?: { from: Id; x: number; y: number } };
+export type Effect = { error?: string; state?: boolean; chat?: ChatMsg; chats?: ChatMsg[]; ping?: { from: Id; x: number; y: number }; all?: S2C; to?: { id: Id; msg: S2C }; clock?: boolean };
 
 const MAX_CHAT = 200, MAX_ITEMS = 500;
-const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+export const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 export const normCode = (s: string) => s.toUpperCase().replace(/[\s-]/g, '');
 export const genCode = (taken: (c: string) => boolean = () => false) => {
   for (;;) {
@@ -35,7 +35,7 @@ function addMember(room: Room, name: string, role: Role) {
 export function createRoom(name: unknown, code: string, scene: Scene = demoScene()): { error: string } | { room: Room; member: MemberRec; key: string } {
   const n = cleanName(name);
   if (!n) return { error: 'nombre inválido' };
-  const room: Room = { code, scene, members: new Map(), chat: [], automation: 'assisted', pending: [], settings: structuredClone(DEFAULT_SETTINGS) };
+  const room: Room = { code, scene, members: new Map(), chat: [], automation: 'assisted', pending: [], settings: structuredClone(DEFAULT_SETTINGS), view: 'tactical', audio: { layers: [] } };
   return { room, ...addMember(room, n, 'dm') };
 }
 
@@ -65,9 +65,10 @@ export function joinRoom(room: Room, name: unknown, key: unknown): { member: Mem
 export function filterFor(room: Room, member: MemberRec, online: ReadonlySet<Id> = new Set()): ClientState {
   const members: Member[] = [...room.members.values()].map((m) => ({ id: m.id, name: m.name, role: m.role, online: online.has(m.id), dice: m.dice }));
   const s = room.scene;
-  const automation = room.automation, settings = structuredClone(room.settings);
-  if (member.role === 'dm' || member.role === 'assistant') return { code: room.code, members, scene: structuredClone(s), automation, settings, ...(room.combat && { combat: structuredClone(room.combat) }) };
+  const automation = room.automation, settings = structuredClone(room.settings), view = room.view, audio = structuredClone(room.audio);
+  if (member.role === 'dm' || member.role === 'assistant') return { code: room.code, members, scene: structuredClone(s), automation, settings, view, audio, ...(room.combat && { combat: structuredClone(room.combat) }) };
 
+  // ponytail: las capas de audio posicionales NO se filtran por visión: el sonido atraviesa paredes (y el jugador ve x/y de capas ajenas)
   const segs = sightSegments(s.walls);
   const visible = s.tokens
     .filter((t) => t.faction === 'ally' && t.owners.length > 0)
@@ -96,7 +97,7 @@ export function filterFor(room: Room, member: MemberRec, online: ReadonlySet<Id>
     for (let i = Math.min(c.turn, c.order.length - 1); i >= 0 && turn < 0; i--) turn = order.findIndex((o) => o.tokenId === c.order[i].tokenId);
     combat = { round: c.round, turn, order, used: Object.fromEntries(Object.entries(c.used).filter(([id]) => ids.has(id))) };
   }
-  return { code: room.code, members, visible, scene: { ...structuredClone(s), walls, lights, tokens }, automation, settings, ...(combat && { combat }) };
+  return { code: room.code, members, visible, scene: { ...structuredClone(s), walls, lights, tokens }, automation, settings, view, audio, ...(combat && { combat }) };
 }
 
 export function chatFor(room: Room, m: MemberRec) {
@@ -177,6 +178,46 @@ function cross(p1: Point, p2: Point, q1: Point, q2: Point) {
 }
 
 export const pathBlocked = (s: Scene, from: Point, to: Point) => s.walls.some((w) => blocksMove(w) && cross(from, to, w.a, w.b));
+
+// URL de recurso: https o ruta /assets/ propia (sin subdirectorios)
+const urlOk = (v: unknown): v is string => typeof v === 'string' && v.length <= 512 && (/^https:\/\/[^\s"'<>]+$/.test(v) || /^\/assets\/[\w.-]+$/.test(v));
+const short = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max;
+const inr = (v: unknown, a: number, b: number): v is number => num(v) && v >= a && v <= b;
+const WEATHER = ['none', 'rain', 'snow', 'fog', 'ash', 'storm', 'leaves', 'embers'];
+const SFX = ['door', 'thunder', 'roar', 'collapse', 'bell', 'scream', 'magic', 'coins', 'trap', 'hit', 'crit', 'heal', 'miss'];
+const MAX_LAYERS = 12, MAX_RTC = 16 * 1024;
+
+// Valida un patch de escena y lo mezcla sobre `s`. Devuelve false (sin tocar nada) si algo es inválido.
+function patchScene(s: Scene, patch: unknown): boolean {
+  if (!obj(patch)) return false;
+  const p = patch, n: Partial<Scene> = {};
+  for (const k of Object.keys(p)) if (!['name', 'background', 'globalLight', 'weather', 'story', 'grid', 'width', 'height'].includes(k)) return false;
+  if ('name' in p) { if (!str(p.name, 60)) return false; n.name = p.name; }
+  if ('background' in p) { if (!urlOk(p.background)) return false; n.background = p.background; }
+  if ('globalLight' in p) { if (!inr(p.globalLight, 0, 1)) return false; n.globalLight = p.globalLight; }
+  if ('width' in p) { if (!inr(p.width, 100, 20000)) return false; n.width = p.width; }
+  if ('height' in p) { if (!inr(p.height, 100, 20000)) return false; n.height = p.height; }
+  if ('weather' in p) {
+    const w = p.weather;
+    if (!obj(w) || !WEATHER.includes(w.kind as string) || !inr(w.intensity, 0, 1) || !inr(w.wind, -1, 1)) return false;
+    n.weather = { kind: w.kind as NonNullable<Scene['weather']>['kind'], intensity: w.intensity, wind: w.wind };
+  }
+  if ('story' in p) {
+    const t = p.story;
+    if (!obj(t) || (t.image !== undefined && !urlOk(t.image)) || (t.title !== undefined && !short(t.title, 80)) || (t.subtitle !== undefined && !short(t.subtitle, 80))) return false;
+    n.story = { ...s.story, ...(t.image !== undefined && { image: t.image as string }), ...(t.title !== undefined && { title: t.title }), ...(t.subtitle !== undefined && { subtitle: t.subtitle }) };
+  }
+  if ('grid' in p) {
+    const g = p.grid;
+    if (!obj(g)) return false;
+    const m = { ...s.grid, ...g };
+    for (const k of Object.keys(g)) if (!['size', 'offsetX', 'offsetY', 'feet'].includes(k)) return false;
+    if (!inr(m.size, 20, 400) || !inr(m.offsetX, 0, m.size) || !inr(m.offsetY, 0, m.size) || !inr(m.feet, 1, 20)) return false;
+    n.grid = { size: m.size, offsetX: m.offsetX, offsetY: m.offsetY, feet: m.feet };
+  }
+  Object.assign(s, n);
+  return true;
+}
 
 // ---- ajustes de mesa ----
 // Mezcla profunda validada: sin claves desconocidas y con tipos correctos. null = patch inválido.
@@ -290,12 +331,75 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
     m.dice = m2.theme as DiceTheme;
     return { state: true };
   }
+  if (msg.t === 'clockReq' || msg.t === 'clock') return { clock: true }; // ponytail: una sola muestra, sin NTP
   if (role === 'spectator') return DENY;
 
   const ctx: Ctx = { room, from: m.id, now, rollFn };
   const tokenOf = () => str(m2.tokenId, 64) ? s.tokens.find((t) => t.id === m2.tokenId) : undefined;
 
   switch (m2.t) {
+    case 'scene': {
+      if (!isDM(m)) return DENY;
+      return patchScene(s, m2.patch) ? { state: true } : { error: 'escena inválida' };
+    }
+    case 'view': {
+      if (!isDM(m)) return DENY;
+      if (m2.value !== 'tactical' && m2.value !== 'story') return { error: 'mensaje inválido' };
+      room.view = m2.value;
+      return { state: true };
+    }
+    case 'npcSay': {
+      if (!isDM(m)) return DENY;
+      if (!str(m2.name, 40) || !str(m2.text, 600) || (m2.portrait !== undefined && !urlOk(m2.portrait))) return { error: 'mensaje inválido' };
+      return { all: { t: 'npcSay', name: m2.name, text: m2.text, ...(m2.portrait !== undefined && { portrait: m2.portrait as string }) }, chat: pushChat(room, { id: randomUUID(), from: m.id, at: now, text: `${m2.name}: ${m2.text}` }) };
+    }
+    case 'transition': {
+      if (!isDM(m)) return DENY;
+      if (!str(m2.title, 80) || (m2.subtitle !== undefined && !str(m2.subtitle, 120))) return { error: 'mensaje inválido' };
+      return { all: { t: 'transition', title: m2.title, ...(m2.subtitle !== undefined && { subtitle: m2.subtitle as string }) } };
+    }
+    case 'audio': {
+      if (!isDM(m) && role !== 'trusted') return DENY;
+      const a = room.audio, op = m2.op;
+      if (op === 'play') {
+        if (!urlOk(m2.url) || !str(m2.name, 100) || (m2.loop !== undefined && typeof m2.loop !== 'boolean')) return { error: 'mensaje inválido' };
+        a.track = { url: m2.url, name: m2.name, startedAt: now, loop: m2.loop === true };
+      } else if (op === 'pause') {
+        if (!a.track) return { error: 'sin pista' };
+        a.track.pausedAt ??= now;
+      } else if (op === 'resume') {
+        if (!a.track) return { error: 'sin pista' };
+        if (a.track.pausedAt !== undefined) { a.track.startedAt += now - a.track.pausedAt; delete a.track.pausedAt; }
+      } else if (op === 'stop') delete a.track;
+      else if (op === 'layer') {
+        const l = m2.layer;
+        if (!obj(l) || !str(l.id, 64) || !urlOk(l.url) || !str(l.name, 100) || !inr(l.volume, 0, 1)) return { error: 'mensaje inválido' };
+        const pos = l.x !== undefined || l.y !== undefined || l.radius !== undefined;
+        if (pos && !(num(l.x) && num(l.y) && num(l.radius) && l.radius > 0)) return { error: 'mensaje inválido' };
+        const layer: AudioState['layers'][number] = { id: l.id, url: l.url, name: l.name, volume: l.volume, ...(pos && { x: l.x as number, y: l.y as number, radius: l.radius as number }) };
+        const i = a.layers.findIndex((x) => x.id === layer.id);
+        if (i >= 0) a.layers[i] = layer;
+        else if (a.layers.length >= MAX_LAYERS) return { error: 'demasiadas capas' };
+        else a.layers.push(layer);
+      } else if (op === 'unlayer') {
+        if (!str(m2.id, 64)) return { error: 'mensaje inválido' };
+        a.layers = a.layers.filter((x) => x.id !== m2.id);
+      } else return { error: 'mensaje inválido' };
+      return { state: true };
+    }
+    case 'sfx': {
+      if (!isDM(m) && role !== 'trusted') return DENY;
+      if (typeof m2.name !== 'string' || !SFX.includes(m2.name)) return { error: 'efecto inválido' };
+      return { all: { t: 'sfx', name: m2.name } };
+    }
+    case 'rtc': {
+      if (!str(m2.to, 64)) return { error: 'mensaje inválido' };
+      let size = 0;
+      try { size = JSON.stringify(m2.data)?.length ?? 0; } catch { /* size 0 */ }
+      if (!size || size > MAX_RTC) return { error: 'mensaje inválido' };
+      if (!room.members.has(m2.to)) return { error: 'miembro inexistente' };
+      return { to: { id: m2.to, msg: { t: 'rtc', from: m.id, data: m2.data } } };
+    }
     case 'settings': {
       if (role !== 'dm') return DENY;
       const next = mergeSettings(room.settings, m2.patch);
