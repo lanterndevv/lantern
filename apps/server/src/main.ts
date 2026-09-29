@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { dirname } from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve, sep, extname } from 'node:path';
@@ -14,9 +15,10 @@ import { createAccounts } from './accounts.ts';
 import { MAX_SCENES } from './validate.ts';
 import { MAX_ASSET, exportCampaign, importCampaign, parseUvtt, sha256 } from './campaign.ts';
 import { copilot } from './copilot.ts';
-import { stopLaya, warmLaya } from './laya.ts';
+import { layaState, stopLaya, warmLaya } from './laya.ts';
 import { asPlayer, finishState } from './extras.ts';
 import { createBackups, mergeInto, parsePick, restoreInto } from './backup.ts';
+import { loadConfig } from './config.ts';
 import { canSeeScene } from './perms.ts';
 import { createSigner } from './signed.ts';
 import { canSee, chatFor, redact, createRoom, filterFor, genCode, handle, joinRoom, normCode, sha, sweepHolds, type MemberRec, type Room, type RollFn } from './room.ts';
@@ -30,11 +32,18 @@ const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js
 // Límites (seguridad). ponytail: contadores en memoria, se pierden al reiniciar; suficiente para un servidor único.
 const WS_RATE = 30, WS_BURST = 60, WS_MAX_EXCESS = 10, MAX_CONN_IP = 20, MAX_ROOMS_IP_DAY = 200, MAX_UPLOADS = 30, MAX_PLAYER_UPLOADS = 10, MAX_PLAYER_ASSET = 5 * 1024 * 1024, UPLOAD_WINDOW = 10 * 60_000, DAY = 86_400_000;
 
+// Ejecutable único (Node SEA): la web viaja como assets `web/<ruta>` dentro del binario.
+const sea = process.getBuiltinModule('node:sea');
+const VERSION = process.env.LANTERN_VERSION ?? (JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')) as { version: string }).version; // esbuild fija LANTERN_VERSION en el SEA
+const seaAsset = (p: string) => { try { return Buffer.from(sea.getAsset('web' + p)); } catch { return null; } };
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+const digest = (s: string) => createHash('sha256').update(s).digest();
+
 type Conn = { room: Room; member: MemberRec; sid?: string };
 
 export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, rollFn: RollFn = roll) {
   const webRoot = resolve(process.env.WEB_DIST ?? new URL('../../web/dist', import.meta.url).pathname);
-  const serveWeb = existsSync(join(webRoot, 'index.html'));
+  const serveWeb = sea.isSea() || existsSync(join(webRoot, 'index.html'));
   const ipOf = (req: IncomingMessage) => (process.env.TRUST_PROXY === '1' && String(req.headers['x-forwarded-for'] ?? '').split(',').at(-1)?.trim()) || req.socket.remoteAddress || '?'; // con proxy, la última entrada la añade el propio proxy
   const connsByIp = new Map<string, number>();
   const roomsByIp = new Map<string, { n: number; reset: number }>();
@@ -106,16 +115,66 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
     if (p.includes('\0') || /^\/(api|assets|ws)(\/|$)/.test(p)) { res.statusCode = 404; res.end(); return; }
     let file = resolve(webRoot, '.' + p);
     if (file !== webRoot && !file.startsWith(webRoot + sep)) { res.statusCode = 404; res.end(); return; }
-    let data = await readFile(file).catch(() => null);
-    if (!data && !p.startsWith('/static/') && !extname(p)) { file = join(webRoot, 'index.html'); data = await readFile(file).catch(() => null); } // SPA
+    const read = (f: string, rel: string) => sea.isSea() ? seaAsset(rel) : readFile(f).catch(() => null);
+    let data = await read(file, p);
+    if (!data && !p.startsWith('/static/') && !extname(p)) { file = join(webRoot, 'index.html'); data = await read(file, '/index.html'); } // SPA
     if (!data) { res.statusCode = 404; res.end(); return; }
     res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream', 'content-length': data.length, 'x-content-type-options': 'nosniff', 'cache-control': p.startsWith('/static/') ? 'public, max-age=31536000, immutable' : p.startsWith('/audio/') ? 'public, max-age=604800' : 'no-cache' });
     res.end(req.method === 'HEAD' ? undefined : data);
+  };
+  // Administración para el instalador: solo loopback (y sin cabeceras de proxy/túnel) + LANTERN_ADMIN_TOKEN. Sin token, desactivada.
+  const admin = async (req: IncomingMessage, res: ServerResponse) => {
+    const token = process.env.LANTERN_ADMIN_TOKEN;
+    if (!token) return json(res, 404, { error: 'administración desactivada' });
+    if (!LOOPBACK.has(req.socket.remoteAddress ?? '') || req.headers['x-forwarded-for'] || req.headers['forwarded'] || req.headers['cf-connecting-ip']) return json(res, 403, { error: 'solo desde localhost' });
+    const given = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ''))?.[1] ?? '';
+    if (!timingSafeEqual(digest(given), digest(token))) return json(res, 401, { error: 'token incorrecto' });
+    const [path, query = ''] = (req.url ?? '').split('?');
+    const origin = (process.env.LANTERN_ORIGIN || `http://localhost:${(http.address() as { port: number }).port}`).replace(/\/+$/, '');
+    if (req.method === 'GET' && path === '/admin/status') {
+      const n = (db.raw.prepare('SELECT count(*) AS n FROM rooms').get() as { n: number }).n;
+      return json(res, 200, { version: VERSION, rooms: n, llm: !!process.env.LANTERN_LLM_URL, laya: layaState(), origin });
+    }
+    if (req.method === 'POST' && path === '/admin/bootstrap') {
+      const v = await jsonBody(req, res, 4096) as { dmName?: unknown; title?: unknown } | undefined;
+      if (v === undefined) return;
+      const made = createRoom(v?.dmName, genCode((c) => rooms.has(c) || db.exists(c)));
+      if ('error' in made) return json(res, 400, made);
+      const { room, key } = made;
+      if (typeof v?.title === 'string' && v.title.trim()) room.scene.name = v.title.trim().slice(0, 60);
+      rooms.set(room.code, room); db.save(room);
+      return json(res, 200, { code: room.code, inviteUrl: `${origin}/?code=${room.code}`, dmUrl: `${origin}/?code=${room.code}#k=${encodeURIComponent(key)}` });
+    }
+    if (req.method === 'POST' && path === '/admin/import') {
+      const q = new URLSearchParams(query), kind = q.get('kind'), room = getRoom(normCode(q.get('code') ?? ''));
+      if (!room) return json(res, 404, { error: 'mesa inexistente' });
+      if (kind !== 'lantern' && kind !== 'uvtt') return json(res, 400, { error: 'kind debe ser lantern o uvtt' });
+      const v = await jsonBody(req, res, kind === 'uvtt' ? MAX_UVTT : MAX_IMPORT);
+      if (v === undefined) return;
+      mkdirSync(assets, { recursive: true });
+      let summary: unknown;
+      if (kind === 'lantern') { // se incorpora todo a la mesa existente, como la fusión selectiva con todo marcado
+        const imp = importCampaign(v);
+        if ('error' in imp) return json(res, 400, imp);
+        summary = mergeInto(room, imp, { scenes: imp.scenes.map((s) => s.id), journal: imp.journal.map((e) => e.id), characters: imp.scenes.flatMap((s) => s.tokens.map((t) => t.id)) });
+        for (const [name, data] of imp.assets) await writeFile(join(assets, name), data);
+      } else {
+        const r = parseUvtt(v);
+        if ('error' in r) return json(res, r.status ?? 400, { error: r.error });
+        if (Object.keys(room.scenes).length >= MAX_SCENES) return json(res, 400, { error: 'demasiadas escenas' });
+        if (r.image) await writeFile(join(assets, r.image.name), r.image.data);
+        room.scenes[r.scene.id] = r.scene; summary = { sceneId: r.scene.id };
+      }
+      broadcastState(room); dirty(room);
+      return json(res, 200, { ok: true, summary });
+    }
+    return json(res, 404, { error: 'no encontrado' });
   };
   const accounts = createAccounts(db.raw, { getRoom, dirty });
   const http = createServer(async (req, res) => {
     if (await accounts.handle(req, res)) return;
     if (req.url === '/health') { res.end('ok'); return; }
+    if (req.url?.startsWith('/admin/')) return void await admin(req, res);
     if (req.method === 'POST' && (req.url === '/api/assets' || req.url === '/api/import' || req.url === '/api/merge' || req.url === '/api/uvtt')) {
       const wait = hit(uploads, ipOf(req), MAX_UPLOADS, UPLOAD_WINDOW);
       if (wait) { res.writeHead(429, { 'retry-after': String(wait), connection: 'close' }); res.end(() => req.destroy()); return; }
@@ -342,7 +401,9 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
   };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (sea.isSea() || (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)) {
+  if (process.argv.includes('--version')) { console.log(VERSION); process.exit(0); }
+  loadConfig();
   start();
   console.log(`lantern server en ${process.env.HOST ?? '0.0.0.0'}:${process.env.PORT ?? 8787}`);
 }

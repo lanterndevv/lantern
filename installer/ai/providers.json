@@ -1,0 +1,705 @@
+{
+ "version": 1,
+ "providers": [
+  {
+   "id": "gemini",
+   "name": "Google Gemini (AI Studio)",
+   "group": "free",
+   "format": "gemini",
+   "base_url": "https://generativelanguage.googleapis.com",
+   "headers": {},
+   "key_url": "https://aistudio.google.com/apikey",
+   "steps_es": [
+    "Entra con tu cuenta de Google.",
+    "Pulsa «Create API key».",
+    "Copia la clave (empieza por AIza)."
+   ],
+   "steps_en": [
+    "Sign in with your Google account.",
+    "Click “Create API key”.",
+    "Copy the key (starts with AIza)."
+   ],
+   "cost_es": "Gratis sin tarjeta, con límite de peticiones por minuto y día.",
+   "cost_en": "Free without a card, with per-minute and daily request limits.",
+   "terms_es": "En el plan gratuito Google puede usar tus prompts para mejorar sus productos.",
+   "terms_en": "On the free tier Google may use your prompts to improve its products.",
+   "model": "gemini-2.5-flash",
+   "enabled": true,
+   "verify": false,
+   "needs_key": true
+  },
+  {
+   "id": "groq",
+   "name": "Groq",
+   "group": "free",
+   "format": "openai",
+   "base_url": "https://api.groq.com/openai/v1",
+   "headers": {},
+   "key_url": "https://console.groq.com/keys",
+   "steps_es": [
+    "Crea una cuenta en Groq.",
+    "En «API Keys» pulsa «Create API Key».",
+    "Copia la clave (empieza por gsk_)."
+   ],
+   "steps_en": [
+    "Create a Groq account.",
+    "Under “API Keys” click “Create API Key”.",
+    "Copy the key (starts with gsk_)."
+   ],
+   "cost_es": "Plan gratuito muy rápido con límites diarios por modelo.",
+   "cost_en": "Very fast free plan with daily per-model limits.",
+   "terms_es": "",
+   "terms_en": "",
+   "model": "llama-3.3-70b-versatile",
+   "enabled": true,
+   "verify": false,
+   "needs_key": true
+  },
+  {
+   "id": "openrouter",
+   "name": "OpenRouter (modelos :free)",
+   "group": "free",
+   "format": "openai",
+   "base_url": "https://openrouter.ai/api/v1",
+   "headers": {},
+   "key_url": "https://openrouter.ai/settings/keys",
+   "steps_es": [
+    "Crea una cuenta en OpenRouter.",
+    "En «Keys» pulsa «Create Key».",
+    "Copia la clave (empieza por sk-or-)."
+   ],
+   "steps_en": [
+    "Create an OpenRouter account.",
+    "Under “Keys” click “Create Key”.",
+    "Copy the key (starts with sk-or-)."
+   ],
+   "cost_es": "Los modelos terminados en :free no cuestan; unas 20 peticiones/min y tope diario (más con saldo mínimo).",
+   "cost_en": "Models ending in :free cost nothing; ~20 requests/min and a daily cap (higher with a small balance).",
+   "terms_es": "Los proveedores de modelos gratuitos pueden registrar los prompts.",
+   "terms_en": "Free-model providers may log prompts.",
+   "model": "meta-llama/llama-3.3-70b-instruct:free",
+   "enabled": true,
+   "verify": false,
+   "model_filter": ":free",
+   "needs_key": true
+  },
+  {
+   "id": "mistral",
+   "name": "Mistral (plan gratuito)",
+   "group": "free",
+   "format": "openai",
+   "base_url": "https://api.mistral.ai/v1",
+   "headers": {},
+   "key_url": "https://console.mistral.ai/api-keys",
+   "steps_es": [
+    "Crea una cuenta y activa el plan «Experiment» (gratis).",
+    "En «API Keys» crea una clave.",
+    "Cópiala."
+   ],
+   "steps_en": [
+    "Create an account and enable the free “Experiment” plan.",
+    "Under “API Keys” create a key.",
+    "Copy it."
+   ],
+   "cost_es": "Gratis con límites bajos de peticiones por minuto.",
+   "cost_en": "Free with low per-minute request limits.",
+   "terms_es": "El plan gratuito permite a Mistral usar tus datos para entrenar.",
+   "terms_en": "The free plan lets Mistral use your data for training.",
+   "model": "mistral-small-latest",
+   "enabled": true,
+   "verify": false,
+   "needs_key": true
+  },
+  {
+   "id": "sambanova",
+   "name": "SambaNova Cloud",
+   "group": "free",
+   "format": "openai",
+   "base_url": "https://api.sambanova.ai/v1",
+   "headers": {},
+   "key_url": "https://cloud.sambanova.ai/apis",
+   "steps_es": [
+    "Crea una cuenta en SambaNova Cloud.",
+    "En «API» crea una clave.",
+    "Cópiala."
+   ],
+   "steps_en": [
+    "Create a SambaNova Cloud account.",
+    "Under “API” create a key.",
+    "Copy it."
+   ],
+   "cost_es": "Nivel gratuito con límites por minuto.",
+   "cost_en": "Free tier with per-minute limits.",
+   "terms_es": "",
+   "terms_en": "",
+   "model": "Meta-Llama-3.3-70B-Instruct",
+   "enabled": true,
+   "verify": false,
+   "needs_key": true
+  },
+  {
+   "id": "cloudflare",
+   "name": "Cloudflare Workers AI",
+   "group": "free",
+   "format": "openai",
+   "base_url": "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1",
+   "headers": {},
+   "key_url": "https://dash.cloudflare.com/profile/api-tokens",
+   "steps_es": [
+    "Abre tu panel de Cloudflare y copia tu «Account ID».",
+    "Crea un token con la plantilla «Workers AI».",
+    "Cópialo."
+   ],
+   "steps_en": [
+    "Open your Cloudflare dashboard and copy your Account ID.",
+    "Create a token from the “Workers AI” template.",
+    "Copy it."
+   ],
+   "cost_es": "Unas 10 000 «neuronas» gratis al día.",
+   "cost_en": "About 10,000 free “neurons” per day.",
+   "terms_es": "",
+   "terms_en": "",
+   "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+   "enabled": true,
+   "verify": false,
+   "params": [
+    {
+     "id": "account_id",
+     "label_es": "Account ID de Cloudflare",
+     "label_en": "Cloudflare Account ID"
+    }
+   ],
+   "needs_key": true
+  },
+  {
+   "id": "nvidia",
+   "name": "NVIDIA NIM (build.nvidia.com)",
+   "group": "free",
+   "format": "openai",
+   "base_url": "https://integrate.api.nvidia.com/v1",
+   "headers": {},
+   "key_url": "https://build.nvidia.com/settings/api-keys",
+   "steps_es": [
+    "Crea una cuenta gratuita de NVIDIA Developer.",
+    "Genera una clave en «API Keys».",
+    "Cópiala (empieza por nvapi-)."
+   ],
+   "steps_en": [
+    "Create a free NVIDIA Developer account.",
+    "Generate a key under “API Keys”.",
+    "Copy it (starts with nvapi-)."
+   ],
+   "cost_es": "Créditos gratuitos de prueba con límite por minuto.",
+   "cost_en": "Free trial credits with a per-minute limit.",
+   "terms_es": "Uso para desarrollo y pruebas, no producción.",
+   "terms_en": "For development and testing, not production.",
+   "model": "meta/llama-3.3-70b-instruct",
+   "enabled": true,
+   "verify": false,
+   "needs_key": true
+  },
+  {
+   "id": "opencode-go",
+   "name": "OpenCode Go",
+   "group": "subscription",
+   "format": "openai",
+   "base_url": "https://opencode.ai/zen/go/v1",
+   "headers": {
+    "x-opencode-session": "lantern"
+   },
+   "key_url": "https://opencode.ai/auth",
+   "steps_es": [
+    "Suscríbete a OpenCode Go.",
+    "En tu cuenta copia la clave de API.",
+    "Pégala aquí."
+   ],
+   "steps_en": [
+    "Subscribe to OpenCode Go.",
+    "Copy the API key from your account.",
+    "Paste it here."
+   ],
+   "cost_es": "Suscripción de precio fijo con límites de uso (modelos GLM, Kimi, MiMo…).",
+   "cost_en": "Flat-price subscription with usage limits (GLM, Kimi, MiMo models…).",
+   "terms_es": "OpenCode ofrece un gateway compatible con OpenAI para usarse desde otras apps.",
+   "terms_en": "OpenCode offers an OpenAI-compatible gateway usable from other apps.",
+   "model": "glm-4.6",
+   "enabled": true,
+   "verify": true,
+   "tos_url": "https://opencode.ai/docs/go/",
+   "needs_key": true
+  },
+  {
+   "id": "opencode-zen",
+   "name": "OpenCode Zen",
+   "group": "subscription",
+   "format": "openai",
+   "base_url": "https://opencode.ai/zen/v1",
+   "headers": {
+    "x-opencode-session": "lantern"
+   },
+   "key_url": "https://opencode.ai/auth",
+   "steps_es": [
+    "Crea una cuenta en OpenCode y añade saldo.",
+    "Copia la clave de API.",
+    "Pégala aquí."
+   ],
+   "steps_en": [
+    "Create an OpenCode account and add credit.",
+    "Copy the API key.",
+    "Paste it here."
+   ],
+   "cost_es": "Pago por uso a precio de coste; algunos modelos son gratuitos.",
+   "cost_en": "Pay-as-you-go at cost; some models are free.",
+   "terms_es": "Gateway compatible con OpenAI.",
+   "terms_en": "OpenAI-compatible gateway.",
+   "model": "glm-4.6",
+   "enabled": true,
+   "verify": true,
+   "tos_url": "https://opencode.ai/docs/zen/",
+   "needs_key": true
+  },
+  {
+   "id": "zai-coding",
+   "name": "Z.ai GLM Coding Plan",
+   "group": "subscription",
+   "format": "openai",
+   "base_url": "https://api.z.ai/api/coding/paas/v4",
+   "headers": {},
+   "key_url": "https://z.ai/manage-apikey/apikey-list",
+   "steps_es": [
+    "Compra el plan y crea la clave.",
+    "Cópiala."
+   ],
+   "steps_en": [
+    "Buy the plan and create the key.",
+    "Copy it."
+   ],
+   "cost_es": "Suscripción con cuota de uso.",
+   "cost_en": "Subscription with a usage quota.",
+   "terms_es": "Verificar condiciones: estos planes suelen limitarse a herramientas de programación concretas. Desactivado hasta comprobar que se permite su uso desde otras apps.",
+   "terms_en": "Verify terms: these plans are often limited to specific coding tools. Disabled until third-party use is confirmed.",
+   "model": "glm-4.6",
+   "enabled": false,
+   "verify": true,
+   "tos_url": "https://docs.z.ai/devpack/overview",
+   "needs_key": true
+  },
+  {
+   "id": "kimi-code",
+   "name": "Kimi Code (Moonshot)",
+   "group": "subscription",
+   "format": "openai",
+   "base_url": "https://api.kimi.com/coding/v1",
+   "headers": {},
+   "key_url": "https://www.kimi.com/code",
+   "steps_es": [
+    "Compra el plan y crea la clave.",
+    "Cópiala."
+   ],
+   "steps_en": [
+    "Buy the plan and create the key.",
+    "Copy it."
+   ],
+   "cost_es": "Suscripción con cuota de uso.",
+   "cost_en": "Subscription with a usage quota.",
+   "terms_es": "Verificar condiciones: estos planes suelen limitarse a herramientas de programación concretas. Desactivado hasta comprobar que se permite su uso desde otras apps.",
+   "terms_en": "Verify terms: these plans are often limited to specific coding tools. Disabled until third-party use is confirmed.",
+   "model": "kimi-for-coding",
+   "enabled": false,
+   "verify": true,
+   "tos_url": "https://www.kimi.com/code/docs",
+   "needs_key": true
+  },
+  {
+   "id": "minimax-coding",
+   "name": "MiniMax Coding Plan",
+   "group": "subscription",
+   "format": "openai",
+   "base_url": "https://api.minimax.io/v1",
+   "headers": {},
+   "key_url": "https://platform.minimax.io/user-center/basic-information/interface-key",
+   "steps_es": [
+    "Compra el plan y crea la clave.",
+    "Cópiala."
+   ],
+   "steps_en": [
+    "Buy the plan and create the key.",
+    "Copy it."
+   ],
+   "cost_es": "Suscripción con cuota de uso.",
+   "cost_en": "Subscription with a usage quota.",
+   "terms_es": "Verificar condiciones: estos planes suelen limitarse a herramientas de programación concretas. Desactivado hasta comprobar que se permite su uso desde otras apps.",
+   "terms_en": "Verify terms: these plans are often limited to specific coding tools. Disabled until third-party use is confirmed.",
+   "model": "MiniMax-M2",
+   "enabled": false,
+   "verify": true,
+   "tos_url": "https://platform.minimax.io/docs",
+   "needs_key": true
+  },
+  {
+   "id": "anthropic",
+   "name": "Anthropic (Claude API)",
+   "group": "paid",
+   "format": "anthropic",
+   "base_url": "https://api.anthropic.com",
+   "headers": {},
+   "key_url": "https://console.anthropic.com/settings/keys",
+   "steps_es": [
+    "Crea una cuenta y añade saldo si lo pide.",
+    "Crea una clave de API.",
+    "Cópiala."
+   ],
+   "steps_en": [
+    "Create an account and add credit if asked.",
+    "Create an API key.",
+    "Copy it."
+   ],
+   "cost_es": "Pago por uso; haiku es el más barato.",
+   "cost_en": "Pay per use; Haiku is the cheapest.",
+   "terms_es": "",
+   "terms_en": "",
+   "model": "claude-haiku-4-5",
+   "enabled": true,
+   "verify": false,
+   "needs_key": true
+  },
+  {
+   "id": "openai",
+   "name": "OpenAI (API)",
+   "group": "paid",
+   "format": "openai",
+   "base_url": "https://api.openai.com/v1",
+   "headers": {},
+   "key_url": "https://platform.openai.com/api-keys",
+   "steps_es": [
+    "Crea una cuenta y añade saldo si lo pide.",
+    "Crea una clave de API.",
+    "Cópiala."
+   ],
+   "steps_en": [
+    "Create an account and add credit if asked.",
+    "Create an API key.",
+    "Copy it."
+   ],
+   "cost_es": "Pago por uso; requiere saldo prepago.",
+   "cost_en": "Pay per use; requires prepaid credit.",
+   "terms_es": "",
+   "terms_en": "",
+   "model": "gpt-4.1-mini",
+   "enabled": true,
+   "verify": false,
+   "needs_key": true
+  },
+  {
+   "id": "deepseek",
+   "name": "DeepSeek",
+   "group": "paid",
+   "format": "openai",
+   "base_url": "https://api.deepseek.com",
+   "headers": {},
+   "key_url": "https://platform.deepseek.com/api_keys",
+   "steps_es": [
+    "Crea una cuenta y añade saldo si lo pide.",
+    "Crea una clave de API.",
+    "Cópiala."
+   ],
+   "steps_en": [
+    "Create an account and add credit if asked.",
+    "Create an API key.",
+    "Copy it."
+   ],
+   "cost_es": "Pago por uso, muy barato.",
+   "cost_en": "Pay per use, very cheap.",
+   "terms_es": "",
+   "terms_en": "",
+   "model": "deepseek-chat",
+   "enabled": true,
+   "verify": false,
+   "needs_key": true
+  },
+  {
+   "id": "xai",
+   "name": "xAI (Grok)",
+   "group": "paid",
+   "format": "openai",
+   "base_url": "https://api.x.ai/v1",
+   "headers": {},
+   "key_url": "https://console.x.ai",
+   "steps_es": [
+    "Crea una cuenta y añade saldo si lo pide.",
+    "Crea una clave de API.",
+    "Cópiala."
+   ],
+   "steps_en": [
+    "Create an account and add credit if asked.",
+    "Create an API key.",
+    "Copy it."
+   ],
+   "cost_es": "Pago por uso.",
+   "cost_en": "Pay per use.",
+   "terms_es": "",
+   "terms_en": "",
+   "model": "grok-3-mini",
+   "enabled": true,
+   "verify": true,
+   "needs_key": true
+  },
+  {
+   "id": "moonshot",
+   "name": "Moonshot (Kimi API)",
+   "group": "paid",
+   "format": "openai",
+   "base_url": "https://api.moonshot.ai/v1",
+   "headers": {},
+   "key_url": "https://platform.moonshot.ai/console/api-keys",
+   "steps_es": [
+    "Crea una cuenta y añade saldo si lo pide.",
+    "Crea una clave de API.",
+    "Cópiala."
+   ],
+   "steps_en": [
+    "Create an account and add credit if asked.",
+    "Create an API key.",
+    "Copy it."
+   ],
+   "cost_es": "Pago por uso.",
+   "cost_en": "Pay per use.",
+   "terms_es": "",
+   "terms_en": "",
+   "model": "kimi-k2-turbo-preview",
+   "enabled": true,
+   "verify": true,
+   "needs_key": true
+  },
+  {
+   "id": "zai",
+   "name": "Z.ai (API GLM)",
+   "group": "paid",
+   "format": "openai",
+   "base_url": "https://api.z.ai/api/paas/v4",
+   "headers": {},
+   "key_url": "https://z.ai/manage-apikey/apikey-list",
+   "steps_es": [
+    "Crea una cuenta y añade saldo si lo pide.",
+    "Crea una clave de API.",
+    "Cópiala."
+   ],
+   "steps_en": [
+    "Create an account and add credit if asked.",
+    "Create an API key.",
+    "Copy it."
+   ],
+   "cost_es": "Pago por uso.",
+   "cost_en": "Pay per use.",
+   "terms_es": "",
+   "terms_en": "",
+   "model": "glm-4.6",
+   "enabled": true,
+   "verify": true,
+   "needs_key": true
+  },
+  {
+   "id": "minimax",
+   "name": "MiniMax (API)",
+   "group": "paid",
+   "format": "openai",
+   "base_url": "https://api.minimax.io/v1",
+   "headers": {},
+   "key_url": "https://platform.minimax.io/user-center/basic-information/interface-key",
+   "steps_es": [
+    "Crea una cuenta y añade saldo si lo pide.",
+    "Crea una clave de API.",
+    "Cópiala."
+   ],
+   "steps_en": [
+    "Create an account and add credit if asked.",
+    "Create an API key.",
+    "Copy it."
+   ],
+   "cost_es": "Pago por uso.",
+   "cost_en": "Pay per use.",
+   "terms_es": "",
+   "terms_en": "",
+   "model": "MiniMax-M2",
+   "enabled": true,
+   "verify": true,
+   "needs_key": true
+  },
+  {
+   "id": "together",
+   "name": "Together AI",
+   "group": "paid",
+   "format": "openai",
+   "base_url": "https://api.together.xyz/v1",
+   "headers": {},
+   "key_url": "https://api.together.ai/settings/api-keys",
+   "steps_es": [
+    "Crea una cuenta y añade saldo si lo pide.",
+    "Crea una clave de API.",
+    "Cópiala."
+   ],
+   "steps_en": [
+    "Create an account and add credit if asked.",
+    "Create an API key.",
+    "Copy it."
+   ],
+   "cost_es": "Pago por uso.",
+   "cost_en": "Pay per use.",
+   "terms_es": "",
+   "terms_en": "",
+   "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+   "enabled": true,
+   "verify": false,
+   "needs_key": true
+  },
+  {
+   "id": "fireworks",
+   "name": "Fireworks AI",
+   "group": "paid",
+   "format": "openai",
+   "base_url": "https://api.fireworks.ai/inference/v1",
+   "headers": {},
+   "key_url": "https://fireworks.ai/account/api-keys",
+   "steps_es": [
+    "Crea una cuenta y añade saldo si lo pide.",
+    "Crea una clave de API.",
+    "Cópiala."
+   ],
+   "steps_en": [
+    "Create an account and add credit if asked.",
+    "Create an API key.",
+    "Copy it."
+   ],
+   "cost_es": "Pago por uso.",
+   "cost_en": "Pay per use.",
+   "terms_es": "",
+   "terms_en": "",
+   "model": "accounts/fireworks/models/llama-v3p3-70b-instruct",
+   "enabled": true,
+   "verify": false,
+   "needs_key": true
+  },
+  {
+   "id": "ollama",
+   "name": "Ollama",
+   "group": "local",
+   "format": "openai",
+   "base_url": "http://localhost:11434/v1",
+   "headers": {},
+   "key_url": "",
+   "steps_es": [
+    "Instala Ollama y descarga un modelo (p. ej. «ollama pull qwen2.5:7b»)."
+   ],
+   "steps_en": [
+    "Install Ollama and pull a model (e.g. “ollama pull qwen2.5:7b”)."
+   ],
+   "cost_es": "Gratis, usa tu hardware. La VRAM/RAM limita el modelo.",
+   "cost_en": "Free, uses your hardware. VRAM/RAM limits the model.",
+   "terms_es": "",
+   "terms_en": "",
+   "model": "",
+   "enabled": true,
+   "verify": false,
+   "needs_key": false
+  },
+  {
+   "id": "lmstudio",
+   "name": "LM Studio",
+   "group": "local",
+   "format": "openai",
+   "base_url": "http://localhost:1234/v1",
+   "headers": {},
+   "key_url": "",
+   "steps_es": [
+    "Abre LM Studio, descarga un modelo y activa «Local Server»."
+   ],
+   "steps_en": [
+    "Open LM Studio, download a model and enable “Local Server”."
+   ],
+   "cost_es": "Gratis, usa tu hardware. La VRAM/RAM limita el modelo.",
+   "cost_en": "Free, uses your hardware. VRAM/RAM limits the model.",
+   "terms_es": "",
+   "terms_en": "",
+   "model": "",
+   "enabled": true,
+   "verify": false,
+   "needs_key": false
+  },
+  {
+   "id": "llamacpp",
+   "name": "llama.cpp (llama-server)",
+   "group": "local",
+   "format": "openai",
+   "base_url": "http://localhost:8080/v1",
+   "headers": {},
+   "key_url": "",
+   "steps_es": [
+    "Arranca «llama-server -m modelo.gguf»."
+   ],
+   "steps_en": [
+    "Start “llama-server -m model.gguf”."
+   ],
+   "cost_es": "Gratis, usa tu hardware. La VRAM/RAM limita el modelo.",
+   "cost_en": "Free, uses your hardware. VRAM/RAM limits the model.",
+   "terms_es": "",
+   "terms_en": "",
+   "model": "",
+   "enabled": true,
+   "verify": false,
+   "needs_key": false
+  },
+  {
+   "id": "vllm",
+   "name": "vLLM",
+   "group": "local",
+   "format": "openai",
+   "base_url": "http://localhost:8000/v1",
+   "headers": {},
+   "key_url": "",
+   "steps_es": [
+    "Arranca «vllm serve <modelo>»."
+   ],
+   "steps_en": [
+    "Start “vllm serve <model>”."
+   ],
+   "cost_es": "Gratis, usa tu hardware. La VRAM/RAM limita el modelo.",
+   "cost_en": "Free, uses your hardware. VRAM/RAM limits the model.",
+   "terms_es": "",
+   "terms_en": "",
+   "model": "",
+   "enabled": true,
+   "verify": false,
+   "needs_key": false
+  },
+  {
+   "id": "custom",
+   "name": "URL personalizada (compatible OpenAI)",
+   "group": "local",
+   "format": "openai",
+   "base_url": "",
+   "headers": {},
+   "key_url": "",
+   "steps_es": [
+    "Indica la URL base, p. ej. http://servidor:8000/v1"
+   ],
+   "steps_en": [
+    "Enter the base URL, e.g. http://server:8000/v1"
+   ],
+   "cost_es": "Depende del servidor.",
+   "cost_en": "Depends on the server.",
+   "terms_es": "",
+   "terms_en": "",
+   "model": "",
+   "enabled": true,
+   "verify": false,
+   "needs_key": false,
+   "params": [
+    {
+     "id": "base_url",
+     "label_es": "URL base",
+     "label_en": "Base URL"
+    }
+   ]
+  }
+ ]
+}

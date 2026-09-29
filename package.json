@@ -2,6 +2,7 @@
   "name": "lantern",
   "private": true,
   "type": "module",
+  "version": "1.0.0",
   "workspaces": [
     "packages/*",
     "apps/*"
@@ -16,11 +17,14 @@
     "chaos": "node tools/chaos/run.mjs",
     "ddb-contract": "node tools/ddb-contract/check.mjs",
     "build": "npm run build -w @lantern/web",
-    "start": "[ -f apps/web/dist/index.html ] || npm run build; node apps/server/src/main.ts"
+    "start": "[ -f apps/web/dist/index.html ] || npm run build; node apps/server/src/main.ts",
+    "sea": "node tools/sea/build.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",
     "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.2",
+    "postject": "^1.0.0-alpha.6",
     "typescript": "^7.0.2"
   }
 }

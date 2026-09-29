@@ -148,3 +148,63 @@ test('timeout', async () => {
   const r = await ask(room, dm, { op: 'npc', prompt: 'x' });
   assert.ok(r.msg.t === 'copilot' && !r.msg.ok && r.msg.error === 'El modelo no respondió a tiempo');
 });
+
+// ---- adaptadores por formato y proveedor de reserva ----
+type Hit = { url: string; headers: Record<string, unknown>; body: any };
+const fake = async (handler: (h: Hit) => [number, unknown]) => {
+  const hits: Hit[] = [];
+  const s = createServer((req, res) => {
+    let b = ''; req.on('data', (c) => b += c);
+    req.on('end', () => { const h = { url: req.url!, headers: req.headers, body: JSON.parse(b) }; hits.push(h); const [st, out] = handler(h); res.statusCode = st; res.end(JSON.stringify(out)); });
+  });
+  await new Promise<void>((ok) => s.listen(0, '127.0.0.1', ok));
+  return { s, hits, url: `http://127.0.0.1:${(s.address() as { port: number }).port}` };
+};
+const text = async () => { const { room, dm } = setup(); const r = await ask(room, dm, { op: 'npc', prompt: 'x' }); return r.msg.t === 'copilot' && r.msg.ok ? JSON.stringify(r.msg) : JSON.stringify(r.msg); };
+const clean = () => { for (const k of Object.keys(process.env)) if (/^LANTERN_LLM2?_/.test(k) && k !== 'LANTERN_LLM_URL') delete process.env[k]; };
+
+test('formato anthropic: /v1/messages, x-api-key y system aparte', async () => {
+  const f = await fake(() => [200, { content: [{ type: 'text', text: 'HOLA-ANT' }] }]);
+  process.env.LANTERN_LLM_URL = f.url; process.env.LANTERN_LLM_FORMAT = 'anthropic'; process.env.LANTERN_LLM_KEY = 'k1'; process.env.LANTERN_LLM_MODEL = 'claude-x';
+  try {
+    assert.match(await text(), /HOLA-ANT/);
+    const h = f.hits[0];
+    assert.equal(h.url, '/v1/messages'); assert.equal(h.headers['x-api-key'], 'k1'); assert.equal(h.headers['anthropic-version'], '2023-06-01');
+    assert.equal(typeof h.body.system, 'string'); assert.ok(h.body.messages.every((m: any) => m.role === 'user')); assert.equal(h.body.model, 'claude-x');
+  } finally { clean(); f.s.close(); }
+});
+
+test('formato gemini: generateContent con x-goog-api-key', async () => {
+  const f = await fake(() => [200, { candidates: [{ content: { parts: [{ text: 'HOLA-GEM' }] } }] }]);
+  process.env.LANTERN_LLM_URL = f.url; process.env.LANTERN_LLM_FORMAT = 'gemini'; process.env.LANTERN_LLM_KEY = 'k2'; process.env.LANTERN_LLM_MODEL = 'gem-1';
+  try {
+    assert.match(await text(), /HOLA-GEM/);
+    const h = f.hits[0];
+    assert.equal(h.url, '/v1beta/models/gem-1:generateContent'); assert.equal(h.headers['x-goog-api-key'], 'k2');
+    assert.ok(h.body.systemInstruction.parts[0].text); assert.equal(h.body.contents[0].role, 'user');
+  } finally { clean(); f.s.close(); }
+});
+
+test('openai: LANTERN_LLM_HEADERS llega al gateway', async () => {
+  const f = await fake(() => [200, { choices: [{ message: { content: 'HOLA-OAI' } }] }]);
+  process.env.LANTERN_LLM_URL = f.url; process.env.LANTERN_LLM_HEADERS = '{"x-gw":"7"}';
+  try { assert.match(await text(), /HOLA-OAI/); assert.equal(f.hits[0].headers['x-gw'], '7'); assert.equal(f.hits[0].url, '/chat/completions'); } finally { clean(); f.s.close(); }
+});
+
+test('reserva LANTERN_LLM2_*: se usa si el principal da 429 o no responde a tiempo', async () => {
+  const back = await fake(() => [200, { content: [{ type: 'text', text: 'DE-RESERVA' }] }]);
+  const p429 = await fake(() => [429, {}]);
+  process.env.LANTERN_LLM2_URL = back.url; process.env.LANTERN_LLM2_FORMAT = 'anthropic';
+  try {
+    process.env.LANTERN_LLM_URL = p429.url;
+    assert.match(await text(), /DE-RESERVA/); assert.equal(p429.hits.length, 1);
+    process.env.LANTERN_LLM_URL = 'http://127.0.0.1:1'; // conexión rechazada
+    assert.match(await text(), /DE-RESERVA/);
+    reply = () => undefined; // el principal (fake de arriba) se cuelga
+    const slow = createServer(() => {}); await new Promise<void>((ok) => slow.listen(0, '127.0.0.1', ok));
+    process.env.LANTERN_LLM_URL = `http://127.0.0.1:${(slow.address() as { port: number }).port}`; process.env.LANTERN_LLM_TIMEOUT_MS = '300';
+    assert.match(await text(), /DE-RESERVA/); slow.closeAllConnections(); slow.close();
+    delete process.env.LANTERN_LLM2_URL; process.env.LANTERN_LLM_URL = p429.url; // sin reserva el error se propaga
+    assert.match(await text(), /HTTP 429/);
+  } finally { clean(); back.s.close(); p429.s.close(); }
+});

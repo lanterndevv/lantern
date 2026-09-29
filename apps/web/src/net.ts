@@ -4,6 +4,7 @@ export type Conn = 'online' | 'reconnecting';
 // La key del espectador (pantalla de mesa/streaming) va aparte: no debe pisar la del jugador en el mismo navegador.
 const keyOf = (code: string, as?: 'spectator') => `lantern:key:${code}${as ? ':' + as : ''}`;
 export const savedKey = (code: string, as?: 'spectator') => localStorage.getItem(keyOf(code, as));
+export const saveKey = (code: string, key: string) => localStorage.setItem(keyOf(code), key);
 export const savedName = () => localStorage.getItem('lantern:name') ?? '';
 
 let ws: WebSocket | undefined;

@@ -1,4 +1,4 @@
-// E2E: servidor + Vite + Chromium headless controlado por CDP. Uso: npm run e2e  (LANTERN_BROWSER=ruta para elegir navegador)
+// E2E: servidor + Vite + Chromium headless controlado por CDP. Uso: npm run e2e  (LANTERN_BROWSER=ruta para elegir navegador) ; LANTERN_SERVER_BIN=ruta para probar contra el binario SEA
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { mkdtempSync, mkdirSync, existsSync, writeFileSync, rmSync } from 'node:fs';
@@ -94,7 +94,7 @@ const must = (c, msg) => { if (!c) throw new Error(msg); };
 
 async function main() {
   const [sp, vp, dp] = [await freePort(), await freePort(), await freePort()];
-  const server = run('node', ['apps/server/src/main.ts'], { PORT: String(sp), HOST: '127.0.0.1', LANTERN_DB: join(tmp, 'e2e.db'), LANTERN_ASSETS: join(tmp, 'assets') });
+  const server = run(process.env.LANTERN_SERVER_BIN || 'node', process.env.LANTERN_SERVER_BIN ? [] : ['apps/server/src/main.ts'], { PORT: String(sp), HOST: '127.0.0.1', LANTERN_DB: join(tmp, 'e2e.db'), LANTERN_ASSETS: join(tmp, 'assets') });
   const vite = run('npx', ['vite', 'apps/web', '--port', String(vp), '--strictPort', '--host', '127.0.0.1'], { LANTERN_API: `http://127.0.0.1:${sp}` });
   const browser = run(findBrowser(), ['--headless=new', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', `--remote-debugging-port=${dp}`,
     `--user-data-dir=${join(tmp, 'profile')}`, '--no-first-run', '--no-default-browser-check', '--window-size=1440,900', '--no-sandbox', 'about:blank']);
