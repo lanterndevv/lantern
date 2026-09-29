@@ -29,6 +29,10 @@ function open() {
     if (m.t === 'welcome') {
       session = { code: m.state.code, name: session?.name ?? '' };
       localStorage.setItem(keyOf(m.state.code), m.key);
+    } else if (m.t === 'error' && session?.code && (m.msg === 'key inválida' || m.msg === 'mesa inexistente')) {
+      // Key caducada o mesa borrada: olvidarla. Con key inválida se reintenta como jugador nuevo.
+      localStorage.removeItem(keyOf(session.code));
+      if (m.msg === 'key inválida' && session.name) raw({ t: 'join', code: session.code, name: session.name });
     }
     handlers.forEach(h => h(m));
   };
