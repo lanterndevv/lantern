@@ -121,3 +121,17 @@ test('web estática: SPA, MIME, caché y sin path traversal', async () => {
   for (const p of ['/../secreto.txt', '/%2e%2e/secreto.txt', '/static/..%2f..%2fsecreto.txt']) assert.ok(!(await raw(p)).includes('no\n') && !(await raw(p)).endsWith('\r\n\r\nno'), p);
   await srv.close();
 });
+
+test('migraciones: una BD en la versión 5 (antes de «extra») arranca y guarda', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const { MIGRATIONS, openDb } = await import('./db.ts');
+  const { mkdtempSync } = await import('node:fs'); const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
+  const f = join(mkdtempSync(join(tmpdir(), 'lantern-')), 'v5.db');
+  const d = new DatabaseSync(f);
+  for (const m of MIGRATIONS.slice(0, 5)) m(d);
+  d.exec('CREATE TABLE meta (version INTEGER NOT NULL); INSERT INTO meta VALUES (5)'); d.close();
+  const db = openDb(f); // no debe lanzar «no such column extra» al preparar sentencias
+  const cols = (new DatabaseSync(f).prepare('PRAGMA table_info(rooms)').all() as { name: string }[]).map((c) => c.name);
+  assert.ok(cols.includes('extra'));
+  void db;
+});

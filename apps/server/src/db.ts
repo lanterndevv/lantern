@@ -9,6 +9,7 @@ import { mergeSettings, mkRoom, type Room, type MemberRec } from './room.ts';
 const addCol = (db: DatabaseSync, table: string, col: string, def: string) => {
   if (!(db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
 };
+// ⚠ SOLO AÑADIR AL FINAL: el índice es la versión. Insertar en medio hace que BD ya migradas se salten la nueva.
 export const MIGRATIONS: ((db: DatabaseSync) => void)[] = [
   (db) => db.exec(`
     CREATE TABLE IF NOT EXISTS rooms (code TEXT PRIMARY KEY, scene TEXT NOT NULL, chat TEXT NOT NULL);
@@ -24,6 +25,7 @@ export const MIGRATIONS: ((db: DatabaseSync) => void)[] = [
     CREATE TABLE IF NOT EXISTS account_sessions (token_hash TEXT PRIMARY KEY, account_id INTEGER NOT NULL, expires INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS account_tables (account_id INTEGER NOT NULL, code TEXT NOT NULL, member_id TEXT NOT NULL, PRIMARY KEY (account_id, code));
   `), // cuentas opcionales (accounts.ts)
+  (db) => addCol(db, 'rooms', 'extra', "TEXT NOT NULL DEFAULT '{}'"), // safety, sessionStart, maxRound
 ];
 
 export function migrate(db: DatabaseSync) {
@@ -47,10 +49,10 @@ const hashes = (s: string): string[] => { try { const v = JSON.parse(s); if (Arr
 export function openDb(path = process.env.LANTERN_DB ?? 'lantern.db') {
   const db = new DatabaseSync(path);
   migrate(db);
-  const upRoom = db.prepare('INSERT INTO rooms (code, scene, chat, automation, combat, pending, settings, view, audio, scenes, active, journal, extensions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(code) DO UPDATE SET scene = excluded.scene, chat = excluded.chat, automation = excluded.automation, combat = excluded.combat, pending = excluded.pending, settings = excluded.settings, view = excluded.view, audio = excluded.audio, scenes = excluded.scenes, active = excluded.active, journal = excluded.journal, extensions = excluded.extensions');
+  const upRoom = db.prepare('INSERT INTO rooms (code, scene, chat, automation, combat, pending, settings, view, audio, scenes, active, journal, extensions, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(code) DO UPDATE SET scene = excluded.scene, chat = excluded.chat, automation = excluded.automation, combat = excluded.combat, pending = excluded.pending, settings = excluded.settings, view = excluded.view, audio = excluded.audio, scenes = excluded.scenes, active = excluded.active, journal = excluded.journal, extensions = excluded.extensions, extra = excluded.extra');
   const delMembers = db.prepare('DELETE FROM members WHERE room = ?');
   const insMember = db.prepare('INSERT INTO members (room, id, name, role, key_hash, dice) VALUES (?, ?, ?, ?, ?, ?)');
-  const getRoom = db.prepare('SELECT scene, chat, automation, combat, pending, settings, view, audio, scenes, active, journal, extensions FROM rooms WHERE code = ?');
+  const getRoom = db.prepare('SELECT scene, chat, automation, combat, pending, settings, view, audio, scenes, active, journal, extensions, extra FROM rooms WHERE code = ?');
   const getMembers = db.prepare('SELECT id, name, role, key_hash, dice FROM members WHERE room = ?');
   return {
     exists: (code: string) => getRoom.get(code) !== undefined,
@@ -58,14 +60,14 @@ export function openDb(path = process.env.LANTERN_DB ?? 'lantern.db') {
       db.exec('BEGIN');
       try {
         upRoom.run(r.code, 'null', // la columna scene es solo de migración: la biblioteca vive en scenes
-           JSON.stringify(r.chat), r.automation, JSON.stringify(r.combat ?? null), JSON.stringify(r.pending), JSON.stringify(r.settings), r.view, JSON.stringify(r.audio), JSON.stringify(r.scenes), r.activeId, JSON.stringify(r.journal), JSON.stringify(r.extensions));
+           JSON.stringify(r.chat), r.automation, JSON.stringify(r.combat ?? null), JSON.stringify(r.pending), JSON.stringify(r.settings), r.view, JSON.stringify(r.audio), JSON.stringify(r.scenes), r.activeId, JSON.stringify(r.journal), JSON.stringify(r.extensions), JSON.stringify({ safety: r.safety, sessionStart: r.sessionStart, maxRound: r.maxRound }));
         delMembers.run(r.code); // ponytail: reescribe todos los miembros; incremental si crecen las mesas
         for (const m of r.members.values()) insMember.run(r.code, m.id, m.name, m.role, JSON.stringify(m.keyHashes), m.dice);
         db.exec('COMMIT');
       } catch (e) { db.exec('ROLLBACK'); throw e; }
     },
     load(code: string): Room | null {
-      const row = getRoom.get(code) as { scene: string; chat: string; automation: string; combat: string; pending: string; settings: string; view: string; audio: string; scenes: string; active: string; journal: string; extensions: string } | undefined;
+      const row = getRoom.get(code) as { scene: string; chat: string; automation: string; combat: string; pending: string; settings: string; view: string; audio: string; scenes: string; active: string; journal: string; extensions: string; extra: string } | undefined;
       if (!row) return null;
       const ms = getMembers.all(code) as { id: string; name: string; role: MemberRec['role']; key_hash: string; dice: MemberRec['dice'] }[];
       const parse = (j: string): unknown => { try { return JSON.parse(j); } catch { return null; } };
@@ -81,7 +83,10 @@ export function openDb(path = process.env.LANTERN_DB ?? 'lantern.db') {
       let scenes = sc && typeof sc === 'object' ? Object.fromEntries(Object.entries(sc).filter(([, v]) => v && typeof v === 'object')) : {};
       if (!Object.keys(scenes).length) { const old = parse(row.scene) as Scene; scenes = { [old.id]: old }; }
       const j = parse(row.journal), ex = parse(row.extensions);
+      const ex2 = parse(row.extra) as any, sl = (v: unknown) => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length >= 1 && x.length <= 60).slice(0, 30) : [];
       return mkRoom({
+        safety: { lines: sl(ex2?.safety?.lines), veils: sl(ex2?.safety?.veils) },
+        sessionStart: Number.isFinite(ex2?.sessionStart) ? ex2.sessionStart : Date.now(), maxRound: Number.isInteger(ex2?.maxRound) ? ex2.maxRound : 0,
         scenes, activeId: Object.hasOwn(scenes, row.active) ? row.active : Object.keys(scenes)[0],
         journal: Array.isArray(j) ? (j as JournalEntry[]).filter((e) => e && typeof e.id === 'string') : [],
         extensions: Array.isArray(ex) ? ex.flatMap((e) => { const m = parseManifest(e); return typeof m === 'string' ? [] : [m]; }).slice(0, MAX_EXTENSIONS) : [], // migración tolerante

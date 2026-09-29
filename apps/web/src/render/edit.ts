@@ -1,6 +1,6 @@
 // Capa de edición (fase 5): herramientas del DM. Dibuja en `layer` y emite EditOp; no toca el estado del servidor.
 import type { Container, FederatedPointerEvent, Graphics } from 'pixi.js';
-import type { Light, Point, Region, Scene, Wall } from '@lantern/protocol';
+import type { Id, Light, Point, Region, Scene, Wall } from '@lantern/protocol';
 import type { EditOp, EditTool } from './api.ts';
 
 export const REGION_COLOR: Record<Region['kind'], string> = {
@@ -35,7 +35,7 @@ type Drag =
   | { k: 'wall'; w: Wall; end: 'a' | 'b' } | { k: 'light'; l: Light } | { k: 'vert'; r: Region; i: number }
   | { k: 'newLight'; at: Point; r: number } | { k: 'grid'; a: Point; b: Point };
 
-export function createEdit(world: Container, g: Graphics, scene: () => Scene | undefined) {
+export function createEdit(world: Container, g: Graphics, scene: () => Scene | undefined, level: () => Id | undefined = () => undefined) {
   let tool: EditTool = { tool: 'none' }, cb: (op: EditOp) => void = () => {};
   let sel: { kind: Kind; id: string } | undefined, drag: Drag | undefined, moved = false;
   let last: Point | undefined, pts: Point[] = [], hover: Point | undefined, shift = false;
@@ -51,7 +51,7 @@ export function createEdit(world: Container, g: Graphics, scene: () => Scene | u
   };
   const closeRegion = () => {
     if (tool.tool === 'region' && pts.length >= 3)
-      cb({ op: 'upsert', kind: 'region', item: { id: crypto.randomUUID(), name: 'Región', points: pts, kind: tool.kind, hidden: tool.kind === 'trap' } });
+      cb({ op: 'upsert', kind: 'region', item: { id: crypto.randomUUID(), name: 'Región', points: pts, kind: tool.kind, hidden: tool.kind === 'trap', level: level() } });
     pts = [];
   };
 
@@ -76,7 +76,7 @@ export function createEdit(world: Container, g: Graphics, scene: () => Scene | u
         const q = snap(p, !e.shiftKey);
         if (last && dist(last, q) < tol / 2) last = undefined; // clic sobre el último vértice = doble clic
         else {
-          if (last) cb({ op: 'upsert', kind: 'wall', item: { id: crypto.randomUUID(), a: last, b: q, kind: tool.kind } });
+          if (last) cb({ op: 'upsert', kind: 'wall', item: { id: crypto.randomUUID(), a: last, b: q, kind: tool.kind, level: level() } });
           last = q;
         }
         return true;
@@ -109,7 +109,7 @@ export function createEdit(world: Container, g: Graphics, scene: () => Scene | u
     else if (d.k === 'vert' && moved) cb({ op: 'upsert', kind: 'region', item: { ...d.r, points: [...d.r.points] } });
     else if (d.k === 'newLight' && tool.tool === 'light') {
       const drew = d.r >= 8;
-      cb({ op: 'upsert', kind: 'light', item: { id: crypto.randomUUID(), x: d.at.x, y: d.at.y, bright: drew ? d.r / 2 : tool.bright, dim: drew ? d.r : tool.dim, color: tool.color } });
+      cb({ op: 'upsert', kind: 'light', item: { id: crypto.randomUUID(), x: d.at.x, y: d.at.y, bright: drew ? d.r / 2 : tool.bright, dim: drew ? d.r : tool.dim, color: tool.color, level: level() } });
     } else if (d.k === 'grid') {
       const size = (Math.abs(d.b.x - d.a.x) + Math.abs(d.b.y - d.a.y)) / 4;
       if (size >= 8) cb({ op: 'grid', size, offsetX: mod(Math.min(d.a.x, d.b.x), size), offsetY: mod(Math.min(d.a.y, d.b.y), size) });

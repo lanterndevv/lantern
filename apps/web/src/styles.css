@@ -358,3 +358,42 @@ kbd { font: .7rem var(--mono); color: var(--ambar-claro); }
 .ext-lista li { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .ext-prev ul { padding-left: 18px; }
 /* fin extensiones */
+
+/* antesala y seguridad */
+.antesala, .pausa-x { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; border: 0; padding: 0; color: var(--txt);
+  background: radial-gradient(circle at 50% 30%, #3a2a17, var(--noche) 70%); }
+.antesala::backdrop, .resumen::backdrop { background: rgba(0,0,0,.6); }
+.an-fondo { position: absolute; inset: 0; background-size: cover; background-position: center; opacity: .35; }
+.an-cuerpo { position: relative; height: 100%; overflow-y: auto; padding: 32px 16px; display: grid; gap: 20px; align-content: start; width: min(640px, 100%); margin: 0 auto; }
+.an-cuerpo h1 { font-size: 2.2rem; } .an-cuerpo h2 { margin: 0 0 8px; font-size: 1.1rem; } .an-cuerpo h3 { margin: 8px 0; font-size: .95rem; color: var(--txt2); }
+.an-miembros { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.an-miembros li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.an-pto { width: 10px; height: 10px; border-radius: 50%; background: var(--txt3); } .an-pto.on { background: var(--exito); }
+.an-audio { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; } .an-audio meter { flex: 1; min-width: 120px; height: 16px; }
+.an-seg form { display: flex; gap: 8px; margin-top: 8px; } .an-seg form input { flex: 1; }
+.chips .an-x { min-height: 24px; min-width: 24px; padding: 0 6px; margin-left: 4px; border-radius: 99px; }
+.an-listo { min-height: 56px; font-size: 1.25rem; }
+.tarjeta-x { position: fixed; left: 12px; bottom: 12px; z-index: 40; min-width: 44px; padding: 0; opacity: .55; font-weight: 700; border-radius: 50%; }
+.tarjeta-x:hover, .tarjeta-x:focus-visible { opacity: 1; }
+.pausa-x { display: none; place-items: center; text-align: center; font-size: 1.4rem; background: rgba(14,11,8,.96); }
+.pausa-x[open] { display: grid; align-content: center; gap: 20px; }
+.pausa-x h2 { font-family: var(--serif); font-size: 2.4rem; margin: 0 0 8px; }
+.barra-version { position: fixed; top: 0; left: 0; right: 0; z-index: 100; display: flex; gap: 12px; justify-content: center; align-items: center; flex-wrap: wrap; padding: 8px 16px; background: var(--ambar); color: var(--sobre-ambar); font-weight: 700; }
+.barra-version button.primary { background: var(--sobre-ambar); color: var(--ambar-claro); }
+.pedidos { position: fixed; left: 50%; bottom: 72px; transform: translateX(-50%); z-index: 45; display: grid; gap: 8px; width: min(440px, calc(100% - 24px)); }
+.pedido { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 8px 12px; }
+.pedir { display: grid; gap: 8px; } .pedir fieldset { border: 1px solid var(--borde); border-radius: var(--r-card); }
+.pedir .fila { display: flex; align-items: center; gap: 8px; flex-direction: row; } .pedir .fila input { width: auto; min-height: 0; }
+.pedir select { min-height: 44px; background: var(--sombra); color: inherit; border: 1px solid var(--borde); border-radius: var(--r-btn); padding: 0 8px; }
+.chips-btn { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.secreta { font-style: normal; font-size: .75rem; color: var(--ambar-claro); border: 1px solid var(--borde); border-radius: 99px; padding: 0 8px; margin-left: 4px; }
+.resumen { color: var(--txt); background: var(--sombra); border: 1px solid var(--borde); border-radius: var(--r-panel); width: min(640px, calc(100% - 24px)); padding: 24px; }
+.rs-datos { display: flex; gap: 24px; flex-wrap: wrap; color: var(--txt2); } .rs-datos strong { display: block; font-size: 1.5rem; color: var(--ambar-claro); }
+.rs-dest { list-style: none; padding: 0; display: grid; gap: 6px; } .rs-dest li span[aria-hidden] { display: inline-block; width: 1.5em; color: var(--ambar); }
+.rs-tabla { width: 100%; border-collapse: collapse; } .rs-tabla th, .rs-tabla td { padding: 6px 8px; border-bottom: 1px solid var(--borde); text-align: right; }
+.rs-tabla th:first-child { text-align: left; } .rs-btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+@media (prefers-reduced-motion: reduce) { .tarjeta-x { transition: none; } }
+/* plantas (orquestador) */
+.mesa > .lv { position: absolute; left: 12px; top: 84px; z-index: 6; }
+.mesa > .lv:empty { display: none; }
+.mesa > .ed-bar { top: 140px; }

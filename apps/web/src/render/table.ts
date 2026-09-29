@@ -90,10 +90,12 @@ export const createTable: CreateTable = async (el, opts) => {
   const stone = stoneTexture();
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const vfx = createVfx(app, world, fxL, reduced);
-  const edit = createEdit(world, editG, () => cur?.scene);
+  const edit = createEdit(world, editG, () => cur?.scene, () => (raw && level !== raw.scene.levels?.[0]?.id ? level : undefined));
 
   // ---- estado ----
-  let cur: ClientState | undefined;
+  let cur: ClientState | undefined, raw: ClientState | undefined; // raw = estado del servidor; cur = filtrado a la planta visible
+  let level: Id | undefined, ghost = false;
+  const ghostG = new Graphics(); ghostG.eventMode = 'none'; world.addChildAt(ghostG, 2); // sobre suelo y cuadrícula, bajo regiones
   let sceneId = '', bgToken = 0;
   let lit = true, gridKey = '', wallsKey = '', lightsKey = '', visKey = '';
   const isDM = () => opts.role === 'dm' || opts.role === 'assistant';
@@ -582,10 +584,11 @@ export const createTable: CreateTable = async (el, opts) => {
   fogVisRoot.addChild(fogVis); fogRoot.addChild(fogBg, fogMem, fogVisRoot);
   let fogRT: RenderTexture | undefined;
   fogSprite.filters = [new BlurFilter({ strength: 6, quality: 2 })]; // bordes suaves
+  const memKey = (s: Scene) => `${s.id}|${level ?? ''}`; // la memoria de niebla es por planta
   function renderFog(s: Scene, visible: Point[][]) {
     const k = LS();
-    let mem = memories.get(s.id);
-    if (!mem) memories.set(s.id, mem = RenderTexture.create({ width: Math.ceil(s.width * k), height: Math.ceil(s.height * k) }));
+    let mem = memories.get(memKey(s));
+    if (!mem) memories.set(memKey(s), mem = RenderTexture.create({ width: Math.ceil(s.width * k), height: Math.ceil(s.height * k) }));
     const pf = visible.map(flat);
     memG.clear(); fogVis.clear();
     for (const p of pf) { memG.poly(p).fill(0xffffff); fogVis.poly(p).fill(0xffffff); }
@@ -598,8 +601,20 @@ export const createTable: CreateTable = async (el, opts) => {
   }
 
   // ---- setState ----
-  function setState(st: ClientState) {
+  function setState(st0: ClientState) {
+    raw = st0;
+    const os = st0.scene, base = os.levels?.[0]?.id, here = level ?? base, on1 = (x?: Id) => (x ?? base) === here;
+    const st: ClientState = { ...st0, scene: { ...os, walls: os.walls.filter((w) => on1(w.level)), lights: os.lights.filter((l) => on1(l.level)),
+      tokens: os.tokens.filter((t) => on1(t.level)), regions: os.regions?.filter((r) => on1(r.level)) } };
     cur = st;
+    ghostG.clear(); // ponytail: la planta inferior es solo muros y fichas en gris; sin suelo ni luces
+    const i = ghost ? (os.levels ?? []).findIndex((l) => l.id === here) : -1;
+    if (i > 0) {
+      const b = os.levels![i - 1].id;
+      for (const w of os.walls) if (w.level === b || (i === 1 && !w.level)) ghostG.moveTo(w.a.x, w.a.y).lineTo(w.b.x, w.b.y);
+      ghostG.stroke({ width: 6, color: 0x9a9a9a, alpha: 0.25, cap: 'round' });
+      for (const t of os.tokens) if (t.level === b || (i === 1 && !t.level)) ghostG.circle(t.x, t.y, tokR(t)).fill({ color: 0x9a9a9a, alpha: 0.25 });
+    }
     const on = st.settings.layers.lighting && st.settings.mode !== 'simple';
     if (on !== lit) { lit = on; visKey = ''; lmDirty = true; }
     lightSprite.visible = glowL.visible = lit;
@@ -698,8 +713,17 @@ export const createTable: CreateTable = async (el, opts) => {
     app.destroy(true, { children: true });
   }
 
+  function setLevel(id: Id | undefined, o?: { ghostBelow?: boolean }) {
+    const g = !!o?.ghostBelow;
+    if (id === level && g === ghost) return;
+    level = id; ghost = g;
+    if (!raw) return;
+    wallsKey = '\0'; regKey = ''; visKey = ''; lmDirty = true; // fuerza redibujar muros, regiones y niebla
+    setState(raw);
+  }
+
   return {
-    focus, fitScene, worldToClient,
+    setLevel, focus, fitScene, worldToClient,
     setDisplay: (m) => { fixed = m === 'fixed'; pan = undefined; if (fixed) { endDrag(false); cam = undefined; } if (cur) syncTokens(cur.scene); },
     previewWalls, setState, setMarks, ping, floatText, effect: vfx.effect, destroy,
     setTool: (t) => edit.setTool(isDM() ? t : { tool: 'none' }), onEdit: edit.onEdit,

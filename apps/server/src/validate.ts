@@ -15,6 +15,11 @@ export const pt = (s: Scene, p: unknown): Point | null =>
 // URL de recurso: https o ruta /assets/ propia (sin subdirectorios)
 export const urlOk = (v: unknown): v is string => typeof v === 'string' && v.length <= 512 && (/^https:\/\/[^\s"'<>]+$/.test(v) || /^\/assets\/[\w.-]+$/.test(v));
 
+// Planta: debe existir en scene.levels; ausente = planta base. null = inválida.
+export const parseLevel = (s: Scene, v: unknown): Id | undefined | null =>
+  v === undefined ? undefined : str(v, 64) && s.levels?.some((l) => l.id === v) ? v : null;
+export const MAX_LEVELS = 10;
+
 export const WEATHER = ['none', 'rain', 'snow', 'fog', 'ash', 'storm', 'leaves', 'embers'];
 export const SFX = ['door', 'thunder', 'roar', 'collapse', 'bell', 'scream', 'magic', 'coins', 'trap', 'hit', 'crit', 'heal', 'miss'];
 export const MAX_ITEMS = 500, MAX_WALLS = 5000, MAX_REGIONS = 100, MAX_LAYERS = 12, MAX_SCENES = 100, MAX_JOURNAL = 500;
@@ -55,6 +60,8 @@ export function parseToken(s: Scene, v: unknown): Token | null {
     if (!obj(d) || !int(d.successes, 0, 3) || !int(d.failures, 0, 3)) return null;
     t.deathSaves = { successes: d.successes, failures: d.failures };
   }
+  if (v.level !== undefined) { const l = parseLevel(s, v.level); if (!l) return null; t.level = l; }
+  if (v.heroPoints !== undefined) { if (!int(v.heroPoints, 0, 20)) return null; t.heroPoints = v.heroPoints; }
   if (v.ddb !== undefined) {
     const d = v.ddb;
     if (!obj(d) || !int(d.id, 0, Number.MAX_SAFE_INTEGER) || !int(d.level, 1, 20) || !short(d.classes, 60) || !num(d.syncedAt)) return null;
@@ -72,6 +79,7 @@ export function parseWall(s: Scene, v: unknown): Wall | null {
   if (v.secret !== undefined) { if (typeof v.secret !== 'boolean') return null; w.secret = v.secret; }
   if (v.locked !== undefined) { if (typeof v.locked !== 'boolean') return null; w.locked = v.locked; }
   if (v.note !== undefined) { if (!short(v.note, 1000)) return null; w.note = v.note; }
+  if (v.level !== undefined) { const l = parseLevel(s, v.level); if (!l) return null; w.level = l; }
   return w;
 }
 
@@ -81,6 +89,7 @@ export function parseLight(s: Scene, v: unknown): Light | null {
   if (typeof v.color !== 'string' || !/^#[0-9a-fA-F]{3,8}$/.test(v.color)) return null;
   const l: Light = { id: v.id, x: v.x as number, y: v.y as number, bright: v.bright, dim: v.dim, color: v.color };
   if (v.anim !== undefined) { if (v.anim !== 'none' && v.anim !== 'torch' && v.anim !== 'pulse') return null; l.anim = v.anim; }
+  if (v.level !== undefined) { const lv = parseLevel(s, v.level); if (!lv) return null; l.level = lv; }
   return l;
 }
 
@@ -108,7 +117,9 @@ export function parseRegion(s: Scene, v: unknown): Region | null {
   if (v.to !== undefined) { const to = pt(s, v.to); if (!to) return null; r.to = to; }
   if (v.sfx !== undefined) { if (typeof v.sfx !== 'string' || !SFX.includes(v.sfx)) return null; r.sfx = v.sfx; }
   if (v.text !== undefined) { if (!short(v.text, 400)) return null; r.text = v.text; }
-  if (r.kind === 'teleport' && !r.to) return null;
+  if (v.level !== undefined) { const l = parseLevel(s, v.level); if (!l) return null; r.level = l; }
+  if (v.toLevel !== undefined) { const l = parseLevel(s, v.toLevel); if (!l) return null; r.toLevel = l; }
+  if (r.kind === 'teleport' && !r.to && !r.toLevel) return null;
   if (r.kind === 'message' && !r.text) return null;
   return r;
 }
@@ -185,6 +196,11 @@ export function parseScene(v: unknown): Scene | null {
   if (!obj(v) || !str(v.id, 64) || !('name' in v) || !('width' in v) || !('height' in v) || !('grid' in v)) return null;
   const s: Scene = { id: v.id, name: 'x', width: 100, height: 100, grid: { size: 60, offsetX: 0, offsetY: 0, feet: 5 }, walls: [], lights: [], tokens: [], globalLight: 1 };
   if (!patchScene(s, Object.fromEntries(PATCH_KEYS.filter((k) => k in v).map((k) => [k, v[k]])))) return null;
+  if (v.levels !== undefined) {
+    const lv = v.levels;
+    if (!Array.isArray(lv) || lv.length > MAX_LEVELS || !lv.every((l) => obj(l) && str(l.id, 40) && str(l.name, 40)) || new Set(lv.map((l) => l.id)).size !== lv.length) return null;
+    s.levels = lv.map((l) => ({ id: l.id as string, name: l.name as string }));
+  }
   const list = <T extends { id: Id }>(raw: unknown, max: number, f: (x: unknown) => T | null): T[] | null => {
     if (raw === undefined) return [];
     if (!Array.isArray(raw) || raw.length > max) return null;

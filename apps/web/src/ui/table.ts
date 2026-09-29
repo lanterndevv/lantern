@@ -18,6 +18,12 @@ import { mountEncounter } from './encounter.ts';
 import { maybeStartTutorial } from './tutorial.ts';
 import { openRadial, tokenRadialItems } from './radial.ts';
 import { mountExtensions, openInstaller } from '../ext/host.ts';
+import { mountLevels } from './levels.ts';
+import { mountBeyond20 } from '../beyond20.ts';
+import { showLobby } from './lobby.ts';
+import { mountSafety, handleSafety, checkProtocol } from './safety.ts';
+import { mountCheckRequester, handleCheckRequest, rollBadges, heroButton } from './checks.ts';
+import { showSummary, sessionEndButton } from './summary.ts';
 import { linkCurrentTable } from './account.ts';
 import { mountPalette, defaultCommands } from './palette.ts';
 import { applyDisplayMode, displayModeFromUrl } from './display.ts';
@@ -80,6 +86,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     <nav id="ed-bar" class="ed-bar panel" aria-label="Herramientas de edición" hidden></nav>
     <section id="ed-insp" class="ed-insp panel" aria-label="Inspector" hidden></section>
     <dialog id="elegir" aria-labelledby="elegir-t"><h2 id="elegir-t">Elige tu personaje</h2><ul id="libres" class="libres"></ul><button type="button" id="ddbc">Traer mi personaje de D&amp;D Beyond</button></dialog>
+    <div id="lv" class="lv"></div>
     <div class="panel tl">
       <h1 id="escena"></h1><span class="chip simple" id="simple" hidden>Modo Sencillo</span>
       <button class="chip" id="cod" type="button" title="Copiar enlace"></button>
@@ -235,9 +242,10 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   $('t-esc').hidden = !scenePanel;
 
   let exts: ReturnType<typeof mountExtensions> | undefined; // se monta más abajo; render() corre antes
+  let lv: ReturnType<typeof mountLevels> | undefined, lobby: ReturnType<typeof showLobby> | undefined, cr: ReturnType<typeof mountCheckRequester> | undefined;
   const render = (s: ClientState) => {
     voz.onState(s.members); exts?.update(s);
-    ed?.update(s); jr.update(s); lib?.update(s); enc?.update(s);
+    ed?.update(s); jr.update(s); lib?.update(s); enc?.update(s); lv?.update(s); lobby?.update(); cr?.render();
     state = s;
     $('escena').textContent = s.scene.name;
     $('cod').textContent = `${s.code.slice(0, 3)}-${s.code.slice(3)}`;
@@ -319,6 +327,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       <span>${t.hp ? `PG ${t.hp.cur}/${t.hp.max}${t.hp.temp ? ` (+${t.hp.temp})` : ''}` : ''}${t.ac != null ? ` · CA ${t.ac}` : ''}</span>${move}${ddb}</div>
       ${c ? `<div class="eco">${pill('action', 'Acción')}${pill('bonus', 'Adicional')}${pill('reaction', 'Reacción')}</div>` : ''}
       <div class="acts">${acts}</div>${slots ? `<div class="slots">${slots}</div>` : ''}${end}`;
+    const hb = t.owners.includes(w.memberId) ? heroButton(t, { send: m => net.send(m), state: () => state }) : null;
+    if (hb) el.append(hb);
   };
   $('hud').onclick = e => {
     const b = (e.target as HTMLElement).closest('button'); if (!b) return;
@@ -494,7 +504,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       el.className = 'msg tirada';
       el.innerHTML = `<span class="quien">${who}</span><code>${esc(m.roll.expr)}</code>
         ${m.roll.expr === 'iniciativa' ? '' : `<strong class="total">${m.roll.total}</strong>`}<span class="det">${esc(m.roll.detail)}</span>
-        ${m.roll.secret ? '<em class="secreta">secreta</em>' : ''}`;
+        ${m.roll.secret ? '<em class="secreta">secreta</em>' : ''}${rollBadges(m.roll)}`;
     } else {
       el.className = 'msg';
       el.innerHTML = `<span class="quien">${who}</span> ${esc(m.text ?? '')}`;
@@ -574,6 +584,23 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     mine: () => hudTok(), tab, focus: (x, y) => void table.then(t => t.focus(x, y)),
   }, q) });
   applyDisplayMode(displayModeFromUrl(), { table, root, state: w.state });
+  // ---- fase 7b: plantas, antesala, tarjeta X, pruebas pedidas, cierre de sesión ----
+  checkProtocol(w.v);
+  if (w.role !== 'spectator') mountBeyond20(m => net.send(m)); // tiradas hechas en la hoja de DDB con Beyond20 (dominio propio en sus opciones)
+  const normalView = displayModeFromUrl() === 'normal';
+  if (normalView) mountSafety({ send: m => net.send(m) }); // botón X y Alt+X
+  const chkCtx = { send: (m: C2S) => net.send(m), state: () => state, me: w.memberId };
+  lobby = normalView && w.role !== 'spectator' ? showLobby({ state: () => state, send: m => net.send(m), me: w.memberId, role: w.role, onReady() {} }) : undefined;
+  lv = mountLevels($('lv'), { state: () => state, send: m => net.send(m), role: w.role,
+    setLevel: (id, o) => void table.then(t => t.setLevel(id, o)),
+    ownLevel: () => state.scene.tokens.find(t => t.owners.includes(w.memberId))?.level });
+  lv.update(state);
+  if (w.role === 'dm') {
+    const box = document.createElement('section'); box.className = 'dm-extra'; box.setAttribute('aria-label', 'Pruebas y sesión');
+    $('dm').after(box);
+    cr = mountCheckRequester(box, { send: m => net.send(m), state: () => state, selected: () => (selected ? [selected] : []) });
+    box.append(sessionEndButton({ send: m => net.send(m) }));
+  }
   // Móvil: el mapa entero no se lee en 390 px → al entrar, cámara sobre tu personaje.
   if (matchMedia('(max-width: 700px)').matches && displayModeFromUrl() === 'normal') {
     const own = mine()[0]; if (own) void table.then(t => t.focus(own.x, own.y, 1));
@@ -612,6 +639,9 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       else if (m.t === 'transition') story.transition(m);
       else if (m.t === 'sfx') sfx(m.name);
       else if (m.t === 'clock') audio.clock(m.now);
+      else if (m.t === 'safety') handleSafety(m);
+      else if (m.t === 'checkRequest') handleCheckRequest(m, { send: x => net.send(x), state: () => state, me: w.memberId });
+      else if (m.t === 'sessionSummary') showSummary(m.summary);
       else if (m.t === 'error') { const t = $('toast'); t.textContent = m.msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3000); }
     },
   };

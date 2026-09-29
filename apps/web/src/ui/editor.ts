@@ -29,6 +29,7 @@ const DMG = [['', '—'], ['piercing', 'Perforante'], ['slashing', 'Cortante'], 
 const TEMPLATES: [string, Partial<Region>][] = [
   ['Foso con pinchos', { kind: 'trap', name: 'Foso con pinchos', hidden: true, save: { ability: 'dex', dc: 13 }, damage: '2d10', damageType: 'piercing', condition: 'prone' }],
   ['Runa de alarma', { kind: 'message', name: 'Runa de alarma', hidden: true, once: true, text: 'Una runa se enciende bajo tus pies y suena una campana.', sfx: 'bell' }],
+  ['Escalera', { kind: 'teleport', name: 'Escalera', hidden: false, to: undefined }], // sin `to`: cambia de planta en la misma posición
   ['Corriente de agua', { kind: 'difficult', name: 'Corriente de agua', hidden: false }],
 ];
 const TOOLS: { id: string; label: string; key?: string; tool: EditTool | ((s: ClientState) => EditTool); icon: string }[] = [
@@ -148,7 +149,7 @@ export function mountEditor(toolbarEl: HTMLElement, inspectorEl: HTMLElement, ct
       if (k === 'trap') h += `<label>Salvación<select id="ed-sab">${opts(ABIL, r.save?.ability ?? 'dex')}</select></label>${txt('dc', 'CD', r.save?.dc ?? 13, 'type="number" min="1" max="30"')}
         ${txt('dmg', 'Daño (dados)', r.damage ?? '', 'placeholder="2d10"')}<label>Tipo de daño<select id="ed-dt">${opts(DMG as [string, string][], r.damageType ?? '')}</select></label>
         <label>Condición al fallar<select id="ed-cond">${opts([['', '—'], ...Object.entries(CONDITIONS)], r.condition ?? '')}</select></label>`;
-      if (k === 'teleport') h += `<p class="det" role="status">${r.to ? `Destino: ${Math.round(r.to.x)}, ${Math.round(r.to.y)}` : 'Sin destino'}${picking ? ' — haz clic en el mapa (Esc cancela)' : ''}</p><button type="button" data-a="pick"${picking ? ' aria-pressed="true"' : ''}>Elegir destino</button>`;
+      if (k === 'teleport') h += `<label>Planta de destino<select id="ed-tolevel">${opts([['', '—'], ...(s.scene.levels ?? []).map((l, i) => [l.id, l.name || (i ? `Planta ${i}` : 'Base')] as [string, string])], r.toLevel ?? '')}</select></label><p class="det" role="status">${r.to ? `Destino: ${Math.round(r.to.x)}, ${Math.round(r.to.y)}` : 'Sin destino'}${picking ? ' — haz clic en el mapa (Esc cancela)' : ''}</p><button type="button" data-a="pick"${picking ? ' aria-pressed="true"' : ''}>Elegir destino</button>`;
       if (k === 'message') h += `<label>Texto<textarea id="ed-text" rows="3" maxlength="500">${esc(r.text)}</textarea></label>`;
       if (k === 'trap' || k === 'sound') h += `<label>Sonido<select id="ed-sfx">${opts([['', '—'], ...SFX_LIST.map(([n, l]) => [n, l] as [string, string]), ...(SFX_LIST.some(x => x[0] === 'bell') ? [] : [['bell', 'Campana'] as [string, string]])], r.sfx ?? '')}</select></label>`;
       h += actions(true);
@@ -164,6 +165,7 @@ export function mountEditor(toolbarEl: HTMLElement, inspectorEl: HTMLElement, ct
     const g = (id: string) => form.querySelector<HTMLInputElement>('#ed-' + id);
     const r: Region = { ...base, name: g('name')!.value.trim() || base.name, kind: g('kind')!.value as Region['kind'], hidden: g('hidden')!.checked, once: g('once')!.checked, onlyAllies: g('onlyAllies')!.checked };
     if (g('sab')) { r.save = { ability: g('sab')!.value as Ability, dc: +g('dc')!.value || 10 }; r.damage = g('dmg')!.value.trim() || undefined; r.damageType = g('dt')!.value || undefined; r.condition = g('cond')!.value || undefined; }
+    if (g('tolevel')) r.toLevel = g('tolevel')!.value || undefined;
     if (g('text')) r.text = g('text')!.value;
     if (g('sfx')) r.sfx = g('sfx')!.value || undefined;
     return r;
@@ -176,7 +178,13 @@ export function mountEditor(toolbarEl: HTMLElement, inspectorEl: HTMLElement, ct
     const b = (e.target as HTMLElement).closest('button'); if (!b || !sel) return;
     const it = find(), s = st();
     if (b.dataset.tpl != null && sel.kind === 'region') {
-      draft = { ...readRegion(draft ?? (it as Region)), ...TEMPLATES[+b.dataset.tpl][1] } as Region; render(); ctx.toast('Plantilla aplicada; pulsa Guardar'); return;
+      const [tn, tp] = TEMPLATES[+b.dataset.tpl], base = readRegion(draft ?? (it as Region));
+      draft = { ...base, ...tp } as Region;
+      if (tn === 'Escalera') { // destino por defecto: la planta de encima (o la de debajo si es la última)
+        const ls = s.scene.levels ?? [], i = Math.max(0, ls.findIndex(l => l.id === base.level));
+        draft.toLevel = (ls[i + 1] ?? ls[i - 1])?.id;
+      }
+      render(); ctx.toast('Plantilla aplicada; pulsa Guardar'); return;
     }
     if (b.dataset.a === 'pick') { draft = readRegion(draft ?? (it as Region)); picking = true; render(); ctx.toast('Haz clic en el mapa para fijar el destino'); return; }
     if (b.dataset.a === 'del') { ctx.send({ t: 'remove', kind: sel.kind as 'wall' | 'light' | 'region', id: sel.id }); sel = null; draft = null; render(); return; }

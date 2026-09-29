@@ -33,6 +33,7 @@ export type Table = {
   setDisplay(mode: 'normal' | 'fixed'): void;        // fixed: sin pan/zoom del usuario (mesa física, streaming); la cámara la mueve focus/fitScene
   worldToClient(x: number, y: number): { x: number; y: number }; // para anclar menús HTML a un token
   onEdit(cb: (op: import("./api.ts").EditOp) => void): void;
+  setLevel(id: string | undefined, o?: { ghostBelow?: boolean }): void; // planta visible (undefined = base); ghostBelow: la inferior, tenue
   destroy(): void;
 };
 
