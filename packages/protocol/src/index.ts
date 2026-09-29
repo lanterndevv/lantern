@@ -54,6 +54,13 @@ export type Token = {
   actions?: Action[];
   slots?: Record<number, { max: number; used: number }>; // espacios de conjuro por nivel
   srd?: string;                // id de la entrada del compendio SRD de la que sale
+  ddb?: { id: number; level: number; classes: string; syncedAt: number }; // vinculado a un personaje de D&D Beyond
+};
+
+// Lo que el puente (extensión Lantern Link) extrae de un personaje de D&D Beyond.
+// Solo estadísticas de juego del propio usuario; nunca texto de reglas ni el token de sesión.
+export type ImportedCharacter = Pick<Token, 'name' | 'hp' | 'ac' | 'speed' | 'initMod' | 'saves' | 'darkvision' | 'actions' | 'slots' | 'defenses'> & {
+  ddbId: number; level: number; classes: string; avatar?: string;
 };
 
 // Estado de combate de la mesa.
@@ -73,6 +80,7 @@ export type ActionCard = {
     id: Id; name: string;
     attack?: { d20: number; total: number; mode: 'adv' | 'dis' | 'normal'; hit: boolean; crit: boolean };
     save?: { total: number; success: boolean; ability: Ability; dc: number };
+    cover?: 0 | 2 | 5;           // cobertura por muros: ½ = +2, ¾ = +5 a CA y salvaciones de DES
     amount?: number;             // daño (o curación) que corresponde a este objetivo
   }[];
   detail?: string;               // texto de las tiradas de daño
@@ -139,7 +147,8 @@ export type C2S =
   | { t: 'confirm'; pending: Id; mode: 'full' | 'half' | 'none' }     // DM confirma daño pendiente
   | { t: 'spawn'; srd: string; x: number; y: number; hidden?: boolean } // DM añade monstruo del SRD
   | { t: 'automation'; value: 'assisted' | 'auto' }                   // DM
-  | { t: 'diceTheme'; theme: DiceTheme };                             // cada miembro elige su set
+  | { t: 'diceTheme'; theme: DiceTheme }                              // cada miembro elige su set
+  | { t: 'importCharacter'; tokenId: Id; data: ImportedCharacter };  // dueño del token (o DM): aplica un personaje de DDB
 
 // Servidor → cliente
 export type S2C =
