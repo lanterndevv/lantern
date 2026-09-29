@@ -2,5 +2,8 @@
   "name": "@lantern/protocol",
   "private": true,
   "type": "module",
-  "exports": "./src/index.ts"
+  "exports": {
+    ".": "./src/index.ts",
+    "./demo": "./src/demo.ts"
+  }
 }
