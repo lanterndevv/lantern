@@ -31,6 +31,20 @@ Variables de entorno:
 
 Límites: 30 mensajes/s por conexión (ráfaga de 60), 20 conexiones por IP, 200 mesas por IP y día, 30 subidas por IP cada 10 minutos. El servidor no cifra: en Internet, ponlo detrás de un proxy con HTTPS.
 
+## Publicar una versión
+
+Todo se compila desde un Linux x64 (sin runners de otras plataformas):
+
+```sh
+npm run release -- 1.2.0 [--releases-url https://mi.forja/o/r/releases/download] [--image mi.forja/o/lantern]
+FORGE=forgejo FORGE_URL=https://codeberg.org FORGE_REPO=dueño/repo FORGE_TOKEN=… FORGE_TAG=v1.2.0 node tools/release/publish.mjs 1.2.0
+```
+
+`dist-release/1.2.0/` contiene `lantern-server-*` y `lantern-installer-*` (linux x64/arm64, macOS x64/arm64, windows x64) y `SHA256SUMS`. Los Node oficiales se descargan (verificados) a `~/.cache/lantern-release`. `FORGE=gitlab` también vale. Con Forgejo Actions, `.forgejo/workflows/release.yml` hace lo mismo al subir un tag `v*` (secreto `RELEASE_TOKEN`).
+
+- macOS: firma ad hoc con `rcodesign`; sin Developer ID, Gatekeeper avisa (clic derecho > Abrir, o `xattr -d com.apple.quarantine <archivo>`).
+- Windows: el `.exe` no lleva firma Authenticode; SmartScreen avisa la primera vez.
+
 ## Modo LAN
 Sin Internet: `npm start` (o Docker) en un equipo y los demás abren `http://<ip-del-equipo>:8787`. Cambia `HOST` si quieres limitarlo a una interfaz (`HOST=127.0.0.1`). Ojo: los navegadores solo permiten micrófono/cámara en `https` o `localhost`.
 

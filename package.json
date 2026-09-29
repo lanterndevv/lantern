@@ -18,7 +18,8 @@
     "ddb-contract": "node tools/ddb-contract/check.mjs",
     "build": "npm run build -w @lantern/web",
     "start": "[ -f apps/web/dist/index.html ] || npm run build; node apps/server/src/main.ts",
-    "sea": "node tools/sea/build.mjs"
+    "sea": "node tools/sea/build.mjs",
+    "release": "node tools/release/build.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",

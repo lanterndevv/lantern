@@ -15,8 +15,12 @@ import (
 )
 
 // DefaultReleases es la URL base de las descargas si no se indica otra (--releases / LANTERN_RELEASES).
-// ponytail: propietario del repo provisional; ajustar cuando exista el repositorio público.
-const DefaultReleases = "https://github.com/lantern-vtt/lantern/releases"
+// Son variables para fijarlas al compilar: -ldflags "-X lantern/installer/lantern.DefaultReleases=<url>" (tools/release/build.mjs --releases-url).
+// Estructura Forgejo/Codeberg: <base>/<versión>/<archivo>; la última es <base sin /download>/latest/download.
+var DefaultReleases = "https://codeberg.org/lantern-vtt/lantern/releases/download"
+
+// DefaultImage es la imagen Docker del docker-compose generado (-X lantern/installer/lantern.DefaultImage=..., --image).
+var DefaultImage = "codeberg.org/lantern-vtt/lantern"
 
 // AssetName es el nombre del binario del servidor para un os/arch de Go.
 func AssetName(goos, goarch string) (string, error) {
@@ -39,9 +43,9 @@ func ReleaseURL(releases, version string) string {
 	}
 	if releases == "" || releases == DefaultReleases {
 		if version == "" {
-			return DefaultReleases + "/latest/download"
+			return strings.TrimSuffix(DefaultReleases, "/download") + "/latest/download"
 		}
-		return DefaultReleases + "/download/" + version
+		return DefaultReleases + "/" + version
 	}
 	if version == "" {
 		version = "latest"

@@ -7,3 +7,4 @@ packages/ddb/src/fixtures/*.json
 tools/e2e/out/
 tools/laya/.venv/
 dist-bin/
+dist-release/
