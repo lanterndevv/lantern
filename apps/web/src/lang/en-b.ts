@@ -68,4 +68,5 @@ export default {
   'autor desconocido': 'unknown author',
   'Cargará {url} en un iframe aislado. Permisos que pide:': 'It will load {url} in a sandboxed iframe. Permissions requested:',
   'No se pudo descargar el manifiesto': 'Could not download the manifest',
+  'Copiloto: sin respuesta. Vuelve a intentarlo.': 'Copilot: no response. Try again.',
 } as Record<string, string>;

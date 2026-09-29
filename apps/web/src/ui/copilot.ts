@@ -21,8 +21,14 @@ export function mountCopilot(root: HTMLElement, ctx: Ctx) {
     const id = rid();
     out.setAttribute('aria-busy', 'true'); out.textContent = t('Pensando…');
     if (btn) btn.disabled = true;
+    // ponytail: plazo fijo de 3 min (el LLM se corta a 60 s por defecto, con proveedor de reserva); si el servidor se reinicia, la respuesta no llega
+    const to = setTimeout(() => {
+      if (!pending.delete(id)) return;
+      out.removeAttribute('aria-busy'); out.textContent = ''; if (btn) btn.disabled = false;
+      ctx.toast(t('Copiloto: sin respuesta. Vuelve a intentarlo.'));
+    }, 180_000);
     pending.set(id, r => {
-      out.removeAttribute('aria-busy'); if (btn) btn.disabled = false;
+      clearTimeout(to); out.removeAttribute('aria-busy'); if (btn) btn.disabled = false;
       if (!r.ok) { out.textContent = ''; ctx.toast(t('Copiloto: {e}', { e: tsrv(r.error) })); } else done(r);
     });
     ctx.send({ ...m, rid: id } as C2S);

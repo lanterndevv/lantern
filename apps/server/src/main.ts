@@ -360,8 +360,11 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
         if (msg.s <= (seqs.get(k) ?? 0)) return; // duplicado de un reenvío
         seqs.set(k, msg.s);
       }
+      // Las respuestas asíncronas van al socket vivo de la misma pestaña (member + sid): si se cortó mientras tanto,
+      // el cliente ya reconectó y no va a reenviar la petición (el seq la dio por recibida).
+      const reply = () => conns.has(ws) || !conn.sid ? ws : [...conns].find(([, c]) => c.room === room && c.member.id === member.id && c.sid === conn.sid)?.[0] ?? ws;
       if (msg.t === 'copilot') { // async: no bloquea el resto de la mesa; responde solo a quien preguntó
-        void copilot(room, member, msg).then((r) => { cur.set(ws, { t: msg.t, op: msg.op }); send(ws, r.msg); if (r.state) { broadcastState(room); dirty(room); } });
+        void copilot(room, member, msg).then((r) => { const to = reply(); cur.set(to, { t: msg.t, op: msg.op }); send(to, r.msg); if (r.state) { broadcastState(room); dirty(room); } });
         return;
       }
       if (msg.t === 'asPlayer') { // vista «como jugador X» solo para el DM
@@ -376,10 +379,10 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
           if (msg.op === 'now') await backups.save(room);
           else if (msg.op === 'restore') {
             const err = restoreInto(room, backups.read(room.code, msg.name));
-            if (err) return send(ws, { t: 'error', msg: `no se pudo restaurar: ${err}` });
+            if (err) return send(reply(), { t: 'error', msg: `no se pudo restaurar: ${err}` });
             broadcastState(room); dirty(room);
           } else if (msg.op !== 'list') return send(ws, { t: 'error', msg: 'mensaje inválido' });
-          send(ws, { t: 'backups', list: backups.list(room.code) });
+          send(reply(), { t: 'backups', list: backups.list(room.code) });
         })();
         return;
       }
