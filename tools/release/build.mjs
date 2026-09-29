@@ -9,6 +9,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSy
 import { homedir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { crc32, deflateRawSync } from 'node:zlib';
 import { build } from 'esbuild';
 import { inject } from 'postject';
 
@@ -96,6 +97,25 @@ for (const t of targets) {
   console.log('instalador', t.name);
 }
 
+// --- extensión Lantern Link: zip plano (manifest.json en la raíz) para «Cargar descomprimida»; sin herramienta externa
+sh(process.execPath, [join(ROOT, 'apps/link/build.mjs')]);
+{
+  const names = ['manifest.json', 'background.js', 'content.js', 'ddb.js', 'gamelog.js', 'srd.js'], parts = [], central = [];
+  let off = 0;
+  for (const n of names) {
+    const data = readFileSync(join(ROOT, 'apps/link', n)), z = deflateRawSync(data), nm = Buffer.from(n), c = crc32(data);
+    const h = Buffer.alloc(30); h.writeUInt32LE(0x04034b50, 0); h.writeUInt16LE(20, 4); h.writeUInt16LE(0x0800, 6); h.writeUInt16LE(8, 8);
+    h.writeUInt32LE(0x00210000, 10); h.writeUInt32LE(c, 14); h.writeUInt32LE(z.length, 18); h.writeUInt32LE(data.length, 22); h.writeUInt16LE(nm.length, 26); // fecha fija 1980-01-01: zip reproducible
+    const d = Buffer.alloc(46); d.writeUInt32LE(0x02014b50, 0); d.writeUInt16LE(20, 4); h.copy(d, 6, 4, 30); d.writeUInt32LE(off, 42);
+    parts.push(h, nm, z); central.push(d, nm); off += 30 + nm.length + z.length;
+  }
+  const cd = Buffer.concat(central), e = Buffer.alloc(22);
+  e.writeUInt32LE(0x06054b50, 0); e.writeUInt16LE(names.length, 8); e.writeUInt16LE(names.length, 10); e.writeUInt32LE(cd.length, 12); e.writeUInt32LE(off, 16);
+  writeFileSync(join(OUT, `lantern-link-${version.replace(/^v/, '')}.zip`), Buffer.concat([...parts, cd, e]));
+  console.log('extensión lantern-link');
+}
+
+for (const f of ['install.sh', 'install.ps1']) copyFileSync(join(ROOT, f), join(OUT, f)); // por si alguien prefiere bajarlos de la release
 const files = readdirSync(OUT).filter((f) => f !== 'SHA256SUMS').sort();
 writeFileSync(join(OUT, 'SHA256SUMS'), files.map((f) => `${sha(join(OUT, f))}  ${f}`).join('\n') + '\n');
 console.log('listo:', OUT);

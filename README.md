@@ -1,90 +1,103 @@
-# Lantern
+<p align="center"><img src="docs/img/banner.svg" alt="Lantern" width="100%"></p>
 
-Mesa virtual (VTT) para D&D 5e: mapa táctico con niebla y visión dinámica, fichas, combate, dados, diario, audio y extensiones, con el servidor y el cliente en TypeScript. Las mesas se crean con un código y se juegan desde el navegador.
+<p align="center"><b>La mesa virtual de D&amp;D 5e que se instala con un solo comando.</b><br>
+Mapa táctico con luz y niebla, combate ágil, tus personajes de D&amp;D Beyond y una mesa lista para invitar a tus jugadores con un enlace.</p>
 
-## Desarrollo
-Requiere Node 24 (ejecuta TypeScript directamente).
+<p align="center">
+  <a href="LICENSE"><img alt="Licencia AGPL-3.0" src="https://img.shields.io/badge/licencia-AGPL--3.0-8a6d1f"></a>
+  <img alt="Plataformas" src="https://img.shields.io/badge/plataformas-Linux%20%C2%B7%20macOS%20%C2%B7%20Windows-14100c">
+  <img alt="Reglas" src="https://img.shields.io/badge/reglas-5e%202014%20%2B%202024-8a6d1f">
+  <img alt="Idiomas" src="https://img.shields.io/badge/idiomas-ES%20%C2%B7%20EN-14100c">
+  <img alt="Estado" src="https://img.shields.io/badge/estado-versi%C3%B3n%20preliminar-b5651d">
+</p>
 
-    npm install
-    npm run server   # servidor en :8787
-    npm run web      # cliente (vite) con proxy al servidor
-    npm test         # tests
-    npm run typecheck
+<p align="center">🇪🇸 Español · <a href="README.en.md">🇬🇧 English</a></p>
 
-## Producción
-    npm start        # compila la web si falta apps/web/dist y sirve todo desde :8787
-    docker build -t lantern .
-    docker run -v lantern:/data -p 8787:8787 lantern
+## Instalar en un comando
 
-`npm start` solo compila si no existe `apps/web/dist`; para recompilar tras cambios, `npm run build`.
+Abre una terminal, pega el comando de tu sistema y sigue las preguntas del asistente. No necesitas instalar Node, Docker ni nada más.
 
-Variables de entorno:
-
-| Variable | Por defecto | Uso |
-|---|---|---|
-| `PORT` | `8787` | Puerto |
-| `HOST` | `0.0.0.0` | Dirección de escucha |
-| `LANTERN_DB` | `lantern.db` | Base de datos SQLite (migra sola al arrancar) |
-| `LANTERN_ASSETS` | `./assets` | Archivos subidos por los DM |
-| `WEB_DIST` | `apps/web/dist` | Web compilada; si existe, el servidor la sirve |
-| `TRUST_PROXY` | (vacío) | `1` para tomar la IP de `x-forwarded-for` detrás de un proxy inverso |
-
-Límites: 30 mensajes/s por conexión (ráfaga de 60), 20 conexiones por IP, 200 mesas por IP y día, 30 subidas por IP cada 10 minutos. El servidor no cifra: en Internet, ponlo detrás de un proxy con HTTPS.
-
-## Publicar una versión
-
-Todo se compila desde un Linux x64 (sin runners de otras plataformas). Lo normal es subir un tag y dejar que GitHub Actions (`.github/workflows/release.yml`) compile, adjunte los binarios a la release y publique la imagen `ghcr.io/lanterndevv/lantern`:
+**Linux y macOS**
 
 ```sh
-git tag v1.2.0 && git push origin v1.2.0
+curl -fsSL https://raw.githubusercontent.com/lanterndevv/lantern/master/install.sh | sh
 ```
 
-En local: `npm run release -- v1.2.0` deja en `dist-release/v1.2.0/` los `lantern-server-*` y `lantern-installer-*` (linux x64/arm64, macOS x64/arm64, windows x64) y `SHA256SUMS`; los Node oficiales se descargan verificados a `~/.cache/lantern-release`. Para otra forja (Forgejo/Codeberg o GitLab) están `--releases-url`/`--image` y `tools/release/publish.mjs` (`FORGE=forgejo|gitlab`).
+**Windows (PowerShell)**
 
-- macOS: firma ad hoc con `rcodesign`; sin Developer ID, Gatekeeper avisa (clic derecho > Abrir, o `xattr -d com.apple.quarantine <archivo>`).
-- Windows: el `.exe` no lleva firma Authenticode; SmartScreen avisa la primera vez.
+```powershell
+irm https://raw.githubusercontent.com/lanterndevv/lantern/master/install.ps1 | iex
+```
 
-## Modo LAN
-Sin Internet: `npm start` (o Docker) en un equipo y los demás abren `http://<ip-del-equipo>:8787`. Cambia `HOST` si quieres limitarlo a una interfaz (`HOST=127.0.0.1`). Ojo: los navegadores solo permiten micrófono/cámara en `https` o `localhost`.
+El script descarga el asistente desde las [releases de GitHub](https://github.com/lanterndevv/lantern/releases), comprueba su SHA-256 y lo abre. Todo lo necesario vive en GitHub: no hay ningún servidor intermedio. Guía paso a paso para quien no sea técnico: [docs/guia-instalacion.md](docs/guia-instalacion.md).
 
-## Voz SFU con LiveKit (opcional)
-Por defecto la voz es una malla WebRTC entre navegadores (vale hasta ~6 personas). Para mesas grandes, levanta un [LiveKit](https://livekit.io) autoalojado y define estas variables en el servidor de Lantern; si falta alguna, se sigue usando la malla:
+## Qué hace el asistente
 
-| Variable | Ejemplo | Uso |
-|---|---|---|
-| `LANTERN_LIVEKIT_URL` | `ws://localhost:7880` | URL del SFU que verá el navegador (`wss://` tras HTTPS) |
-| `LANTERN_LIVEKIT_KEY` | `devkey` | API key de LiveKit |
-| `LANTERN_LIVEKIT_SECRET` | `secret` | API secret de LiveKit |
+Una pregunta por pantalla, con valores por defecto sensatos, teclado o ratón, y ES/EN:
 
-Modo dev (key `devkey`, secret `secret`):
+1. **Dónde jugar:** tu propio equipo con un enlace público (túnel de Cloudflare), una máquina gratuita de Oracle Cloud, un VPS barato creado por API, o solo red local / NAS con Docker.
+2. **Nombre y HTTPS** (Caddy con certificado automático en servidores remotos).
+3. **Inteligencia artificial** (opcional): Laya local para el turno de los monstruos y un proveedor LLM a elegir (con opciones gratuitas).
+4. **Voz** para mesas grandes (LiveKit, opcional).
+5. **Tu mesa:** tu nombre de DM, el título, e importar una campaña de Lantern o un mapa `.dd2vtt`/`.uvtt`.
+6. **Listo:** enlace de invitación con código y QR, y Lantern arranca solo al encender el equipo. Al volver a ejecutar `lantern` tienes un panel con estado, enlace, registros, actualización y desinstalación.
 
-    docker run --rm -p 7880:7880 -p 7881:7881 -p 7882:7882/udp livekit/livekit-server --dev
-    LANTERN_LIVEKIT_URL=ws://localhost:7880 LANTERN_LIVEKIT_KEY=devkey LANTERN_LIVEKIT_SECRET=secret npm start
+## Capturas
 
-(o `livekit-server --dev` si lo tienes instalado). El servidor firma un token de 6 h por miembro (sala = código de mesa); los espectadores solo escuchan. En producción usa claves propias y `wss://`.
+<!-- TODO: añadir capturas reales en docs/img/ (no hay imágenes inventadas). Sugeridas: asistente.png, mesa.png, combate.png, movil.png -->
 
-## Copiloto (opcional)
-Nunca actúa solo: sugiere y el DM confirma. Configuración solo por entorno del servidor (el cliente nunca elige el endpoint).
+| Asistente | Mesa | Combate | Móvil |
+|---|---|---|---|
+| *TODO: `docs/img/asistente.png`* | *TODO: `docs/img/mesa.png`* | *TODO: `docs/img/combate.png`* | *TODO: `docs/img/movil.png`* |
 
-1. **Turno de monstruo (Laya, local).** `tools/laya/setup.sh` (o `--cuda`) crea `tools/laya/.venv` con torch y el paquete público [`laya`](https://huggingface.co/convaiinnovations/laya) (~1,2 GB). El servidor lo arranca en el primer uso: genera 2–6 opciones legales con el motor de reglas y Laya elige una (~0,3 s en CPU tras la carga inicial de ~4 s). Si Laya no está, falla o tarda más de 3 s, usa una heurística determinista y lo dice («Heurística»). `LANTERN_LAYA_DEVICE` (`cpu` por defecto, para no competir por VRAM), `LANTERN_LAYA_PYTHON` (otro intérprete), `LANTERN_LAYA=0` (desactivar).
-2. **Reglas, PNJ y crónica (LLM).** Cualquier API compatible con OpenAI, p. ej. un gateway con el modelo mimo:
+## Funciones principales
 
-       LANTERN_LLM_URL=https://gateway.example/v1 LANTERN_LLM_KEY=… LANTERN_LLM_MODEL=mimo \
-       LANTERN_LLM_HEADERS='{"x-session":"…"}' npm start
+- **Luz y niebla dinámicas** por raycast: muros, puertas, luces y visión de cada ficha (oscuridad, visión en la oscuridad, cobertura), con cuadrícula calibrable y mapas de Dungeondraft (`.dd2vtt`/`.uvtt`).
+- **Motor de reglas 5e 2014 y 2024** con el contenido del SRD 5.2.1: tiradas, salvaciones, condiciones, conjuros, monstruos y creador de personajes.
+- **Lantern Link:** extensión de navegador para traer tus personajes (y, como DM, estadísticas de monstruos) de D&D Beyond. Compatible con las tiradas de Beyond20. Ver [docs/lantern-link.md](docs/lantern-link.md).
+- **Combate en 2 clics:** iniciativa, turnos, reacciones, acciones legendarias, daño por tipo y condiciones.
+- **Ambientación:** modo Historia, clima por zonas, música y ambiente con transiciones, y chat de voz.
+- **Juega donde quieras:** portátil, móvil, tablet, mesa física con pantalla y modo streaming.
+- **Copiloto opcional** (Laya local y cualquier LLM): sugiere, nunca actúa solo; el DM confirma. Sin IA, Lantern funciona igual.
+- **Español e inglés** en toda la interfaz. Campañas exportables en un [formato abierto](apps/server/FORMAT.md).
 
-   `LANTERN_LLM_HEADERS` (JSON, cabeceras extra) y `LANTERN_LLM_TIMEOUT_MS` (60000) son opcionales. Sin LLM esas operaciones responden «no configurado» y el turno de monstruo sigue funcionando.
+Guía para empezar como DM: [docs/guia-dm.md](docs/guia-dm.md).
 
-Seguridad: a un miembro la IA solo le llega lo que ese miembro ve (estado y chat filtrados); el recap usa el chat como lo vería un jugador; las entradas van delimitadas como datos; las salidas se truncan a 4000 caracteres; límite de 6 llamadas/min por mesa y 1 simultánea por miembro.
+## Para quien quiera más
 
-## Lantern Link
-Extensión de navegador (Chrome y Firefox) que importa tus personajes de D&D Beyond. Usa solo la sesión del propio usuario. Instalación y detalles en [apps/link/README.md](apps/link/README.md).
+- **Docker, VPS, red local, HTTPS, LiveKit e IA:** [docs/autoalojamiento.md](docs/autoalojamiento.md).
+- **Desarrollo y compilar desde el código, publicar una versión:** [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Beyond20:** [docs/beyond20.md](docs/beyond20.md) · **Formato de campaña:** [apps/server/FORMAT.md](apps/server/FORMAT.md).
 
-## Formato abierto de campaña
-Las campañas se exportan e importan como JSON documentado en [apps/server/FORMAT.md](apps/server/FORMAT.md).
+Arranque rápido con Docker:
 
-## Licencias
-- Código: [GNU AGPL-3.0](LICENSE). Si ofreces Lantern modificado como servicio en red, debes publicar tus cambios.
-- Contenido de reglas: SRD 5.2.1 bajo [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/). Atribución obligatoria: *This work includes material from the System Reference Document 5.2.1 ("SRD 5.2.1") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2.1 is licensed under the Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0/legalcode).*
+```sh
+docker run -v lantern:/data -p 8787:8787 ghcr.io/lanterndevv/lantern
+```
 
-## Nota legal
-Lantern no está afiliado, respaldado ni patrocinado por Wizards of the Coast ni por D&D Beyond. Dungeons & Dragons y D&D Beyond son marcas de sus propietarios. La extensión Lantern Link solo usa la sesión del propio usuario para leer sus propios personajes.
+## Estado del proyecto
+
+Lantern es una **versión preliminar**. Ten en cuenta:
+
+- Los binarios de macOS llevan firma ad hoc y los de Windows no están firmados: Gatekeeper y SmartScreen avisarán la primera vez (la guía explica cómo continuar). Solo se ha probado a fondo en Linux.
+- El relé de tiradas al Game Log de D&D Beyond está implementado pero **no se ha probado contra D&D Beyond real**, y va contra sus términos de servicio (es opcional y está desactivado por defecto).
+- El servidor no cifra por sí mismo: en Internet, usa el túnel del asistente o un proxy con HTTPS.
+- Haz copias de tus campañas (exportar a `.zip` desde la propia mesa).
+
+## Contribuir
+
+Errores, ideas y PRs son bienvenidos: [CONTRIBUTING.md](CONTRIBUTING.md). Vulnerabilidades: [SECURITY.md](SECURITY.md). Código de conducta: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
+## Licencias y atribuciones
+
+- **Código:** [GNU AGPL-3.0](LICENSE). Si ofreces Lantern modificado como servicio en red, debes publicar tus cambios.
+- **Reglas (SRD 5.2.1):** *This work includes material from the System Reference Document 5.2.1 ("SRD 5.2.1") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2.1 is licensed under the Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0/legalcode).* ([CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/))
+- **Música y ambiente:** CC0 de OpenGameArt.org, con autores en [apps/web/public/audio/CREDITS.md](apps/web/public/audio/CREDITS.md).
+- **Iconos:** [game-icons.net](https://game-icons.net) (CC-BY 3.0), ver [apps/web/src/assets/icons/LICENSE.txt](apps/web/src/assets/icons/LICENSE.txt).
+- **Datos de 5e-database:** ver [packages/srd/NOTICE.md](packages/srd/NOTICE.md).
+
+**Lantern no está afiliado, respaldado ni patrocinado por Wizards of the Coast ni por D&D Beyond.** Dungeons & Dragons y D&D Beyond son marcas de sus propietarios. Lantern Link solo usa la sesión del propio usuario para leer sus propios personajes.
+
+## Hecho con IA generativa
+
+Este proyecto se ha desarrollado con ayuda de IA generativa (Claude, de Anthropic): el código, los textos y los diseños se generaron y revisaron con asistencia de IA bajo la dirección del autor. Revisa y prueba antes de usarlo en producción.

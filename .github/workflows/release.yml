@@ -1,5 +1,5 @@
 name: release
-# Al subir un tag v*: compila los 10 binarios desde un único runner Linux (npm run release),
+# Al subir un tag v*: compila los 10 binarios, el zip de Lantern Link y los scripts install.sh/install.ps1 desde un único runner Linux (npm run release),
 # los adjunta a la release de GitHub y publica la imagen Docker en ghcr.io.
 # La versión es el tag tal cual (vX.Y.Z): coincide con la carpeta de descarga que usa el instalador.
 on:

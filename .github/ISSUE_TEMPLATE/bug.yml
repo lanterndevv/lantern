@@ -1,0 +1,29 @@
+name: Error
+description: Algo no funciona como debería
+labels: [bug]
+body:
+  - type: textarea
+    id: que
+    attributes: { label: Qué ha pasado, description: "Qué esperabas y qué ocurrió." }
+    validations: { required: true }
+  - type: textarea
+    id: pasos
+    attributes: { label: Pasos para reproducirlo, placeholder: "1. ...\n2. ..." }
+    validations: { required: true }
+  - type: dropdown
+    id: donde
+    attributes:
+      label: Dónde ocurre
+      options: [Asistente de instalación, install.sh / install.ps1, Mesa (navegador), Servidor, Lantern Link, Otro]
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes: { label: Versión de Lantern, placeholder: "v0.1.0 (o commit)" }
+  - type: input
+    id: so
+    attributes: { label: Sistema y navegador, placeholder: "Windows 11, Firefox 130" }
+  - type: textarea
+    id: logs
+    attributes: { label: Registros o capturas, description: "Del panel del asistente (Registros) o la consola del navegador. Quita claves y tokens.", render: shell }
+  - type: markdown
+    attributes: { value: "Si es una vulnerabilidad, **no la publiques aquí**: usa los [avisos de seguridad privados](../security/advisories/new)." }

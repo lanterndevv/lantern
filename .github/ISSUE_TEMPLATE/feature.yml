@@ -1,0 +1,20 @@
+name: Idea o mejora
+description: Propón una función nueva
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problema
+    attributes: { label: Qué problema quieres resolver, description: "Cuéntalo desde tu mesa: qué haces hoy y qué te estorba." }
+    validations: { required: true }
+  - type: textarea
+    id: propuesta
+    attributes: { label: Cómo lo imaginas }
+    validations: { required: true }
+  - type: textarea
+    id: alternativas
+    attributes: { label: Alternativas o cómo lo haces ahora }
+  - type: checkboxes
+    id: ayuda
+    attributes:
+      label: Colaboración
+      options: [{ label: Puedo ayudar a implementarlo }]
