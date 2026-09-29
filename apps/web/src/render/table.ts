@@ -7,6 +7,7 @@ import { sightSegments, visibility } from '@lantern/vision';
 import type { ClientState, Id, Light, Point, Scene, Token, Wall } from '@lantern/protocol';
 import type { CreateTable, Marks } from './api.ts';
 import { createVfx } from './vfx.ts';
+import { createEdit, dashed, REGION_COLOR } from './edit.ts';
 
 const FACTION = { ally: '#5B9BE0', enemy: '#E0643A', neutral: '#BFAE86' } as const;
 const MINE = '#F5C877', AMBER = '#E8A33D', TEXT = '#F2E8DA', SERIF = 'Georgia, "Times New Roman", serif';
@@ -54,14 +55,6 @@ function gradTexture(r: number): Texture {
   return t;
 }
 
-function dashed(g: Graphics, a: Point, b: Point, dash: number, gap: number) {
-  const len = Math.hypot(b.x - a.x, b.y - a.y), ux = (b.x - a.x) / len, uy = (b.y - a.y) / len;
-  for (let d = 0; d < len; d += dash + gap) {
-    const e = Math.min(d + dash, len);
-    g.moveTo(a.x + ux * d, a.y + uy * d).lineTo(a.x + ux * e, a.y + uy * e);
-  }
-}
-
 type LightObj = { key: string; lm: Container; lmMask: Graphics; gl: Container; glMask: Graphics; spr: Sprite[]; phase: number; base: number; anim?: Light['anim'] };
 
 export const createTable: CreateTable = async (el, opts) => {
@@ -74,14 +67,17 @@ export const createTable: CreateTable = async (el, opts) => {
   const world = new Container();
   stage.addChild(world);
   const floorL = new Container(), gridG = new Graphics(), wallsG = new Graphics(), doorsL = new Container(),
-    tokensL = new Container(), fxL = new Container(), glowL = new Container(), marksG = new Graphics(), uiL = new Container();
+    tokensL = new Container(), fxL = new Container(), glowL = new Container(), marksG = new Graphics(), uiL = new Container(),
+    regionsL = new Container(), fogRegG = new Graphics(), editG = new Graphics();
   const lightSprite = new Sprite(), fogSprite = new Sprite();
   lightSprite.blendMode = 'multiply';
   glowL.blendMode = 'add';
-  world.addChild(floorL, gridG, wallsG, doorsL, tokensL, fxL, lightSprite, glowL, fogSprite, marksG, uiL);
+  fogRegG.filters = [new BlurFilter({ strength: 6, quality: 2 })]; // fog de región: negro opaco con bordes suaves
+  world.addChild(floorL, gridG, regionsL, wallsG, doorsL, tokensL, fxL, lightSprite, glowL, fogSprite, fogRegG, marksG, editG, uiL);
   const stone = stoneTexture();
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const vfx = createVfx(app, world, fxL, reduced);
+  const edit = createEdit(world, editG, () => cur?.scene);
 
   // ---- estado ----
   let cur: ClientState | undefined;
@@ -114,7 +110,8 @@ export const createTable: CreateTable = async (el, opts) => {
   };
   const kd = key(true), ku = key(false);
   app.canvas.addEventListener('wheel', onWheel, { passive: false });
-  addEventListener('keydown', kd); addEventListener('keyup', ku);
+  const ek = (e: KeyboardEvent) => edit.key(e);
+  addEventListener('keydown', kd); addEventListener('keyup', ku); addEventListener('keydown', ek);
 
   // ---- ping / regla ----
   const pings: { g: Graphics; t0: number }[] = [];
@@ -220,7 +217,7 @@ export const createTable: CreateTable = async (el, opts) => {
         g.on('pointerover', () => { dd.hover = true; dd.key = ''; if (cur) syncDoors(cur.scene.walls); });
         g.on('pointerout', () => { dd.hover = false; dd.key = ''; if (cur) syncDoors(cur.scene.walls); });
         g.on('pointerdown', (e) => {
-          if (e.button !== 0 || e.altKey || space) return;
+          if (e.button !== 0 || e.altKey || space || edit.tool() !== 'none') return; // en edición el clic llega al stage
           e.stopPropagation();
           const cw = cur?.scene.walls.find((x) => x.id === w.id);
           if (cw) opts.onDoor(w.id, !cw.open);
@@ -229,6 +226,35 @@ export const createTable: CreateTable = async (el, opts) => {
       }
       const k = `${w.a.x},${w.a.y},${w.b.x},${w.b.y},${w.open},${d.hover}`;
       if (k !== d.key) { d.key = k; drawDoor(d.g, w, d.hover); }
+    }
+  }
+
+  // ---- regiones ----
+  let regKey = '';
+  function drawRegions(s: Scene) {
+    regionsL.removeChildren().forEach((c) => c.destroy({ children: true }));
+    fogRegG.clear();
+    const dm = isDM(), rs = (s.regions ?? []).filter((r) => r.points.length > 2);
+    fogRegG.visible = false;
+    for (const r of rs) {
+      const col = REGION_COLOR[r.kind], pf = flat(r.points), c = new Container();
+      if (!dm && r.kind === 'fog') { fogRegG.poly(pf).fill(0x000000); fogRegG.visible = true; continue; }
+      const border = new Graphics();
+      r.points.forEach((p, i) => dashed(border, p, r.points[(i + 1) % r.points.length], 10, 6));
+      border.stroke({ width: dm ? 2 : 1.5, color: col === '#000000' ? '#888888' : col, alpha: dm ? 0.9 : 0.35 });
+      if (dm) {
+        const xs = r.points.map((p) => p.x), ys = r.points.map((p) => p.y);
+        const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+        const fill = new Graphics().poly(pf).fill({ color: col, alpha: 0.16 });
+        const hatch = new Graphics(), mask = new Graphics().poly(pf).fill(0xffffff);
+        for (let x = x0 - (y1 - y0); x < x1; x += 14) hatch.moveTo(x, y1).lineTo(x + (y1 - y0), y0);
+        hatch.stroke({ width: 2, color: col === '#000000' ? '#888888' : col, alpha: 0.35 });
+        hatch.mask = mask;
+        const lab = new Text({ text: r.name, style: { fontFamily: SERIF, fontSize: 14, fill: TEXT, stroke: { color: '#000', width: 3 } } });
+        lab.anchor.set(0.5); lab.position.set((x0 + x1) / 2, (y0 + y1) / 2);
+        c.addChild(fill, hatch, mask, lab);
+      }
+      c.addChild(border); regionsL.addChild(c);
     }
   }
 
@@ -324,6 +350,9 @@ export const createTable: CreateTable = async (el, opts) => {
         const c = new Container();
         c.on('pointerdown', (e) => {
           if (e.button !== 0 || e.altKey || space || !cur) return;
+          const et = edit.tool();
+          if (et !== 'none' && et !== 'select') return; // wall/light/region/grid: el token no se arrastra, el clic llega al stage
+          if (et === 'select') edit.pick('token', t.id);
           e.stopPropagation();
           const t2 = tokens.get(t.id)!.t, p = world.toLocal(e.global);
           press = { id: t.id, x: e.global.x, y: e.global.y, wx: p.x, wy: p.y };
@@ -360,11 +389,13 @@ export const createTable: CreateTable = async (el, opts) => {
     if (!cur) return;
     press = undefined;
     if (e.altKey && e.button === 0) { const p = world.toLocal(e.global); opts.onPing(p.x, p.y); return; }
+    if (e.button === 0 && !space && edit.down(e)) return;
     if (e.button === 0 && !space && e.target === stage) { const p = world.toLocal(e.global); press = { x: e.global.x, y: e.global.y, wx: p.x, wy: p.y }; }
     if (e.button === 1 || (e.button === 0 && (space || e.target === stage))) pan = { x: e.global.x - world.x, y: e.global.y - world.y };
   });
   let ptr: Point | undefined; // último puntero pendiente de avisar (1 vez por frame, en el ticker)
   stage.on('globalpointermove', (e: FederatedPointerEvent) => {
+    edit.move(e);
     if (opts.onPointer) ptr = world.toLocal(e.global);
     if (pan) { world.position.set(e.global.x - pan.x, e.global.y - pan.y); return; }
     if (!drag || !cur) return;
@@ -379,7 +410,7 @@ export const createTable: CreateTable = async (el, opts) => {
     rulerTxt.position.set(drag.to.x, drag.to.y - t.size * g.size * 0.5 - 14);
   });
   const up = (e: FederatedPointerEvent) => {
-    pan = undefined; endDrag(true);
+    pan = undefined; endDrag(true); edit.up();
     const p = press; press = undefined;
     if (!p || Math.hypot(e.global.x - p.x, e.global.y - p.y) >= 4) return;
     if (p.id) opts.onTokenClick?.(p.id, e.shiftKey); else opts.onMapClick?.(p.wx, p.wy);
@@ -388,8 +419,8 @@ export const createTable: CreateTable = async (el, opts) => {
 
   // ---- luz: mapa de luz en RenderTexture (multiply) + resplandor aditivo ----
   const LS = () => Math.min(0.5, 2048 / Math.max(cur!.scene.width, cur!.scene.height)); // escala de las RT
-  const lmRoot = new Container(), lmBg = new Graphics(), lmDv = new Graphics(), lmLights = new Container();
-  lmRoot.addChild(lmBg, lmDv, lmLights);
+  const lmRoot = new Container(), lmBg = new Graphics(), lmDv = new Graphics(), lmLights = new Container(), lmDark = new Graphics();
+  lmRoot.addChild(lmBg, lmDv, lmLights, lmDark);
   let lmRT: RenderTexture | undefined, lmDirty = true, lastLm = 0;
   function makeRT(old: RenderTexture | undefined, s: Scene) {
     old?.destroy(true);
@@ -440,6 +471,8 @@ export const createTable: CreateTable = async (el, opts) => {
     lmDv.clear();
     if (!isDM() && cur.visible && s.tokens.some((t) => t.faction === 'ally' && t.owners.length && t.darkvision > 0))
       for (const p of cur.visible) lmDv.poly(flat(p)).fill(0x5a5a5a);
+    lmDark.clear(); // darkness: región en negro sobre la luz
+    for (const r of s.regions ?? []) if (r.kind === 'darkness' && r.points.length > 2) lmDark.poly(flat(r.points)).fill(0x000000);
     app.renderer.render({ container: lmRoot, target: lmRT, clear: true, clearColor: [0, 0, 0, 0] });
     lmDirty = false;
   }
@@ -488,6 +521,8 @@ export const createTable: CreateTable = async (el, opts) => {
     const wk = s.walls.map((w) => `${w.id}${w.a.x},${w.a.y},${w.b.x},${w.b.y}${w.kind}${w.open ? 1 : 0}${w.secret ? 1 : 0}`).join(';');
     const wallsChanged = wk !== wallsKey;
     if (wallsChanged) { wallsKey = wk; drawWalls(s.walls); }
+    const rk = isDM() + JSON.stringify(s.regions ?? []);
+    if (rk !== regKey || changed) { regKey = rk; drawRegions(s); lmDirty = true; }
     syncDoors(s.walls);
     syncTokens(s);
     // la clave de caché de luces incluye los muros que bloquean vista (wallsKey); se recalcula solo si cambia algo
@@ -517,7 +552,7 @@ export const createTable: CreateTable = async (el, opts) => {
       if (k >= 1) { f.t.destroy(); floats.splice(i, 1); continue; }
       f.t.y = f.y0 - (reduced ? 0 : 40 * k); f.t.alpha = k < 0.6 ? 1 : (1 - k) / 0.4;
     }
-    drawMarks(now);
+    drawMarks(now); edit.draw();
     for (const o of tokens.values()) if (o.fx && !reduced) {
       if (o.fx.ring) o.fx.ring.rotation = now / 4000;
       if (o.fx.wob) o.fx.main.x = 2.5 * Math.sin(now / 350 + o.fx.phase);
@@ -539,7 +574,7 @@ export const createTable: CreateTable = async (el, opts) => {
 
   function destroy() {
     app.canvas.removeEventListener('wheel', onWheel);
-    removeEventListener('keydown', kd); removeEventListener('keyup', ku);
+    removeEventListener('keydown', kd); removeEventListener('keydown', ek); removeEventListener('keyup', ku);
     for (const m of memories.values()) m.destroy(true);
     vfx.destroy();
     lmRT?.destroy(true); fogRT?.destroy(true);
@@ -550,5 +585,8 @@ export const createTable: CreateTable = async (el, opts) => {
     app.destroy(true, { children: true });
   }
 
-  return { setState, setMarks, ping, floatText, effect: vfx.effect, destroy };
+  return {
+    setState, setMarks, ping, floatText, effect: vfx.effect, destroy,
+    setTool: (t) => edit.setTool(isDM() ? t : { tool: 'none' }), onEdit: edit.onEdit,
+  };
 };

@@ -1,19 +1,21 @@
 // Lógica pura de una mesa: sin sockets ni BD. Todo lo que llega de un cliente se valida aquí.
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { CODE_ALPHABET, DEFAULT_SETTINGS, DICE_THEMES, blocksMove } from '@lantern/protocol';
-import type { Ability, ActionCard, AudioState, C2S, ChatMsg, ClientState, Combat, DiceTheme, Die, Hp, Id, Light, Member, Point, Role, S2C, Scene, TableSettings, Token, Wall } from '@lantern/protocol';
+import type { Ability, ActionCard, AudioState, C2S, ChatMsg, ClientState, Combat, DiceTheme, Die, Hp, Id, JournalEntry, LibraryItem, Member, Point, Region, Role, S2C, Scene, TableSettings, Token, Wall } from '@lantern/protocol';
 import { ABILITY_ES, CONDITIONS, SKILLS, abilityMod, applyCard, applyDamage, autoFailSave, concentrationDC, d20Penalty, deathSave, grantTemp, heal, resolveAction } from '@lantern/rules';
 import { MONSTERS } from '@lantern/srd';
 import { parseCharacter } from './import.ts';
 import { demoScene } from '@lantern/protocol/demo';
 import { cover, pointInPolygon, sightSegments, visibility } from '@lantern/vision';
+import { MAX_ITEMS, MAX_JOURNAL, MAX_LAYERS, MAX_REGIONS, MAX_SCENES, MAX_WALLS, SFX, inScene, inr, num, obj, parseAudio, parseJournal, parseLayer, parseLight, parseRegion, parseToken, parseWall, patchScene, short, str, urlOk } from './validate.ts';
 
 export type MemberRec = { id: Id; name: string; role: Role; keyHash: string; dice: DiceTheme };
-export type Room = { code: string; scene: Scene; members: Map<Id, MemberRec>; chat: ChatMsg[]; automation: 'assisted' | 'auto'; combat?: Combat; pending: ActionCard[]; settings: TableSettings; view: 'tactical' | 'story'; audio: AudioState };
+export type Room = { code: string; scene: Scene; scenes: Record<Id, Scene>; activeId: Id; journal: JournalEntry[]; members: Map<Id, MemberRec>; chat: ChatMsg[]; automation: 'assisted' | 'auto'; combat?: Combat; pending: ActionCard[]; settings: TableSettings; view: 'tactical' | 'story'; audio: AudioState };
 export type RollFn = (expr: string) => { total: number; detail: string; dice?: Die[] };
-export type Effect = { error?: string; state?: boolean; chat?: ChatMsg; chats?: ChatMsg[]; ping?: { from: Id; x: number; y: number }; all?: S2C; to?: { id: Id; msg: S2C }; clock?: boolean };
+export type Effect = { error?: string; state?: boolean; chat?: ChatMsg; chats?: ChatMsg[]; ping?: { from: Id; x: number; y: number }; all?: S2C; to?: { id: Id; msg: S2C }; clock?: boolean;
+  sends?: { who: (m: MemberRec) => boolean; msg: S2C }[] }; // mensajes a los miembros que cumplan `who`
 
-const MAX_CHAT = 200, MAX_ITEMS = 500;
+const MAX_CHAT = 200, MAX_RTC = 16 * 1024;
 export const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 export const normCode = (s: string) => s.toUpperCase().replace(/[\s-]/g, '');
 export const genCode = (taken: (c: string) => boolean = () => false) => {
@@ -32,10 +34,15 @@ function addMember(room: Room, name: string, role: Role) {
   return { member: m, key };
 }
 
+// `room.scene` es siempre la escena activa de la biblioteca.
+export function mkRoom(r: Omit<Room, 'scene'>): Room {
+  return Object.defineProperty(r, 'scene', { enumerable: true, get(this: Room) { return this.scenes[this.activeId]; }, set(this: Room, v: Scene) { this.scenes[this.activeId] = v; } }) as Room;
+}
+
 export function createRoom(name: unknown, code: string, scene: Scene = demoScene()): { error: string } | { room: Room; member: MemberRec; key: string } {
   const n = cleanName(name);
   if (!n) return { error: 'nombre inválido' };
-  const room: Room = { code, scene, members: new Map(), chat: [], automation: 'assisted', pending: [], settings: structuredClone(DEFAULT_SETTINGS), view: 'tactical', audio: { layers: [] } };
+  const room = mkRoom({ code, scenes: { [scene.id]: scene }, activeId: scene.id, journal: [], members: new Map(), chat: [], automation: 'assisted', pending: [], settings: structuredClone(DEFAULT_SETTINGS), view: 'tactical', audio: { layers: [] } });
   return { room, ...addMember(room, n, 'dm') };
 }
 
@@ -62,11 +69,17 @@ export function joinRoom(room: Room, name: unknown, key: unknown): { member: Mem
 }
 
 // ---- filtrado por miembro ----
+const inRegion = (r: Region, p: Point) => pointInPolygon(p, r.points);
+const canRead = (e: JournalEntry, m: MemberRec) => isDM(m) || e.visibleTo === 'all' || (Array.isArray(e.visibleTo) && e.visibleTo.includes(m.id));
+const libraryOf = (room: Room): LibraryItem[] => Object.values(room.scenes).map((s) => ({ id: s.id, name: s.name, ...(s.folder && { folder: s.folder }), active: s.id === room.activeId,
+  tokens: s.tokens.length, walls: s.walls.length, ...(s.background && { background: s.background }) }));
+
 export function filterFor(room: Room, member: MemberRec, online: ReadonlySet<Id> = new Set()): ClientState {
   const members: Member[] = [...room.members.values()].map((m) => ({ id: m.id, name: m.name, role: m.role, online: online.has(m.id), dice: m.dice }));
   const s = room.scene;
   const automation = room.automation, settings = structuredClone(room.settings), view = room.view, audio = structuredClone(room.audio);
-  if (member.role === 'dm' || member.role === 'assistant') return { code: room.code, members, scene: structuredClone(s), automation, settings, view, audio, ...(room.combat && { combat: structuredClone(room.combat) }) };
+  const journal = structuredClone(room.journal.filter((e) => canRead(e, member)));
+  if (isDM(member)) return { code: room.code, members, scene: structuredClone(s), automation, settings, view, audio, journal, library: libraryOf(room), ...(room.combat && { combat: structuredClone(room.combat) }) };
 
   // ponytail: las capas de audio posicionales NO se filtran por visión: el sonido atraviesa paredes (y el jugador ve x/y de capas ajenas)
   const segs = sightSegments(s.walls);
@@ -74,20 +87,25 @@ export function filterFor(room: Room, member: MemberRec, online: ReadonlySet<Id>
     .filter((t) => t.faction === 'ally' && t.owners.length > 0)
     .map((t) => visibility({ x: t.x, y: t.y }, segs, s.width, s.height));
   const seen = (p: Point) => visible.some((poly) => pointInPolygon(p, poly));
+  const fogs = (s.regions ?? []).filter((r) => r.kind === 'fog');
   const tokens = s.tokens
-    .filter((t) => !t.hidden && (t.faction === 'ally' || seen(t)))
+    .filter((t) => !t.hidden && (t.faction === 'ally' || seen(t)) && (t.owners.includes(member.id) || !fogs.some((r) => inRegion(r, t)))) // la niebla oculta lo que hay dentro (salvo tus propios tokens)
     .map((t) => {
       const c = structuredClone(t);
+      delete c.notes;
       if (t.faction !== 'ally') { delete c.hp; delete c.ac; }
       return c;
     });
   const walls = s.walls.map((w): Wall => {
-    if (!w.secret) return { ...w };
-    const { secret: _s, open: _o, ...rest } = w; // una puerta secreta se ve como muro (y no revela si está abierta)
+    const { note: _n, ...v } = w;
+    if (!v.secret) return v;
+    const { secret: _s, open: _o, ...rest } = v; // una puerta secreta se ve como muro (y no revela si está abierta)
     return { ...rest, kind: 'wall' };
   });
   // ponytail: luces filtradas solo por su centro; un halo que asome desde fuera de la visión no se distingue
   const lights = s.lights.filter((l) => seen(l));
+  // ponytail: a los jugadores solo llegan id, nombre, polígono y tipo de las regiones no ocultas
+  const regions = (s.regions ?? []).filter((r) => !r.hidden).map((r): Region => ({ id: r.id, name: r.name, points: structuredClone(r.points), kind: r.kind, hidden: false }));
   const ids = new Set(tokens.map((t) => t.id));
   let combat: Combat | undefined;
   if (room.combat) {
@@ -97,7 +115,8 @@ export function filterFor(room: Room, member: MemberRec, online: ReadonlySet<Id>
     for (let i = Math.min(c.turn, c.order.length - 1); i >= 0 && turn < 0; i--) turn = order.findIndex((o) => o.tokenId === c.order[i].tokenId);
     combat = { round: c.round, turn, order, used: Object.fromEntries(Object.entries(c.used).filter(([id]) => ids.has(id))) };
   }
-  return { code: room.code, members, visible, scene: { ...structuredClone(s), walls, lights, tokens }, automation, settings, view, audio, ...(combat && { combat }) };
+  const { dmNotes: _d, regions: _r, tokens: _t, walls: _w, lights: _l, ...pub } = structuredClone(s);
+  return { code: room.code, members, visible, scene: { ...pub, walls, lights, tokens, ...(regions.length && { regions }) }, automation, settings, view, audio, journal, ...(combat && { combat }) };
 }
 
 export function chatFor(room: Room, m: MemberRec) {
@@ -122,51 +141,6 @@ export function redact(room: Room, c: ChatMsg, m: MemberRec, vis?: Set<Id>): Cha
 export const canSee = (c: ChatMsg, m: MemberRec) =>
   !c.roll?.secret || c.from === m.id || m.role === 'dm' || m.role === 'assistant';
 
-// ---- validación ----
-const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-const str = (v: unknown, max: number): v is string => typeof v === 'string' && v.length >= 1 && v.length <= max;
-const obj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-const inScene = (s: Scene, x: unknown, y: unknown): x is number => num(x) && num(y) && x >= 0 && x <= s.width && y >= 0 && y <= s.height;
-const pt = (s: Scene, p: unknown): Point | null =>
-  obj(p) && inScene(s, p.x, p.y) ? { x: p.x as number, y: p.y as number } : null;
-
-function parseToken(s: Scene, v: unknown): Token | null {
-  if (!obj(v) || !str(v.id, 64) || !str(v.name, 64) || !inScene(s, v.x, v.y)) return null;
-  if (!num(v.size) || v.size <= 0 || v.size > 20 || !num(v.darkvision) || v.darkvision < 0) return null;
-  if (v.faction !== 'ally' && v.faction !== 'enemy' && v.faction !== 'neutral') return null;
-  if (typeof v.hidden !== 'boolean' || !Array.isArray(v.owners) || v.owners.length > 50 || !v.owners.every((o) => str(o, 64))) return null;
-  if (!Array.isArray(v.conditions) || v.conditions.length > 50 || !v.conditions.every((o) => str(o, 64))) return null;
-  const t: Token = { id: v.id, name: v.name, x: v.x as number, y: v.y as number, size: v.size, faction: v.faction, hidden: v.hidden,
-    owners: [...v.owners] as string[], darkvision: v.darkvision, conditions: [...v.conditions] as string[] };
-  if (v.img !== undefined) { if (!str(v.img, 512) || !/^(https?:\/\/|\/)/.test(v.img)) return null; t.img = v.img; }
-  if (v.ac !== undefined) { if (!num(v.ac)) return null; t.ac = v.ac; }
-  if (v.hp !== undefined) {
-    const h = v.hp;
-    if (!obj(h) || !num(h.cur) || !num(h.max) || !num(h.temp)) return null;
-    t.hp = { cur: h.cur, max: h.max, temp: h.temp };
-  }
-  return t;
-}
-
-function parseWall(s: Scene, v: unknown): Wall | null {
-  if (!obj(v) || !str(v.id, 64)) return null;
-  const a = pt(s, v.a), b = pt(s, v.b);
-  if (!a || !b || !['wall', 'door', 'window', 'terrain'].includes(v.kind as string)) return null;
-  const w: Wall = { id: v.id, a, b, kind: v.kind as Wall['kind'] };
-  if (v.open !== undefined) { if (typeof v.open !== 'boolean') return null; w.open = v.open; }
-  if (v.secret !== undefined) { if (typeof v.secret !== 'boolean') return null; w.secret = v.secret; }
-  return w;
-}
-
-function parseLight(s: Scene, v: unknown): Light | null {
-  if (!obj(v) || !str(v.id, 64) || !inScene(s, v.x, v.y)) return null;
-  if (!num(v.bright) || !num(v.dim) || v.bright < 0 || v.dim < 0) return null;
-  if (typeof v.color !== 'string' || !/^#[0-9a-fA-F]{3,8}$/.test(v.color)) return null;
-  const l: Light = { id: v.id, x: v.x as number, y: v.y as number, bright: v.bright, dim: v.dim, color: v.color };
-  if (v.anim !== undefined) { if (v.anim !== 'none' && v.anim !== 'torch' && v.anim !== 'pulse') return null; l.anim = v.anim; }
-  return l;
-}
-
 // ¿el segmento p1-p2 corta (o toca) q1-q2?
 function cross(p1: Point, p2: Point, q1: Point, q2: Point) {
   const o = (a: Point, b: Point, c: Point) => Math.sign((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
@@ -178,46 +152,6 @@ function cross(p1: Point, p2: Point, q1: Point, q2: Point) {
 }
 
 export const pathBlocked = (s: Scene, from: Point, to: Point) => s.walls.some((w) => blocksMove(w) && cross(from, to, w.a, w.b));
-
-// URL de recurso: https o ruta /assets/ propia (sin subdirectorios)
-const urlOk = (v: unknown): v is string => typeof v === 'string' && v.length <= 512 && (/^https:\/\/[^\s"'<>]+$/.test(v) || /^\/assets\/[\w.-]+$/.test(v));
-const short = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max;
-const inr = (v: unknown, a: number, b: number): v is number => num(v) && v >= a && v <= b;
-const WEATHER = ['none', 'rain', 'snow', 'fog', 'ash', 'storm', 'leaves', 'embers'];
-const SFX = ['door', 'thunder', 'roar', 'collapse', 'bell', 'scream', 'magic', 'coins', 'trap', 'hit', 'crit', 'heal', 'miss'];
-const MAX_LAYERS = 12, MAX_RTC = 16 * 1024;
-
-// Valida un patch de escena y lo mezcla sobre `s`. Devuelve false (sin tocar nada) si algo es inválido.
-function patchScene(s: Scene, patch: unknown): boolean {
-  if (!obj(patch)) return false;
-  const p = patch, n: Partial<Scene> = {};
-  for (const k of Object.keys(p)) if (!['name', 'background', 'globalLight', 'weather', 'story', 'grid', 'width', 'height'].includes(k)) return false;
-  if ('name' in p) { if (!str(p.name, 60)) return false; n.name = p.name; }
-  if ('background' in p) { if (!urlOk(p.background)) return false; n.background = p.background; }
-  if ('globalLight' in p) { if (!inr(p.globalLight, 0, 1)) return false; n.globalLight = p.globalLight; }
-  if ('width' in p) { if (!inr(p.width, 100, 20000)) return false; n.width = p.width; }
-  if ('height' in p) { if (!inr(p.height, 100, 20000)) return false; n.height = p.height; }
-  if ('weather' in p) {
-    const w = p.weather;
-    if (!obj(w) || !WEATHER.includes(w.kind as string) || !inr(w.intensity, 0, 1) || !inr(w.wind, -1, 1)) return false;
-    n.weather = { kind: w.kind as NonNullable<Scene['weather']>['kind'], intensity: w.intensity, wind: w.wind };
-  }
-  if ('story' in p) {
-    const t = p.story;
-    if (!obj(t) || (t.image !== undefined && !urlOk(t.image)) || (t.title !== undefined && !short(t.title, 80)) || (t.subtitle !== undefined && !short(t.subtitle, 80))) return false;
-    n.story = { ...s.story, ...(t.image !== undefined && { image: t.image as string }), ...(t.title !== undefined && { title: t.title }), ...(t.subtitle !== undefined && { subtitle: t.subtitle }) };
-  }
-  if ('grid' in p) {
-    const g = p.grid;
-    if (!obj(g)) return false;
-    const m = { ...s.grid, ...g };
-    for (const k of Object.keys(g)) if (!['size', 'offsetX', 'offsetY', 'feet'].includes(k)) return false;
-    if (!inr(m.size, 20, 400) || !inr(m.offsetX, 0, m.size) || !inr(m.offsetY, 0, m.size) || !inr(m.feet, 1, 20)) return false;
-    n.grid = { size: m.size, offsetX: m.offsetX, offsetY: m.offsetY, feet: m.feet };
-  }
-  Object.assign(s, n);
-  return true;
-}
 
 // ---- ajustes de mesa ----
 // Mezcla profunda validada: sin claves desconocidas y con tipos correctos. null = patch inválido.
@@ -372,11 +306,8 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
         if (a.track.pausedAt !== undefined) { a.track.startedAt += now - a.track.pausedAt; delete a.track.pausedAt; }
       } else if (op === 'stop') delete a.track;
       else if (op === 'layer') {
-        const l = m2.layer;
-        if (!obj(l) || !str(l.id, 64) || !urlOk(l.url) || !str(l.name, 100) || !inr(l.volume, 0, 1)) return { error: 'mensaje inválido' };
-        const pos = l.x !== undefined || l.y !== undefined || l.radius !== undefined;
-        if (pos && !(num(l.x) && num(l.y) && num(l.radius) && l.radius > 0)) return { error: 'mensaje inválido' };
-        const layer: AudioState['layers'][number] = { id: l.id, url: l.url, name: l.name, volume: l.volume, ...(pos && { x: l.x as number, y: l.y as number, radius: l.radius as number }) };
+        const layer = parseLayer(m2.layer);
+        if (!layer) return { error: 'mensaje inválido' };
         const i = a.layers.findIndex((x) => x.id === layer.id);
         if (i >= 0) a.layers[i] = layer;
         else if (a.layers.length >= MAX_LAYERS) return { error: 'demasiadas capas' };
@@ -496,31 +427,34 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
       if (cb && !isDM(m)) {
         if (cb.order[cb.turn]?.tokenId !== t.id) return { error: 'no es su turno' };
         // regla 5-5-5: cada movimiento cuesta max(|dx|,|dy|) casillas × pies por casilla
-        const feet = Math.max(Math.abs(to.x - t.x), Math.abs(to.y - t.y)) / s.grid.size * s.grid.feet;
+        // ponytail: terreno difícil: si el destino está dentro de una región 'difficult', todo el trayecto cuesta ×2
+        const hard = (s.regions ?? []).some((r) => r.kind === 'difficult' && inRegion(r, to)) ? 2 : 1;
+        const feet = hard * Math.max(Math.abs(to.x - t.x), Math.abs(to.y - t.y)) / s.grid.size * s.grid.feet;
         const u = (cb.used[t.id] ??= { action: false, bonus: false, reaction: false, moved: 0 });
         const speed = t.speed ?? 30;
         if (u.moved + feet > speed + 1e-6) return { error: `sin movimiento: te quedan ${Math.max(0, Math.floor(speed - u.moved))} pies` };
         u.moved += feet;
       }
+      const from = { x: t.x, y: t.y };
       t.x = to.x; t.y = to.y;
-      return { state: true };
+      return { state: true, ...regionFx(ctx, t, from) };
     }
     case 'upsert': {
       if (!isDM(m)) return DENY;
-      const list = m2.kind === 'token' ? s.tokens : m2.kind === 'wall' ? s.walls : m2.kind === 'light' ? s.lights : null;
-      const item = m2.kind === 'token' ? parseToken(s, m2.item) : m2.kind === 'wall' ? parseWall(s, m2.item) : m2.kind === 'light' ? parseLight(s, m2.item) : null;
+      const list = m2.kind === 'token' ? s.tokens : m2.kind === 'wall' ? s.walls : m2.kind === 'light' ? s.lights : m2.kind === 'region' ? (s.regions ??= []) : null;
+      const item = m2.kind === 'token' ? parseToken(s, m2.item) : m2.kind === 'wall' ? parseWall(s, m2.item) : m2.kind === 'light' ? parseLight(s, m2.item) : m2.kind === 'region' ? parseRegion(s, m2.item) : null;
       if (!list || !item) return { error: 'mensaje inválido' };
       const i = (list as { id: Id }[]).findIndex((e) => e.id === item.id);
       if (i >= 0) (list as unknown[])[i] = item;
-      else if (list.length >= MAX_ITEMS) return { error: 'demasiados elementos' };
+      else if (list.length >= (m2.kind === 'wall' ? MAX_WALLS : m2.kind === 'region' ? MAX_REGIONS : MAX_ITEMS)) return { error: 'demasiados elementos' };
       else (list as unknown[]).push(item);
       return { state: true };
     }
     case 'remove': {
       if (!isDM(m)) return DENY;
-      if (!str(m2.id, 64) || (m2.kind !== 'token' && m2.kind !== 'wall' && m2.kind !== 'light')) return { error: 'mensaje inválido' };
-      const k = m2.kind === 'token' ? 'tokens' : m2.kind === 'wall' ? 'walls' : 'lights';
-      const list = s[k] as { id: Id }[];
+      if (!str(m2.id, 64) || (m2.kind !== 'token' && m2.kind !== 'wall' && m2.kind !== 'light' && m2.kind !== 'region')) return { error: 'mensaje inválido' };
+      const k = m2.kind === 'token' ? 'tokens' : m2.kind === 'wall' ? 'walls' : m2.kind === 'light' ? 'lights' : 'regions';
+      const list = (s[k] ?? []) as { id: Id }[];
       const i = list.findIndex((e) => e.id === m2.id);
       if (i < 0) return { error: 'no existe' };
       list.splice(i, 1);
@@ -531,6 +465,7 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
       const w = s.walls.find((w) => w.id === m2.id && w.kind === 'door');
       if (!w) return { error: 'puerta inexistente' };
       if (!isDM(m)) {
+        if (w.locked && m2.open) return { error: 'cerrada con llave' };
         if (role !== 'player') return DENY;
         const mid = { x: (w.a.x + w.b.x) / 2, y: (w.a.y + w.b.y) / 2 };
         const near = s.tokens.some((t) => t.owners.includes(m.id) && Math.hypot(t.x - mid.x, t.y - mid.y) <= 1.5 * s.grid.size);
@@ -692,16 +627,82 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
       if (!str(m2.srd, 64) || !inScene(s, m2.x, m2.y) || (m2.hidden !== undefined && typeof m2.hidden !== 'boolean')) return { error: 'mensaje inválido' };
       if (!Object.hasOwn(MONSTERS, m2.srd)) return { error: 'monstruo inexistente' };
       if (s.tokens.length >= MAX_ITEMS) return { error: 'demasiados elementos' };
-      const { cr: _cr, type: _ty, ...base } = structuredClone(MONSTERS[m2.srd]);
-      // tamaño par → esquina de casilla; impar → centro de casilla
-      const g = s.grid, snap = (v: number, off: number) => base.size % 2 === 0 ? Math.round((v - off) / g.size) * g.size + off : Math.floor((v - off) / g.size) * g.size + off + g.size / 2;
-      const names = new Set(s.tokens.map((t) => t.name));
-      let name = base.name;
-      for (let n = 2; names.has(name); n++) name = `${base.name} ${n}`;
-      let id = m2.srd as string;
-      for (let n = 2; s.tokens.some((t) => t.id === id); n++) id = `${m2.srd}-${n}`;
-      s.tokens.push({ ...base, id, name, x: snap(m2.x as number, g.offsetX), y: snap(m2.y as number, g.offsetY), owners: [], hidden: m2.hidden === true, srd: m2.srd as string });
+      spawnOne(s, m2.srd, m2.x, m2.y as number, m2.hidden === true);
       return { state: true };
+    }
+    case 'spawnMany': {
+      if (!isDM(m)) return DENY;
+      const items = m2.items;
+      if (!Array.isArray(items) || items.length < 1 || items.length > 30 || (m2.hidden !== undefined && typeof m2.hidden !== 'boolean')) return { error: 'mensaje inválido' };
+      if (!items.every((i) => obj(i) && str(i.srd, 64) && inScene(s, i.x, i.y))) return { error: 'mensaje inválido' };
+      if (!items.every((i) => Object.hasOwn(MONSTERS, i.srd))) return { error: 'monstruo inexistente' };
+      if (s.tokens.length + items.length > MAX_ITEMS) return { error: 'demasiados elementos' };
+      for (const i of items) spawnOne(s, i.srd, i.x, i.y, m2.hidden === true);
+      return { state: true };
+    }
+    // ---- biblioteca de escenas ----
+    case 'sceneNew': {
+      if (!isDM(m)) return DENY;
+      if (!str(m2.name, 60) || (m2.from !== undefined && !str(m2.from, 64))) return { error: 'mensaje inválido' };
+      if (Object.keys(room.scenes).length >= MAX_SCENES) return { error: 'demasiadas escenas' };
+      const src = m2.from === undefined ? null : Object.hasOwn(room.scenes, m2.from) ? room.scenes[m2.from] : undefined;
+      if (src === undefined) return { error: 'escena inexistente' };
+      const sc: Scene = src ? structuredClone(src) : { id: '', name: '', width: 1400, height: 1000, grid: { size: 60, offsetX: 0, offsetY: 0, feet: 5 }, walls: [], lights: [], tokens: [], globalLight: 1 };
+      sc.id = randomUUID(); sc.name = m2.name;
+      for (const e of [...sc.tokens, ...sc.walls]) e.id = randomUUID();
+      for (const r of sc.regions ?? []) delete r.fired;
+      room.scenes[sc.id] = sc;
+      return { state: true };
+    }
+    case 'sceneActivate': {
+      if (!isDM(m)) return DENY;
+      if (!str(m2.id, 64) || !Object.hasOwn(room.scenes, m2.id)) return { error: 'escena inexistente' };
+      room.activeId = m2.id;
+      room.pending = [];
+      delete room.combat;
+      const pre = room.scenes[m2.id].audioPreset;
+      if (pre) { room.audio = structuredClone(pre); if (room.audio.track) room.audio.track.startedAt = now; }
+      return { state: true };
+    }
+    case 'sceneUpdate': {
+      if (!isDM(m)) return DENY;
+      if (!str(m2.id, 64) || (m2.name !== undefined && !str(m2.name, 60)) || (m2.folder !== undefined && !short(m2.folder, 40))) return { error: 'mensaje inválido' };
+      if (!Object.hasOwn(room.scenes, m2.id)) return { error: 'escena inexistente' };
+      const sc = room.scenes[m2.id];
+      if (m2.name !== undefined) sc.name = m2.name;
+      if (m2.folder !== undefined) { if (m2.folder) sc.folder = m2.folder; else delete sc.folder; } // '' quita la carpeta
+      return { state: true };
+    }
+    case 'sceneDelete': {
+      if (!isDM(m)) return DENY;
+      if (!str(m2.id, 64) || !Object.hasOwn(room.scenes, m2.id)) return { error: 'escena inexistente' };
+      if (m2.id === room.activeId) return { error: 'no se puede borrar la escena activa' };
+      delete room.scenes[m2.id];
+      return { state: true };
+    }
+    // ---- diario ----
+    case 'journal': {
+      if (!isDM(m)) return DENY;
+      const e = parseJournal(m2.entry, room.members);
+      if (!e) return { error: 'entrada inválida' };
+      const i = room.journal.findIndex((x) => x.id === e.id);
+      if (i >= 0) room.journal[i] = e;
+      else if (room.journal.length >= MAX_JOURNAL) return { error: 'demasiadas entradas' };
+      else room.journal.push(e);
+      return { state: true };
+    }
+    case 'journalDelete': {
+      if (!isDM(m)) return DENY;
+      const i = str(m2.id, 64) ? room.journal.findIndex((x) => x.id === m2.id) : -1;
+      if (i < 0) return { error: 'no existe' };
+      room.journal.splice(i, 1);
+      return { state: true };
+    }
+    case 'handout': {
+      if (!isDM(m)) return DENY;
+      const e = str(m2.entryId, 64) ? room.journal.find((x) => x.id === m2.entryId) : undefined;
+      if (!e) return { error: 'no existe' };
+      return { sends: [{ who: (x) => canRead(e, x), msg: { t: 'handout', entry: structuredClone(e) } }] };
     }
     default: return { error: 'mensaje desconocido' };
   }
@@ -711,4 +712,43 @@ function pushChat(room: Room, c: ChatMsg) {
   room.chat.push(c);
   if (room.chat.length > MAX_CHAT) room.chat.splice(0, room.chat.length - MAX_CHAT);
   return c;
+}
+
+// Crea un monstruo del SRD en la escena (tamaño par → esquina de casilla; impar → centro de casilla).
+function spawnOne(s: Scene, srd: string, x: number, y: number, hidden: boolean) {
+  const { cr: _cr, type: _ty, ...base } = structuredClone(MONSTERS[srd]);
+  const g = s.grid, snap = (v: number, off: number) => base.size % 2 === 0 ? Math.round((v - off) / g.size) * g.size + off : Math.floor((v - off) / g.size) * g.size + off + g.size / 2;
+  const names = new Set(s.tokens.map((t) => t.name));
+  let name = base.name;
+  for (let n = 2; names.has(name); n++) name = `${base.name} ${n}`;
+  let id = srd;
+  for (let n = 2; s.tokens.some((t) => t.id === id); n++) id = `${srd}-${n}`;
+  s.tokens.push({ ...base, id, name, x: snap(x, g.offsetX), y: snap(y, g.offsetY), owners: [], hidden, srd });
+}
+
+// Efectos de las regiones al entrar un token (centro nuevo dentro, viejo fuera). `once` marca `fired`.
+function regionFx(c: Ctx, t: Token, from: Point): Pick<Effect, 'chats' | 'sends'> {
+  const chats: ChatMsg[] = [], sends: NonNullable<Effect['sends']> = [], s = c.room.scene, to = { x: t.x, y: t.y };
+  const entered = (s.regions ?? []).filter((r) => inRegion(r, to) && !inRegion(r, from) && !(r.once && r.fired) && !(r.onlyAllies && t.faction !== 'ally'));
+  for (const r of entered) {
+    if (!['trap', 'teleport', 'sound', 'message'].includes(r.kind)) continue;
+    if (r.once) r.fired = true;
+    if (r.sfx) sends.push({ who: () => true, msg: { t: 'sfx', name: r.sfx } });
+    if (r.kind === 'message' && r.text) sends.push({ who: (m) => isDM(m) || t.owners.includes(m.id), msg: { t: 'regionMsg', text: r.text } });
+    if (r.kind === 'teleport' && r.to) { t.x = r.to.x; t.y = r.to.y; }
+    if (r.kind !== 'trap') continue;
+    let ok = false, roll: ReturnType<typeof d20Test> | undefined;
+    if (r.save) { roll = d20Test(c, t, 'save', r.save.ability); ok = roll.total >= r.save.dc; }
+    const dmg = r.damage ? c.rollFn(r.damage) : undefined, full = dmg?.total ?? 0, amount = ok ? Math.floor(full / 2) : full;
+    const card: ActionCard = { actorId: t.id, actorName: t.name, actionName: r.name, kind: 'save', ...(r.damageType && { damageType: r.damageType }),
+      targets: [{ id: t.id, name: t.name, ...(r.save && roll && { save: { total: roll.total, success: ok, ability: r.save.ability, dc: r.save.dc } }), ...(dmg && { amount }) }],
+      detail: [roll?.detail, dmg?.detail].filter(Boolean).join(' · '), dice: [...(roll?.dice ?? []), ...(dmg?.dice ?? [])], applied: true };
+    chats.push(pushChat(c.room, { id: randomUUID(), from: c.from, at: c.now, card }));
+    if (t.hp && amount > 0) {
+      const prev = { ...t.hp }, res = applyDamage(prev, amount, r.damageType ?? '', t.defenses);
+      t.hp = res.hp; chats.push(...damageFx(c, t, prev, res.taken));
+    }
+    if (!ok && r.condition) addCond(t, r.condition);
+  }
+  return { chats, sends };
 }

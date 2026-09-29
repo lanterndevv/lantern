@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { mkdirSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -9,9 +8,11 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type { ChatMsg, Id, S2C } from '@lantern/protocol';
 import { roll } from '@lantern/rules';
 import { openDb } from './db.ts';
+import { MAX_SCENES } from './validate.ts';
+import { MAX_ASSET, exportCampaign, importCampaign, parseUvtt, sha256 } from './campaign.ts';
 import { canSee, chatFor, redact, createRoom, filterFor, genCode, handle, joinRoom, normCode, sha, type MemberRec, type Room, type RollFn } from './room.ts';
 
-const MAX_ASSET = 25 * 1024 * 1024;
+const MAX_IMPORT = 250 * 1024 * 1024, MAX_UVTT = 60 * 1024 * 1024;
 const EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/webm': 'webm', 'video/webm': 'webm', 'video/mp4': 'mp4' };
 const TYPE: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', mp3: 'audio/mpeg', ogg: 'audio/ogg', webm: 'video/webm', mp4: 'video/mp4' };
 
@@ -45,28 +46,83 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
     res.writeHead(code, { connection: 'close' });
     res.end(() => req.destroy());
   };
+  // Autenticación de las rutas HTTP: cabeceras de código y key de un miembro de la mesa.
+  const auth = (req: IncomingMessage) => {
+    const code = req.headers['x-lantern-code'], key = req.headers['x-lantern-key'];
+    const room = typeof code === 'string' && code.length < 32 ? getRoom(normCode(code)) : undefined;
+    const h = typeof key === 'string' && key.length < 200 ? sha(key) : '';
+    const who = h && [...(room?.members.values() ?? [])].find((m) => m.keyHash === h);
+    return room && who ? { room, who } : null;
+  };
+  const readBody = async (req: IncomingMessage, res: ServerResponse, max: number) => {
+    if (Number(req.headers['content-length']) > max) return void fail(req, res, 413);
+    const parts: Buffer[] = []; let n = 0;
+    for await (const c of req) {
+      n += c.length;
+      if (n > max) return void fail(req, res, 413);
+      parts.push(c);
+    }
+    return Buffer.concat(parts);
+  };
+  const json = (res: ServerResponse, status: number, body: unknown) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+  const jsonBody = async (req: IncomingMessage, res: ServerResponse, max: number) => {
+    const b = await readBody(req, res, max);
+    if (!b) return undefined;
+    try { return JSON.parse(b.toString()) as unknown; } catch { json(res, 400, { error: 'JSON inválido' }); return undefined; }
+  };
   const http = createServer(async (req, res) => {
     if (req.url === '/health') { res.end('ok'); return; }
     if (req.method === 'POST' && req.url === '/api/assets') {
-      const code = req.headers['x-lantern-code'], key = req.headers['x-lantern-key'], type = req.headers['content-type'] ?? '';
-      const room = typeof code === 'string' && code.length < 32 ? getRoom(normCode(code)) : undefined;
-      const h = typeof key === 'string' && key.length < 200 ? sha(key) : '';
-      const who = h && [...(room?.members.values() ?? [])].find((m) => m.keyHash === h);
-      if (!who || !['dm', 'assistant', 'trusted'].includes(who.role)) return fail(req, res, 403);
+      const a = auth(req), type = req.headers['content-type'] ?? '';
+      if (!a || !['dm', 'assistant', 'trusted'].includes(a.who.role)) return fail(req, res, 403);
       const ext = EXT[type];
       if (!ext) return fail(req, res, 415);
-      if (Number(req.headers['content-length']) > MAX_ASSET) return fail(req, res, 413);
-      const parts: Buffer[] = []; let n = 0;
-      for await (const c of req) {
-        n += c.length;
-        if (n > MAX_ASSET) return fail(req, res, 413);
-        parts.push(c);
-      }
-      const body = Buffer.concat(parts), name = createHash('sha256').update(body).digest('hex') + '.' + ext;
+      const body = await readBody(req, res, MAX_ASSET);
+      if (!body) return;
+      const name = sha256(body) + '.' + ext;
       mkdirSync(assets, { recursive: true });
       await writeFile(join(assets, name), body);
       res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ url: '/assets/' + name }));
       return;
+    }
+    if (req.url === '/api/export' || req.url === '/api/import' || req.url === '/api/uvtt') {
+      const a = auth(req);
+      if (!a || a.who.role !== 'dm') return fail(req, res, 403);
+      if (req.url === '/api/export' && req.method === 'GET') {
+        const out = await exportCampaign(a.room, (n) => readFile(join(assets, n)).catch(() => null));
+        if (out === 'tooLarge') return json(res, 413, { error: 'la campaña supera 200 MB' });
+        res.writeHead(200, { 'content-type': 'application/json', 'content-disposition': `attachment; filename="lantern-${a.room.code}.json"` });
+        res.end(JSON.stringify(out));
+        return;
+      }
+      if (req.url === '/api/import' && req.method === 'POST') {
+        const v = await jsonBody(req, res, MAX_IMPORT);
+        if (v === undefined) return;
+        const imp = importCampaign(v);
+        if ('error' in imp) return json(res, 400, imp);
+        const made = createRoom(a.who.name, genCode((c) => rooms.has(c) || db.exists(c)), imp.scenes[0]);
+        if ('error' in made) return json(res, 400, made);
+        const { room, key } = made;
+        room.scenes = Object.fromEntries(imp.scenes.map((s) => [s.id, s])); room.activeId = imp.activeId;
+        room.journal = imp.journal; room.settings = imp.settings;
+        mkdirSync(assets, { recursive: true });
+        for (const [name, data] of imp.assets) await writeFile(join(assets, name), data);
+        rooms.set(room.code, room);
+        db.save(room);
+        return json(res, 200, { code: room.code, key });
+      }
+      if (req.url === '/api/uvtt' && req.method === 'POST') {
+        const v = await jsonBody(req, res, MAX_UVTT);
+        if (v === undefined) return;
+        const r = parseUvtt(v);
+        if ('error' in r) return json(res, r.status ?? 400, { error: r.error });
+        if (Object.keys(a.room.scenes).length >= MAX_SCENES) return json(res, 400, { error: 'demasiadas escenas' });
+        if (r.image) { mkdirSync(assets, { recursive: true }); await writeFile(join(assets, r.image.name), r.image.data); }
+        a.room.scenes[r.scene.id] = r.scene; // no se activa
+        broadcastState(a.room); dirty(a.room);
+        return json(res, 200, { sceneId: r.scene.id });
+      }
+      return fail(req, res, 405);
     }
     const f = req.method === 'GET' && /^\/assets\/([0-9a-f]{64}\.(png|jpg|webp|mp3|ogg|webm|mp4))$/.exec(req.url ?? '');
     if (f) {
@@ -129,6 +185,7 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
       for (const cm of [fx.chat, ...(fx.chats ?? [])]) if (cm) for (const [w, c] of conns) if (c.room === room && canSee(cm, c.member)) send(w, { t: 'chat', msg: redact(room, cm, c.member) as ChatMsg });
       if (fx.ping) for (const [w, c] of conns) if (c.room === room) send(w, { t: 'ping', ...fx.ping });
       if (fx.all) for (const [w, c] of conns) if (c.room === room) send(w, fx.all);
+      for (const sd of fx.sends ?? []) for (const [w, c] of conns) if (c.room === room && sd.who(c.member)) send(w, sd.msg);
       if (fx.to) for (const [w, c] of conns) if (c.room === room && c.member.id === fx.to.id) send(w, fx.to.msg);
       if (fx.clock) send(ws, { t: 'clock', now: Date.now() });
       if (fx.state) broadcastState(room);

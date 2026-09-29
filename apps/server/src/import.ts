@@ -17,11 +17,11 @@ function avatar(v: unknown): string | undefined {
   } catch { return undefined; }
 }
 
-function parseAction(v: unknown): Action | null {
+function parseAction(v: unknown, maxHit = 30): Action | null {
   if (!obj(v) || !keysIn(v, ['id', 'name', 'cost', 'kind', 'range', 'toHit', 'save', 'damage', 'damageType', 'area', 'slot'])) return null;
   if (!str(v.id, 40) || !str(v.name, 60) || !['action', 'bonus', 'reaction'].includes(v.cost as string) || !['attack', 'save', 'heal'].includes(v.kind as string) || !int(v.range, 0, 1000)) return null;
   const a: Action = { id: v.id, name: v.name, cost: v.cost as Action['cost'], kind: v.kind as Action['kind'], range: v.range };
-  if (v.toHit !== undefined) { if (!int(v.toHit, -10, 30)) return null; a.toHit = v.toHit; }
+  if (v.toHit !== undefined) { if (!int(v.toHit, -10, maxHit)) return null; a.toHit = v.toHit; }
   if (v.damage !== undefined) {
     if (!str(v.damage, 100)) return null;
     try { roll(v.damage, () => 0.5); } catch { return null; }
@@ -43,7 +43,8 @@ function parseAction(v: unknown): Action | null {
   return a;
 }
 
-export function parseCharacter(v: unknown): ImportedCharacter | null {
+// maxHit: 30 para fichas de fuera; los tokens del DM admiten 99 (impacto automático, como el Proyectil mágico de la demo)
+export function parseCharacter(v: unknown, maxHit = 30): ImportedCharacter | null {
   if (!obj(v) || !str(v.name, 40) || !int(v.ddbId, 0, Number.MAX_SAFE_INTEGER) || !int(v.level, 1, 20) || !int(v.darkvision, 0, 2400) || typeof v.classes !== 'string' || v.classes.length > 60) return null;
   const c: ImportedCharacter = { name: v.name.trim(), ddbId: v.ddbId, level: v.level, classes: v.classes, darkvision: v.darkvision };
   if (!c.name) return null;
@@ -82,7 +83,7 @@ export function parseCharacter(v: unknown): ImportedCharacter | null {
   }
   if (v.actions !== undefined) {
     if (!Array.isArray(v.actions) || v.actions.length > 40) return null;
-    const acts = v.actions.map(parseAction);
+    const acts = v.actions.map((a) => parseAction(a, maxHit));
     if (acts.some((a) => !a) || new Set(acts.map((a) => a!.id)).size !== acts.length) return null;
     c.actions = acts as Action[];
   }

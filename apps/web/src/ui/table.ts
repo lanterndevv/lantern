@@ -11,6 +11,11 @@ import { mountAudio, mountMixer, getVolume } from './audio.ts';
 import { mountVoice } from './voice.ts';
 import { mountStory, mountScenePanel } from './story.ts';
 import { sfx } from './sfx.ts';
+import { mountEditor } from './editor.ts';
+import { mountJournal, showHandout, showRegionMsg } from './journal.ts';
+import { mountLibrary, type UiCtx } from './library.ts';
+import { mountEncounter } from './encounter.ts';
+import { maybeStartTutorial } from './tutorial.ts';
 
 const ROLES: Record<Role, string> = { dm: 'DM', assistant: 'Asistente', trusted: 'De confianza', player: 'Jugador', spectator: 'Espectador' };
 const PALETTE = ['#F5C877', '#5B9BE0', '#7FCB8A', '#E0643A', '#C79BF0', '#6FD3D3', '#F08AB4', '#E8E27A'];
@@ -66,6 +71,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     <div id="init" class="init panel" hidden></div>
     <div id="aviso" class="aviso" role="alert" aria-live="assertive"></div>
     <div id="hud" class="hud panel" hidden></div>
+    <nav id="ed-bar" class="ed-bar panel" aria-label="Herramientas de edición" hidden></nav>
+    <section id="ed-insp" class="ed-insp panel" aria-label="Inspector" hidden></section>
     <dialog id="elegir" aria-labelledby="elegir-t"><h2 id="elegir-t">Elige tu personaje</h2><ul id="libres" class="libres"></ul><button type="button" id="ddbc">Traer mi personaje de D&amp;D Beyond</button></dialog>
     <div class="panel tl">
       <h1 id="escena"></h1><span class="chip simple" id="simple" hidden>Modo Sencillo</span>
@@ -80,6 +87,9 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
           <button role="tab" id="t-mesa" aria-selected="false" aria-controls="p-mesa">Mesa</button>
           <button role="tab" id="t-esc" aria-selected="false" aria-controls="p-esc" hidden>Escena</button>
           <button role="tab" id="t-aj" aria-selected="false" aria-controls="p-aj" hidden>Ajustes</button>
+          <button role="tab" id="t-dia" aria-selected="false" aria-controls="p-dia">Diario</button>
+          <button role="tab" id="t-biblioteca" aria-selected="false" aria-controls="p-biblioteca" hidden>Biblioteca</button>
+          <button role="tab" id="t-encuentros" aria-selected="false" aria-controls="p-encuentros" hidden>Encuentros</button>
         </div>
         <button id="plegar" type="button" aria-expanded="true" aria-controls="cuerpo" aria-label="Plegar panel">▾</button>
       </header>
@@ -95,6 +105,9 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
         <div id="p-hoja" role="tabpanel" aria-labelledby="t-hoja" class="hoja" hidden></div>
         <div id="p-esc" role="tabpanel" aria-labelledby="t-esc" class="ajustes escena" hidden></div>
         <div id="p-aj" role="tabpanel" aria-labelledby="t-aj" class="ajustes" hidden></div>
+        <div id="p-dia" role="tabpanel" aria-labelledby="t-dia" class="ajustes" hidden></div>
+        <div id="p-biblioteca" role="tabpanel" aria-labelledby="t-biblioteca" class="ajustes" hidden></div>
+        <div id="p-encuentros" role="tabpanel" aria-labelledby="t-encuentros" class="ajustes" hidden></div>
         <div id="p-mesa" role="tabpanel" aria-labelledby="t-mesa" hidden>
           <ul id="miembros" class="miembros"></ul>
           <section id="voz" class="voz" aria-label="Voz"></section>
@@ -176,6 +189,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       renderHud(); marks();
     },
     onMapClick: (x, y) => {
+      if (ed?.mapClick(x, y)) return;
+      if (mapCb) { const cb = mapCb; mapCb = null; return cb(x, y); }
       if (spawn) {
         net.send({ t: 'spawn', srd: spawn, x, y, ...($<HTMLInputElement>('oculto').checked ? { hidden: true } : {}) });
         spawn = undefined; renderMonsters();
@@ -187,6 +202,19 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     onPing: (x, y) => net.send({ t: 'ping', x, y }),
     onDoor: (id, open) => net.send({ t: 'door', id, open }),
   });
+
+  // ---- fase 5: edición, diario, biblioteca, encuentros, tutorial ----
+  let mapCb: ((x: number, y: number) => void) | null = null;
+  const ctx: UiCtx = { send: m => net.send(m), state: () => state, code: w.state.code, key: () => localStorage.getItem(`lantern:key:${w.state.code}`), role: w.role, toast: m => say(m, 3500), onMapClick: cb => { mapCb = cb; }, setTool: t => void table.then(x => x.setTool({ tool: t })) };
+  const tableEd = { setTool: (t: Parameters<Awaited<typeof table>['setTool']>[0]) => void table.then(x => x.setTool(t)), onEdit: (cb: Parameters<Awaited<typeof table>['onEdit']>[0]) => void table.then(x => x.onEdit(cb)) };
+  const staffEd = w.role === 'dm' || w.role === 'assistant';
+  const ed = staffEd ? mountEditor($('ed-bar'), $('ed-insp'), { send: m => net.send(m), state: () => state, table: tableEd, role: w.role, memberId: w.memberId, toast: m => say(m, 3500) }) : undefined;
+  $('ed-bar').hidden = !staffEd;
+  const jr = mountJournal($('p-dia'), { send: m => net.send(m), state: () => state, role: w.role, memberId: w.memberId, toast: m => say(m, 3500) });
+  const lib = staffEd ? mountLibrary($('p-biblioteca'), ctx) : undefined;
+  const enc = staffEd ? mountEncounter($('p-encuentros'), ctx) : undefined;
+  $('t-biblioteca').hidden = $('t-encuentros').hidden = !staffEd;
+  maybeStartTutorial(ctx);
 
   const sheet = mountSheet($('p-hoja'), { role: w.role, send: m => net.send(m), token: () => w.role === 'dm' ? tok(selected) ?? hudTok() : mine().find(t => t.id === selected) ?? mine()[0] });
   const staff = w.role === 'dm' || w.role === 'assistant';
@@ -201,6 +229,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
 
   const render = (s: ClientState) => {
     voz.onState(s.members);
+    ed?.update(s); jr.update(s); lib?.update(s); enc?.update(s);
     state = s;
     $('escena').textContent = s.scene.name;
     $('cod').textContent = `${s.code.slice(0, 3)}-${s.code.slice(3)}`;
@@ -498,8 +527,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   };
 
   // Pestañas y plegado
-  const tab = (a: 'reg' | 'hoja' | 'mesa' | 'esc' | 'aj') => {
-    for (const k of ['reg', 'hoja', 'mesa', 'esc', 'aj'] as const) {
+  const tab = (a: 'reg' | 'hoja' | 'mesa' | 'esc' | 'aj' | 'dia' | 'biblioteca' | 'encuentros') => {
+    for (const k of ['reg', 'hoja', 'mesa', 'esc', 'aj', 'dia', 'biblioteca', 'encuentros'] as const) {
       $('t-' + k).setAttribute('aria-selected', String(k === a));
       $('p-' + k).hidden = k !== a;
     }
@@ -509,6 +538,9 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   $('t-hoja').onclick = () => tab('hoja');
   $('t-aj').onclick = () => tab('aj');
   $('t-esc').onclick = () => tab('esc');
+  $('t-dia').onclick = () => tab('dia');
+  $('t-biblioteca').onclick = () => tab('biblioteca');
+  $('t-encuentros').onclick = () => tab('encuentros');
   $('plegar').onclick = () => {
     const c = $('lado').classList.toggle('plegado');
     $('plegar').setAttribute('aria-expanded', String(!c));
@@ -534,6 +566,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       else if (m.t === 'chat') addMsg(m.msg, true);
       else if (m.t === 'ping') table.then(t => t.ping(m.x, m.y, colorOf(m.from)));
       else if (m.t === 'npcSay') story.npcSay(m);
+      else if (m.t === 'handout') showHandout(m.entry);
+      else if (m.t === 'regionMsg') showRegionMsg(m.text);
       else if (m.t === 'transition') story.transition(m);
       else if (m.t === 'sfx') sfx(m.name);
       else if (m.t === 'clock') audio.clock(m.now);
