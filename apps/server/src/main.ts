@@ -18,7 +18,7 @@ import { copilot } from './copilot.ts';
 import { layaState, stopLaya, warmLaya } from './laya.ts';
 import { asPlayer, finishState } from './extras.ts';
 import { createBackups, mergeInto, parsePick, restoreInto } from './backup.ts';
-import { loadConfig } from './config.ts';
+import { LOOPBACK, clientIp as ipOf, loadConfig } from './config.ts';
 import { canSeeScene } from './perms.ts';
 import { createSigner } from './signed.ts';
 import { canSee, chatFor, redact, createRoom, filterFor, genCode, handle, joinRoom, normCode, sha, sweepHolds, type MemberRec, type Room, type RollFn } from './room.ts';
@@ -36,7 +36,6 @@ const WS_RATE = 30, WS_BURST = 60, WS_MAX_EXCESS = 10, MAX_CONN_IP = 20, MAX_ROO
 const sea = process.getBuiltinModule('node:sea');
 const VERSION = process.env.LANTERN_VERSION ?? (JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')) as { version: string }).version; // esbuild fija LANTERN_VERSION en el SEA
 const seaAsset = (p: string) => { try { return Buffer.from(sea.getAsset('web' + p)); } catch { return null; } };
-const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 const digest = (s: string) => createHash('sha256').update(s).digest();
 
 type Conn = { room: Room; member: MemberRec; sid?: string };
@@ -44,7 +43,6 @@ type Conn = { room: Room; member: MemberRec; sid?: string };
 export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, rollFn: RollFn = roll) {
   const webRoot = resolve(process.env.WEB_DIST ?? new URL('../../web/dist', import.meta.url).pathname);
   const serveWeb = sea.isSea() || existsSync(join(webRoot, 'index.html'));
-  const ipOf = (req: IncomingMessage) => (process.env.TRUST_PROXY === '1' && String(req.headers['x-forwarded-for'] ?? '').split(',').at(-1)?.trim()) || req.socket.remoteAddress || '?'; // con proxy, la última entrada la añade el propio proxy
   const connsByIp = new Map<string, number>();
   const roomsByIp = new Map<string, { n: number; reset: number }>();
   const uploads = new Map<string, { n: number; reset: number }>(), playerUploads = new Map<string, { n: number; reset: number }>();

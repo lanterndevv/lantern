@@ -32,7 +32,7 @@ Pueden ir en el entorno o en un archivo `CLAVE=valor` (`lantern.env` o `LANTERN_
 | `LANTERN_DB` | `lantern.db` | Base de datos SQLite (migra sola al arrancar) |
 | `LANTERN_ASSETS` | `./assets` | Archivos subidos por los DM |
 | `WEB_DIST` | `apps/web/dist` | Web compilada; si existe, el servidor la sirve |
-| `TRUST_PROXY` | (vacío) | `1` para tomar la IP de `x-forwarded-for` detrás de un proxy inverso |
+| `TRUST_PROXY` | (vacío) | `1` para tomar la IP de `x-forwarded-for` detrás de un proxy inverso local (solo en conexiones desde loopback) |
 | `LANTERN_CONFIG` | `lantern.env` | Archivo de configuración |
 | `LANTERN_ORIGIN` | `http://localhost:<puerto>` | URL pública, para los enlaces de invitación |
 | `LANTERN_BACKUP_DIR` / `LANTERN_BACKUP_MIN` | `backups/` junto a la BD / `10` | Carpeta e intervalo (minutos) de las copias automáticas |
@@ -43,7 +43,7 @@ Pueden ir en el entorno o en un archivo `CLAVE=valor` (`lantern.env` o `LANTERN_
 
 ## HTTPS y proxy
 
-El servidor **no cifra**: en Internet ponlo detrás de un proxy con HTTPS (Caddy, nginx…) y define `TRUST_PROXY=1`. Ejemplo con Caddy:
+El servidor **no cifra**: en Internet ponlo detrás de un proxy con HTTPS (Caddy, nginx…) en la misma máquina y define `HOST=127.0.0.1` y `TRUST_PROXY=1`. Con `TRUST_PROXY=1` los límites por IP usan `X-Forwarded-For`, pero solo en conexiones que llegan desde loopback (el proxy); `HOST=127.0.0.1` evita además que se salte el proxy entrando directamente al puerto 8787. Ejemplo con Caddy:
 
 ```
 lantern.ejemplo.es {
