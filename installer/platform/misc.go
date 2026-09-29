@@ -9,6 +9,9 @@ import (
 
 // OpenURL abre una URL en el navegador predeterminado.
 func OpenURL(u string) error {
+	if os.Getenv("LANTERN_NO_BROWSER") != "" { // pruebas y capturas: nunca abrir el navegador real
+		return nil
+	}
 	switch runtime.GOOS {
 	case "darwin":
 		return exec.Command("open", u).Start()

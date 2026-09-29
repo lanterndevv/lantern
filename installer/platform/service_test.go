@@ -46,3 +46,11 @@ func TestBackendNoService(t *testing.T) {
 		t.Error("--no-service debe usar el backend process")
 	}
 }
+
+func TestOpenURLNoBrowser(t *testing.T) {
+	t.Setenv("LANTERN_NO_BROWSER", "1")
+	t.Setenv("PATH", "") // sin la variable, xdg-open no se encontraría y daría error
+	if err := OpenURL("https://ejemplo.test"); err != nil {
+		t.Fatal(err)
+	}
+}

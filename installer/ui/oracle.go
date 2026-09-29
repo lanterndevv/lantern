@@ -44,13 +44,13 @@ type oracleCheckMsg struct {
 func oracleGuide(a *App) screen {
 	key, pub, err := remote.EnsureKey(a.cfg.DataDir)
 	if err != nil {
-		return &textScreen{base: base{2}, render: func(a *App, w int) string { return a.th.Bad.Render(wrap(err.Error(), w)) }}
+		return &textScreen{base: base{1}, render: func(a *App, w int) string { return a.th.Bad.Render(wrap(err.Error(), w)) }}
 	}
 	a.cfg.SSHKeyPath, a.cfg.SSHUser = key, "ubuntu"
 	in := textinput.New()
 	in.Prompt, in.Placeholder = "▸ ", "132.145.20.7"
 	in.SetValue(a.cfg.SSHHost)
-	return &oracleScreen{base: base{2}, steps: cloud.OracleSteps(a.pick2("es", "en")), pub: pub, in: in, sp: spinner.New(spinner.WithSpinner(spinner.Dot))}
+	return &oracleScreen{base: base{1}, steps: cloud.OracleSteps(a.pick2("es", "en")), pub: pub, in: in, sp: spinner.New(spinner.WithSpinner(spinner.Dot))}
 }
 
 func (s *oracleScreen) NoBack()      {}
@@ -192,54 +192,88 @@ func (s *oracleScreen) Update(a *App, msg tea.Msg) tea.Cmd {
 }
 
 func (s *oracleScreen) View(a *App, w, h int) string {
+	th := a.th
 	st := s.steps[s.i]
-	title := a.th.Title.Render(a.t("Oracle Cloud: tu servidor gratis", "Oracle Cloud: your free server")) + "  " +
-		a.th.Muted.Render(fmt.Sprintf(a.t("paso %d de %d", "step %d of %d"), s.i+1, len(s.steps)))
-	list := make([]string, len(s.steps))
-	for i, x := range s.steps {
-		t := clip(fmt.Sprintf("%d  %s", i+1, x.Title), w-6)
-		switch {
-		case i < s.i:
-			list[i] = a.th.Done.Render("  ✓ " + t)
-		case i == s.i:
-			list[i] = a.th.Cur.Render("  ▸ " + t)
-		default:
-			list[i] = a.th.Todo.Render("  ○ " + t)
-		}
+	wide := w >= 74 // con sitio, la lista de pasos va a la izquierda y el detalle a la derecha
+	lw, rw := 0, w
+	if wide {
+		lw = 32
+		rw = w - lw - 4
 	}
 	var d []string
-	d = append(d, a.th.Accent.Render(st.Title), styled(a.th.Sub, wrap(st.Body, w)))
-	if s.i == cloud.OracleKeyStep || (s.i == cloud.OracleKeyStep+1) {
-		d = append(d, "", s.keyBox(a, w))
+	if !wide {
+		d = append(d, th.Cur.Render(strings.ToUpper(st.Title)))
+	} else {
+		d = append(d, th.Cur.Render(strings.ToUpper(fmt.Sprintf(a.t("Paso %d · %s", "Step %d · %s"), s.i+1, st.Title))))
+	}
+	d = append(d, styled(th.Sub, wrap(st.Body, rw)))
+	if s.i == cloud.OracleKeyStep || s.i == cloud.OracleKeyStep+1 {
+		d = append(d, "", s.keyBox(a, rw))
+		acts := th.Key.Render("[c]") + " " + a.t("copiar la clave", "copy the key")
+		if st.URL != "" {
+			acts += "     " + th.Key.Render("[o]") + " " + a.t("abrir la web ", "open the web page ") + th.Link.Render(host(st.URL))
+		}
+		d = append(d, acts)
+	} else if st.URL != "" {
+		d = append(d, "", th.Key.Render("[o]")+" "+a.t("abrir la web ", "open the web page ")+th.Link.Render(host(st.URL)))
 	}
 	if s.last() {
-		s.in.SetWidth(max(10, w-6))
-		d = append(d, "", a.th.Box.Width(w).Render(s.in.View()))
+		s.in.SetWidth(max(10, rw-6))
+		d = append(d, "", th.label(a.t("IP de la máquina", "Machine IP")), th.box(s.in.View(), rw))
 		switch s.state {
 		case 1:
 			d = append(d, s.sp.View()+" "+a.t("Comprobando que llego a la máquina…", "Checking that I can reach the machine…"))
 		case 2:
-			d = append(d, a.th.Bad.Render(wrap("✗ "+s.msg, w)))
+			d = append(d, th.Bad.Render(wrap("! "+s.msg, rw)))
 		}
 	}
-	hint := s.hint(a)
-	body := strings.Join(d, "\n")
-	// Si no cabe con la lista completa, se compacta a una línea; si aún no cabe, se desplaza.
-	head := title + "\n" + strings.Join(list, "\n") + "\n\n"
-	if strings.Count(head+body, "\n")+3 > h {
-		bar := make([]string, len(s.steps))
-		for i := range bar {
-			bar[i] = map[bool]string{true: "●", false: "○"}[i <= s.i]
+	var btn []string // el botón queda fijo al pie: solo se desplaza el texto
+	if s.state != 1 {
+		next := a.t("Siguiente", "Next")
+		if s.i == cloud.OracleKeyStep+1 { // crear la máquina
+			next = a.t("Ya la he creado", "I have created it")
 		}
-		head = title + "  " + a.th.Cur.Render(strings.Join(bar, " ")) + "\n\n"
+		if s.last() {
+			next = a.t("Comprobar y continuar", "Check and continue")
+		}
+		btn = []string{"", th.button(next, a.t("pulsa enter", "press enter"))}
 	}
-	lines := strings.Split(body, "\n")
-	room := max(3, h-strings.Count(head, "\n")-4) // deja sitio a la marca «↑↓ …», la línea en blanco y la ayuda de teclas
-	if len(lines) > room {
+	lines := strings.Split(strings.Join(d, "\n"), "\n")
+	if room := max(3, h-len(btn)-1); len(lines) > room { // deja sitio a la marca «↑↓ …»
 		s.scroll = min(s.scroll, len(lines)-room)
-		lines = append(lines[s.scroll:s.scroll+room], a.th.Muted.Render("  ↑↓ …"))
+		lines = append(lines[s.scroll:s.scroll+room], th.Muted.Render("  ↑↓ …"))
 	}
-	return head + strings.Join(lines, "\n") + "\n\n" + hint
+	lines = append(lines, btn...)
+	if !wide {
+		return th.Muted.Render(fmt.Sprintf(a.t("Oracle · paso %d de %d", "Oracle · step %d of %d"), s.i+1, len(s.steps))) + "\n\n" + strings.Join(lines, "\n")
+	}
+	left := []string{th.label(a.t("Guía de Oracle", "Oracle guide")), ""}
+	for i, x := range s.steps {
+		t := clip(fmt.Sprintf("%d  %s", i+1, x.Title), lw-4)
+		switch {
+		case i < s.i:
+			left = append(left, th.Done.Render("✓ ")+th.Soft.Render(t))
+		case i == s.i:
+			left = append(left, th.Sel.Render("▸ "+t+strings.Repeat(" ", max(0, lw-2-lipgloss.Width(t)))))
+		default:
+			left = append(left, th.Todo.Render("○ "+t))
+		}
+	}
+	left = append(left, "", th.bar(float64(s.i)/float64(len(s.steps)), lw-8),
+		th.Muted.Render(fmt.Sprintf(a.t("%d de %d hechos", "%d of %d done"), s.i, len(s.steps))), "",
+		th.Sub.Render(a.t("¿Algo no cuadra?", "Something off?")), th.Muted.Render(a.t("Pulsa ? y te lo explicamos", "Press ? for a longer")), th.Muted.Render(a.t("con más calma.", "explanation.")))
+	var out []string
+	for y := 0; y < max(len(left), len(lines)); y++ {
+		l, r := "", ""
+		if y < len(left) {
+			l = left[y]
+		}
+		if y < len(lines) {
+			r = lines[y]
+		}
+		out = append(out, l+strings.Repeat(" ", max(0, lw-lipgloss.Width(l)))+" "+th.Rule.Render("│")+"  "+r)
+	}
+	return strings.Join(out, "\n")
 }
 
 // keyBox muestra la clave pública entera (para seleccionarla si el portapapeles no funciona) y el estado de la copia.
@@ -248,32 +282,30 @@ func (s *oracleScreen) keyBox(a *App, w int) string {
 	if lipgloss.Width(k) > w-4 { // no cabe en una línea: se parte
 		k = ansi.Hardwrap(k, w-4, true)
 	}
-	box := a.th.Box.Render(a.th.Accent.Render(k))
+	box := a.th.Box.Render(a.th.Sub.Render(k))
 	switch s.copied {
 	case 1:
-		return box + "\n" + a.th.Good.Render(a.t("✓ Copiada al portapapeles.", "✓ Copied to the clipboard."))
+		return a.th.label(a.t("Tu clave de acceso", "Your access key")) + "  " + a.th.Good.Render(a.t("✓ ya está en el portapapeles", "✓ copied to the clipboard")) + "\n" + box
 	case 2:
-		return box + "\n" + styled(a.th.Muted, wrap(a.t("Se la he pedido a tu terminal. Si al pegar no sale nada, selecciona la clave de arriba con el ratón y cópiala.", "I asked your terminal to copy it. If pasting gives nothing, select the key above with the mouse and copy it."), w))
+		return a.th.label(a.t("Tu clave de acceso", "Your access key")) + "\n" + box + "\n" + styled(a.th.Muted, wrap(a.t("Se la he pedido a tu terminal. Si al pegar no sale nada, selecciona la clave de arriba con el ratón y cópiala.", "I asked your terminal to copy it. If pasting gives nothing, select the key above with the mouse and copy it."), w))
 	}
-	return box
+	return a.th.label(a.t("Tu clave de acceso", "Your access key")) + "\n" + box
 }
 
-func (s *oracleScreen) hint(a *App) string {
-	var p []string
-	key := func(k, txt string) { p = append(p, a.th.Key.Render(k)+" "+a.th.Muted.Render(txt)) }
+func (s *oracleScreen) Keys(a *App) [][2]string {
+	back := [2]string{"esc", a.t("atrás", "back")}
 	if s.last() {
-		key("Enter", a.t("comprobar y continuar", "check and continue"))
-	} else {
-		if s.steps[s.i].URL != "" {
-			key("o", a.t("abrir la web", "open the web page"))
-		}
-		key("c", a.t("copiar la clave", "copy the key"))
-		key("Enter", a.t("siguiente", "next"))
+		return [][2]string{{"enter", a.t("comprobar y continuar", "check and continue")}, back, {"ctrl+c", a.t("salir", "quit")}}
 	}
-	if s.i > 0 {
-		key("Esc", a.t("paso anterior", "previous step"))
-	} else {
-		key("Esc", a.t("volver", "back"))
+	ks := [][2]string{{"c", a.t("copiar la clave", "copy the key")}}
+	if s.steps[s.i].URL != "" {
+		ks = append(ks, [2]string{"o", a.t("abrir la web", "open the web page")})
 	}
-	return strings.Join(p, a.th.Muted.Render(" · "))
+	return append(ks, [2]string{"enter", a.t("siguiente", "next")}, back, [2]string{"?", a.t("ayuda", "help")}, [2]string{"q", a.t("salir", "quit")})
+}
+
+// host: la web sin esquema ni ruta, para mostrarla («cloud.oracle.com»).
+func host(u string) string {
+	h, _, _ := strings.Cut(strings.TrimPrefix(u, "https://"), "/")
+	return h
 }

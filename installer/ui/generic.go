@@ -36,14 +36,17 @@ func (s *formScreen) Update(a *App, msg tea.Msg) tea.Cmd {
 	return cmd
 }
 func (s *formScreen) Typing() bool {
-	_, ok := s.form.GetFocusedField().(*huh.Input)
-	return ok
+	switch s.form.GetFocusedField().(type) {
+	case *huh.Input, *huh.Select[string]: // el segundo puede estar filtrando: las letras son texto
+		return true
+	}
+	return false
 }
 func (s *formScreen) Help(*App) string { return s.help }
 func (s *formScreen) View(a *App, w, h int) string {
 	out := s.form.View()
 	if s.intro != "" {
-		out = wrap(s.intro, w) + "\n\n" + out
+		out = styled(a.th.Muted, wrap(s.intro, w)) + "\n\n" + out
 	}
 	return out
 }
@@ -56,7 +59,7 @@ type textScreen struct {
 	scroll int
 	enter  func(a *App) tea.Cmd // nil: Enter no hace nada
 	keys   map[string]func(a *App) tea.Cmd
-	hint   string
+	kh     [][2]string // atajos del pie (nil: los de desplazar)
 	help   string
 	nb     bool
 	lines  int
@@ -96,33 +99,33 @@ func (s *textScreen) Update(a *App, msg tea.Msg) tea.Cmd {
 func (s *textScreen) Help(*App) string { return s.help }
 func (s *textScreen) View(a *App, w, h int) string {
 	lines := strings.Split(s.render(a, w), "\n")
-	room := h
-	if s.hint != "" {
-		room -= 2
-	}
-	room = max(3, room)
+	room := max(3, h)
 	if len(lines) > room {
 		s.scroll = min(s.scroll, len(lines)-room)
 		lines = append(lines[s.scroll:min(len(lines), s.scroll+room)], a.th.Muted.Render("  ↑↓ …"))
 	} else {
 		s.scroll = 0
 	}
-	if s.hint != "" {
-		lines = append(lines, "", s.hint)
-	}
 	return strings.Join(lines, "\n")
+}
+
+func (s *textScreen) Keys(a *App) [][2]string {
+	if s.kh == nil {
+		return [][2]string{{"↑↓", a.t("desplazar", "scroll")}, {"esc", a.t("atrás", "back")}, {"?", a.t("ayuda", "help")}, {"q", a.t("salir", "quit")}}
+	}
+	return s.kh
 }
 
 // ---- menuScreen: introducción + lista de opciones ----
 
 type menuScreen struct {
 	base
-	intro    func(a *App, w int) string
-	ch       *choice
-	pick     func(a *App, i int) tea.Cmd
-	numbered bool
-	help     string
-	extra    func(a *App, w int) string // detalle bajo la lista según la selección
+	intro func(a *App, w int) string
+	ch    *choice
+	pick  func(a *App, i int) tea.Cmd
+	help  string
+	extra func(a *App, w int) string // detalle bajo la lista según la selección
+	btn   func(i int) string         // texto del botón principal para la opción elegida (nil: sin botón)
 }
 
 func (s *menuScreen) Update(a *App, msg tea.Msg) tea.Cmd {
@@ -133,6 +136,7 @@ func (s *menuScreen) Update(a *App, msg tea.Msg) tea.Cmd {
 }
 func (s *menuScreen) Help(*App) string { return s.help }
 func (s *menuScreen) View(a *App, w, h int) string {
+	s.ch.radio = true
 	intro := ""
 	if s.intro != nil {
 		intro = s.intro(a, w)
@@ -141,13 +145,17 @@ func (s *menuScreen) View(a *App, w, h int) string {
 	if s.extra != nil {
 		extra = s.extra(a, w)
 	}
+	btn, nb := "", 0
+	if s.btn != nil {
+		btn, nb = "\n\n"+a.th.button(s.btn(s.ch.sel), a.t("pulsa enter", "press enter")), 2
+	}
 	s.ch.Y0 = 0
 	if intro != "" {
 		s.ch.Y0 = strings.Count(intro, "\n") + 2
 		intro += "\n\n"
 	}
-	room := h - s.ch.Y0 - strings.Count(extra, "\n") - 3
-	return intro + s.ch.view(a.th, w, room, s.numbered) + extra
+	room := h - s.ch.Y0 - strings.Count(extra, "\n") - nb - 1
+	return intro + s.ch.view(a.th, w, room, false) + extra + btn
 }
 
 func mask(k string) string {

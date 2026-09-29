@@ -2,11 +2,13 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"lantern/installer/ai"
 	"lantern/installer/model"
@@ -52,10 +54,15 @@ type App struct {
 	catalog  []ai.Provider
 	ai       aiFlow
 	result   model.Result
+	ver      string // versión instalada, para la cabecera del panel
 	quitting bool
 }
 
-const headerLines = 3
+// Cabecera fija: título, barra de pasos, línea y un hueco. Al pie, otra línea y los atajos.
+const headerLines = 4
+
+// stagePanel: en el panel todos los pasos de la barra figuran como hechos.
+const stagePanel = 7
 
 func New(o Options) *App {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -121,6 +128,9 @@ func (a *App) reset(s screen) tea.Cmd {
 // avail son las líneas que quedan para el cuerpo de la pantalla (cabecera y pie descontados).
 func (a *App) avail() int { return max(5, a.h-headerLines-2) }
 
+// Busy marca las pantallas que trabajan en segundo plano: ahí «q» no sale.
+type busy interface{ Busy() }
+
 func (a *App) width() int { return max(40, min(a.w-4, 96)) }
 
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -136,6 +146,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.cancel()
 			a.quitting = true
 			return a, tea.Quit
+		case k == "q" && !a.cur.Typing():
+			if _, working := a.cur.(busy); !working {
+				a.cancel()
+				a.quitting = true
+				return a, tea.Quit
+			}
 		case k == "f1" || (k == "?" && !a.cur.Typing()):
 			a.help = !a.help
 			return a, nil
@@ -161,7 +177,8 @@ var stepNames = [][2]string{{"Bienvenida", "Welcome"}, {"Dónde", "Where"}, {"En
 
 func (a *App) stepBar() string {
 	cur := a.cur.Stage()
-	var parts []string
+	var names []string
+	total := 0
 	for i, n := range stepNames {
 		name := n[0]
 		if !a.es() {
@@ -169,32 +186,58 @@ func (a *App) stepBar() string {
 		}
 		switch {
 		case i < cur:
-			parts = append(parts, a.th.Done.Render("✓ "+name))
+			names = append(names, a.th.Done.Render("✓")+a.th.Soft.Render(" "+name))
 		case i == cur:
-			parts = append(parts, a.th.Cur.Render("● "+name))
+			names = append(names, a.th.Now.Render("● "+name))
 		default:
-			parts = append(parts, a.th.Todo.Render("○ "+name))
+			names = append(names, a.th.Todo.Render("○ "+name))
+		}
+		total += lipgloss.Width(name) + 2
+	}
+	sep := " " // el separador más ancho que quepa
+	for _, s := range []string{"  ──  ", " ── ", " ─ "} {
+		if total+(len(names)-1)*lipgloss.Width(s) <= a.w-2 {
+			sep = s
+			break
 		}
 	}
-	return strings.Join(parts, a.th.Muted.Render(" › "))
+	return strings.Join(names, a.th.Rule.Render(sep))
+}
+
+// hints son los atajos de la última fila: los de la pantalla, o unos por defecto.
+func (a *App) hints() [][2]string {
+	switch k, ok := a.cur.(interface{ Keys(*App) [][2]string }); {
+	case a.help:
+		return [][2]string{{"?", a.t("cerrar la ayuda", "close help")}, {"esc", a.t("atrás", "back")}, {"q", a.t("salir", "quit")}}
+	case ok:
+		return k.Keys(a)
+	case a.cur.Typing():
+		return [][2]string{{"enter", a.t("continuar", "continue")}, {"esc", a.t("atrás", "back")}, {"ctrl+c", a.t("salir", "quit")}}
+	}
+	return [][2]string{{"↑↓", a.t("elegir", "move")}, {"enter", a.t("continuar", "continue")}, {"esc", a.t("atrás", "back")}, {"?", a.t("ayuda", "help")}, {"q", a.t("salir", "quit")}}
 }
 
 func (a *App) View() tea.View {
 	w := a.width()
-	head := a.th.Title.Render("◆ Lantern") + a.th.Muted.Render(" · "+a.t("asistente de instalación", "setup assistant"))
-	if a.o.Panel {
-		head = a.th.Title.Render("◆ Lantern") + a.th.Muted.Render(" · "+a.t("panel", "dashboard"))
+	sub, right := a.t("asistente de instalación", "setup assistant"), fmt.Sprintf(a.t("paso %d de 7", "step %d of 7"), a.cur.Stage()+1)
+	if a.cur.Stage() >= stagePanel {
+		sub, right = a.t("panel de control", "control panel"), a.ver
+	} else if a.cur.Stage() < 0 {
+		right = ""
 	}
+	head := a.th.Soft.Render("◆") + a.th.Title.Render(" LANTERN") + a.th.Muted.Render("  "+sub)
+	head += strings.Repeat(" ", max(1, w-lipgloss.Width(head)-lipgloss.Width(right))) + a.th.Muted.Render(right)
 	bar := ""
 	if a.cur.Stage() >= 0 {
 		bar = a.stepBar()
 	}
+	rule := a.th.Rule.Render(strings.Repeat("─", w))
 	avail := a.avail()
 	var body string
 	if a.help {
 		body = a.th.Title.Render(a.t("Ayuda", "Help")) + "\n\n" + wrap(a.cur.Help(a)+"\n\n"+a.t(
-			"Teclas: ↑↓ elegir · Enter continuar · Esc volver · ? cerrar la ayuda · Ctrl+C salir.\nTambién puedes usar el ratón: clic para elegir y rueda para desplazar.\nLas claves que pegas no se muestran en pantalla ni se guardan en registros.",
-			"Keys: ↑↓ move · Enter continue · Esc back · ? close help · Ctrl+C quit.\nThe mouse works too: click to choose, wheel to scroll.\nKeys you paste are never shown on screen or written to logs."), w)
+			"Teclas: ↑↓ elegir · Enter continuar · Esc volver · ? cerrar la ayuda · q salir.\nTambién puedes usar el ratón: clic para elegir y rueda para desplazar.\nLas claves que pegas no se muestran en pantalla ni se guardan en registros.",
+			"Keys: ↑↓ move · Enter continue · Esc back · ? close help · q quit.\nThe mouse works too: click to choose, wheel to scroll.\nKeys you paste are never shown on screen or written to logs."), w)
 	} else {
 		body = a.cur.View(a, w, avail)
 	}
@@ -205,8 +248,10 @@ func (a *App) View() tea.View {
 	for len(lines) < avail {
 		lines = append(lines, "")
 	}
-	foot := a.th.Muted.Render(a.t("↑↓ elegir · Enter continuar · Esc atrás · ? ayuda · Ctrl+C salir", "↑↓ move · Enter continue · Esc back · ? help · Ctrl+C quit"))
-	out := lipgloss.NewStyle().PaddingLeft(2).Render(head + "\n" + bar + "\n\n" + strings.Join(lines, "\n") + "\n\n" + foot)
+	for i, l := range lines { // nada se sale del ancho: una línea larga partiría la pantalla
+		lines[i] = ansi.Truncate(l, w, "")
+	}
+	out := lipgloss.NewStyle().PaddingLeft(2).Render(head + "\n" + bar + "\n" + rule + "\n\n" + strings.Join(lines, "\n") + "\n" + rule + "\n" + a.th.keyHints(a.hints(), w))
 	v := tea.NewView(out)
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion

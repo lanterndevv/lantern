@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
 
 	"lantern/installer/cloud"
 	"lantern/installer/engine"
@@ -70,28 +71,54 @@ func (s *welcome) Help(a *App) string {
 	return a.t("Lantern es una mesa virtual de rol. Este asistente instala el servidor, lo publica en Internet si quieres, configura la IA y crea tu primera mesa. Elige el idioma y pulsa Enter.",
 		"Lantern is a virtual tabletop. This assistant installs the server, publishes it online if you want, sets up AI and creates your first table. Pick a language and press Enter.")
 }
+func (s *welcome) Keys(a *App) [][2]string {
+	return [][2]string{{"←→", a.t("idioma", "language")}, {"enter", a.t("empezar", "start")}, {"?", a.t("ayuda", "help")}, {"q", a.t("salir", "quit")}}
+}
+
+// logo: LANTERN en letras de bloque.
+const logo = `█       ███   █   █  █████  █████  ████   █   █
+█      █   █  ██  █    █    █      █   █  ██  █
+█      █████  █ █ █    █    ████   ████   █ █ █
+█      █   █  █  ██    █    █      █  █   █  ██
+█████  █   █  █   █    █    █████  █   █  █   █`
+
 func (s *welcome) View(a *App, w, h int) string {
-	ok := func(good bool, txt string) string {
-		if good {
-			return a.th.Good.Render("  ✓ ") + txt
+	th := a.th
+	check := func(good bool, name, desc string) string {
+		mark := th.Done.Render("✓")
+		if !good {
+			mark = th.Bad.Render("✗")
 		}
-		return a.th.Bad.Render("  ✗ ") + txt
+		return mark + "  " + th.Sub.Render(name+strings.Repeat(" ", max(1, 28-lipgloss.Width(name)))) + th.Muted.Render(desc)
 	}
 	var b strings.Builder
-	b.WriteString(a.th.Title.Render(a.t("Bienvenida a Lantern", "Welcome to Lantern")) + "\n")
-	b.WriteString(wrap(a.t("Vamos a instalar tu mesa virtual en unos minutos. Solo te haré preguntas sencillas; el resto lo hago yo.",
-		"We will set up your virtual tabletop in a few minutes. I will only ask simple questions; I do the rest."), w) + "\n\n")
-	b.WriteString(a.th.Accent.Render(a.t("Comprobaciones", "Checks")) + "\n")
-	portTxt := a.t(fmt.Sprintf("Puerto %d libre", s.port), fmt.Sprintf("Port %d free", s.port))
-	if s.portChanged {
-		portTxt += a.t(" (el habitual estaba ocupado)", " (the usual one was busy)")
+	if h >= 22 { // en terminales bajas el logo quita sitio a lo importante
+		b.WriteString(styled(th.Sub, logo) + "\n\n")
 	}
-	b.WriteString(ok(true, portTxt) + "\n")
-	b.WriteString(ok(s.diskGB >= 1, a.t(fmt.Sprintf("Espacio en disco: %.1f GB libres", s.diskGB), fmt.Sprintf("Disk space: %.1f GB free", s.diskGB))) + "\n")
-	b.WriteString(ok(s.archOK, a.t("Sistema: ", "System: ")+s.archName+map[bool]string{true: "", false: a.t(" (no soportado)", " (unsupported)")}[s.archOK]) + "\n\n")
-	b.WriteString(a.th.Accent.Render(a.t("Idioma / Language", "Language / Idioma")) + "\n")
-	s.ch.Y0 = strings.Count(b.String(), "\n")
-	b.WriteString(s.ch.view(a.th, w, 4, false))
+	b.WriteString(th.Title.Render(a.t("Tu mesa de rol de D&D 5e, lista en unos minutos.", "Your D&D 5e tabletop, ready in minutes.")) + "\n")
+	b.WriteString(styled(th.Muted, wrap(a.t("Te haremos unas pocas preguntas, una cada vez. No hace falta saber de informática.", "We will ask a few questions, one at a time. No computer skills needed."), w)) + "\n\n")
+	b.WriteString(th.label(a.t("¿En qué idioma prefieres?", "Which language do you prefer?")) + "\n")
+	for i, l := range []string{"Español", "English"} {
+		if i == s.ch.sel {
+			b.WriteString(th.Sel.Render(" ◉ "+l+" ") + "   ")
+		} else {
+			b.WriteString(th.Soft.Render(" ○ "+l+" ") + "   ")
+		}
+	}
+	portTxt := a.t(fmt.Sprintf("El puerto %d está libre", s.port), fmt.Sprintf("Port %d is free", s.port))
+	portWhy := a.t("es la «puerta» por la que se entra a tu mesa", "it is the \"door\" into your table")
+	if s.portChanged {
+		portWhy = a.t("el habitual estaba ocupado", "the usual one was busy")
+	}
+	sys := a.t("Tu ordenador sirve", "Your computer works")
+	if !s.archOK {
+		sys = a.t("Tu ordenador no está soportado", "Your computer is not supported")
+	}
+	b.WriteString("\n\n" + th.label(a.t("Comprobaciones", "Checks")) + "\n")
+	b.WriteString(check(s.archOK, sys, s.archName) + "\n")
+	b.WriteString(check(s.diskGB >= 1, a.t("Hay espacio de sobra", "Plenty of disk space"), fmt.Sprintf(a.t("%.1f GB libres", "%.1f GB free"), s.diskGB)) + "\n")
+	b.WriteString(check(true, portTxt, portWhy) + "\n\n")
+	b.WriteString(th.button(a.t("Empezar", "Start"), a.t("pulsa enter", "press enter")))
 	return b.String()
 }
 
@@ -99,22 +126,26 @@ func (s *welcome) View(a *App, w, h int) string {
 
 func modeMenu(a *App) screen {
 	items := []item{
-		{title: a.t("Mi PC + enlace público", "My PC + public link"), tag: "local", lines: []string{
-			a.t("Se instala en este ordenador y te doy un enlace de Internet para tus jugadores (con un túnel de Cloudflare, HTTPS incluido).", "Installs on this computer and gives your players an Internet link (through a Cloudflare tunnel, HTTPS included)."),
-			a.t("+ Gratis, sin abrir puertos   − Tu PC debe estar encendido para jugar", "+ Free, no open ports   − Your PC must be on to play")}},
-		{title: a.t("Oracle Cloud gratis", "Oracle Cloud free"), tag: "oracle", lines: []string{
-			a.t("Un servidor gratis en Internet, siempre encendido. Tú haces unos clics en la web de Oracle y yo te guío paso a paso (unos 20 minutos).", "A free always-on server on the Internet. You click through Oracle's website and I guide you step by step (about 20 minutes)."),
-			a.t("+ Gratis y siempre encendido   − Pide tarjeta para verificar (no cobra); a veces no hay hueco", "+ Free and always on   − Needs a card to verify (no charge); sometimes no room")}},
-		{title: a.t("VPS automático (Hetzner / DigitalOcean)", "Automatic VPS (Hetzner / DigitalOcean)"), tag: "vps", lines: []string{
-			a.t("Alquilo un servidor por ti en Hetzner o DigitalOcean (necesitas una cuenta allí) y lo dejo listo con HTTPS.", "I rent a server for you at Hetzner or DigitalOcean (you need an account there) and set it up with HTTPS."),
-			a.t("+ Lo más cómodo y estable   − Unos 4–6 € al mes", "+ Easiest and most stable   − About 4–6 EUR per month")}},
-		{title: a.t("Red local / NAS", "Local network / NAS"), tag: "lan", lines: []string{
-			a.t("Solo dentro de tu casa: en este ordenador o en un NAS (un disco de red) con Docker.", "Only inside your home: on this computer or on a NAS (a network drive) with Docker."),
-			a.t("+ Privado y gratis   − Sin HTTPS: la voz solo va en el propio PC", "+ Private and free   − No HTTPS: voice only works on the PC itself")}},
+		{title: a.t("Mi PC + enlace para amigos", "My PC + link for friends"), tag: "local", right: a.t("Gratis · recomendado", "Free · recommended"),
+			pros: []string{a.t("Lo más fácil: listo en 2 minutos.", "Easiest: ready in 2 minutes."), a.t("Tus amigos entran con un enlace.", "Your friends join with a link.")},
+			cons: []string{a.t("Tu PC tiene que estar encendido mientras jugáis.", "Your PC must be on while you play.")}},
+		{title: a.t("Servidor gratis en Oracle", "Free server on Oracle"), tag: "oracle", right: a.t("0 € al mes", "0 EUR a month"),
+			pros: []string{a.t("Siempre encendido, sin pagar nunca.", "Always on, never pay."), a.t("Va sobrado: 2 núcleos y 12 GB.", "Plenty of power: 2 cores and 12 GB.")},
+			cons: []string{a.t("Hay que seguir una guía de 20 minutos.", "You follow a 20-minute guide."), a.t("Piden tarjeta, solo para comprobarte.", "They ask for a card, only to verify you.")}},
+		{title: a.t("Servidor automático · Hetzner o DigitalOcean", "Automatic server · Hetzner or DigitalOcean"), tag: "vps", right: a.t("desde 4 € al mes", "from 4 EUR a month"),
+			pros: []string{a.t("Lo creamos nosotros: solo pegas una clave.", "We create it: you just paste a key."), a.t("Siempre encendido y rápido.", "Always on and fast.")},
+			cons: []string{a.t("Es de pago, cada mes. Te avisamos antes de gastar nada.", "It is paid, every month. We warn you before spending anything.")}},
+		{title: a.t("Solo en casa · este PC o un NAS", "At home only · this PC or a NAS"), tag: "lan", right: a.t("Gratis", "Free"),
+			pros: []string{a.t("Nada sale de tu casa.", "Nothing leaves your home."), a.t("Funciona aunque se caiga Internet.", "Works even if the Internet is down.")},
+			cons: []string{a.t("Solo pueden jugar quienes estén conectados a tu wifi.", "Only people on your wifi can play.")}},
 	}
-	return &menuScreen{base: base{1}, ch: newChoice(items, 0), numbered: true,
+	short := []string{a.t("«Mi PC»", "“My PC”"), "Oracle", a.t("el servidor automático", "the automatic server"), a.t("«Solo en casa»", "“At home”")}
+	ch := newChoice(items, 0)
+	ch.card = true
+	return &menuScreen{base: base{1}, ch: ch,
+		btn: func(i int) string { return a.t("Continuar con ", "Continue with ") + short[i] },
 		intro: func(a *App, w int) string {
-			return a.th.Title.Render(a.t("¿Dónde quieres jugar?", "Where do you want to play?")) + "\n" + a.th.Muted.Render(a.t("Puedes cambiarlo más tarde desde el panel.", "You can change this later from the dashboard."))
+			return a.th.Title.Render(a.t("¿Dónde quieres jugar?", "Where do you want to play?")) + "\n" + styled(a.th.Muted, wrap(a.t("Es el sitio donde vivirá tu mesa. Podrás cambiarlo más adelante desde el panel.", "This is where your table will live. You can change it later from the panel."), w))
 		},
 		help: a.t("Mi PC es lo más rápido para probar. Un servidor (Oracle o VPS) permite jugar sin dejar tu ordenador encendido.", "My PC is the fastest way to try it. A server (Oracle or VPS) lets you play without leaving your computer on."),
 		pick: func(a *App, i int) tea.Cmd {
@@ -141,10 +172,13 @@ func localHostMenu(a *App) screen {
 		{title: a.t("Dominio propio", "Own domain"), tag: "named", lines: []string{
 			a.t("Enlace fijo tipo mesa.tudominio.com. Necesita una cuenta de Cloudflare gratuita con tu dominio.", "Fixed link like table.yourdomain.com. Needs a free Cloudflare account with your domain.")}},
 	}
-	return &menuScreen{base: base{2}, ch: newChoice(items, 0), numbered: true,
+	return &menuScreen{base: base{2}, ch: newChoice(items, 0),
+		btn: func(i int) string {
+			return a.t("Continuar con ", "Continue with ") + []string{a.t("el enlace rápido", "the quick link"), a.t("mi dominio", "my domain")}[i]
+		},
 		intro: func(a *App, w int) string {
 			return a.th.Title.Render(a.t("¿Qué enlace quieres para tus jugadores?", "What link do you want for your players?")) + "\n" +
-				wrap(a.t("El túnel de Cloudflare pone el HTTPS, necesario para la voz y el micrófono.", "The Cloudflare tunnel provides HTTPS, needed for voice and microphone."), w)
+				styled(a.th.Muted, wrap(a.t("El túnel de Cloudflare pone el HTTPS, necesario para la voz y el micrófono.", "The Cloudflare tunnel provides HTTPS, needed for voice and microphone."), w))
 		},
 		help: a.t("El enlace rápido es ideal para probar: no hay que registrarse. Si juegas cada semana, un dominio propio evita tener que reenviar el enlace.", "The quick link is great to try: no sign-up. If you play weekly, an own domain saves you from resending the link."),
 		pick: func(a *App, i int) tea.Cmd {
@@ -178,7 +212,7 @@ func lanMenu(a *App) screen {
 		{title: a.t("Instalar en este equipo", "Install on this machine"), tag: "here", lines: []string{a.t("Lantern queda accesible desde otros equipos de tu red (http://IP:puerto).", "Lantern becomes reachable from other machines on your network (http://IP:port).")}},
 		{title: a.t("Generar docker-compose para un NAS o servidor", "Generate docker-compose for a NAS or server"), tag: "docker", lines: []string{a.t("Te dejo el docker-compose.yml y un lantern.env listos, con instrucciones para Synology, Unraid y TrueNAS.", "I leave a ready docker-compose.yml and lantern.env, with instructions for Synology, Unraid and TrueNAS.")}},
 	}
-	return &menuScreen{base: base{2}, ch: newChoice(items, 0), numbered: true,
+	return &menuScreen{base: base{2}, ch: newChoice(items, 0),
 		intro: func(a *App, w int) string {
 			return a.th.Title.Render(a.t("Red local", "Local network")) + "\n" + wrap(a.t("Aviso: sin HTTPS el navegador bloquea el micrófono, así que la voz solo funciona en el propio equipo donde corre Lantern. Para el resto, vuelve atrás y elige «Mi PC + enlace» (túnel).",
 				"Note: without HTTPS the browser blocks the microphone, so voice only works on the machine running Lantern. For everyone else, go back and pick “My PC + link” (tunnel)."), w)
@@ -211,7 +245,7 @@ func remoteForm(a *App) screen {
 // dockerGuide explica qué es y qué va a pasar antes de generar los archivos para el NAS.
 func dockerGuide(a *App) screen {
 	dir := filepath.Join(a.cfg.DataDir, "docker")
-	return &textScreen{base: base{2}, hint: a.th.Key.Render("Enter") + " " + a.th.Muted.Render(a.t("continuar · Esc volver", "continue · Esc back")),
+	return &textScreen{base: base{2}, kh: [][2]string{{"enter", a.t("continuar", "continue")}, {"esc", a.t("atrás", "back")}, {"?", a.t("ayuda", "help")}, {"q", a.t("salir", "quit")}},
 		enter: func(a *App) tea.Cmd { return a.toAI() },
 		help:  a.t("Docker es un sistema para instalar programas en un NAS sin tocar nada más. Si no sabes qué es, casi seguro que te conviene «Mi PC + enlace público».", "Docker is a way to install programs on a NAS without touching anything else. If you do not know what it is, \"My PC + public link\" is almost certainly what you want."),
 		render: func(a *App, w int) string {
@@ -232,7 +266,7 @@ func vpsProviderMenu(a *App) screen {
 	items := []item{
 		{title: hz.Name, tag: "hetzner", lines: []string{hz.Price[lang], a.t("Empresa alemana. Muy fiable y con buen precio.", "German company. Very reliable and good value.")}},
 		{title: do.Name, tag: "digitalocean", lines: []string{do.Price[lang], a.t("Empresa estadounidense. Su web es muy sencilla.", "US company. Its website is very simple.")}}}
-	return &menuScreen{base: base{2}, ch: newChoice(items, 0), numbered: true,
+	return &menuScreen{base: base{2}, ch: newChoice(items, 0),
 		intro: func(a *App, w int) string {
 			return a.th.Title.Render(a.t("¿Con qué empresa alquilamos el servidor?", "Which company do we rent the server from?")) + "\n" +
 				wrap(a.t("Un VPS es un ordenador alquilado en Internet, siempre encendido, donde vivirá tu mesa. Yo lo creo y lo dejo listo con HTTPS; tú solo me das permiso desde tu cuenta. Se cobra por horas y puedes borrarlo cuando quieras desde la web de la empresa.",
@@ -251,7 +285,7 @@ func vpsProviderMenu(a *App) screen {
 			}
 			a.cfg.SSHKeyPath = key
 			a.cfg.SSHUser = "ubuntu"
-			return a.goTo(&textScreen{base: base{2}, hint: a.th.Key.Render("o") + " " + a.th.Muted.Render(a.t("abrir la página del token · ", "open the token page · ")) + a.th.Key.Render("Enter") + " " + a.th.Muted.Render(a.t("cuando lo tengas copiado", "once you copied it")),
+			return a.goTo(&textScreen{base: base{2}, kh: [][2]string{{"o", a.t("abrir la página del token", "open the token page")}, {"enter", a.t("ya lo tengo copiado", "I copied it")}, {"esc", a.t("atrás", "back")}, {"q", a.t("salir", "quit")}},
 				render: func(a *App, w int) string {
 					return a.th.Title.Render(a.t("Consigue tu token de ", "Get your token from ")+info.Name) + "\n\n" +
 						wrap(a.t("Un «token» es una contraseña especial que deja a Lantern crear el servidor en tu cuenta sin conocer tu contraseña de verdad. Lo creas tú en la web de "+info.Name+":", "A \"token\" is a special password that lets Lantern create the server in your account without knowing your real password. You create it on the "+info.Name+" website:"), w) + "\n\n" +

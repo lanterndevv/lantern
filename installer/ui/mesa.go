@@ -46,7 +46,7 @@ func (a *App) toImport() tea.Cmd {
 		{title: a.t("Importar una campaña de Lantern (.zip)", "Import a Lantern campaign (.zip)"), tag: "zip", lines: []string{a.t("Una copia exportada de otra mesa de Lantern.", "An export from another Lantern table.")}},
 		{title: a.t("Importar un mapa (.dd2vtt / .uvtt)", "Import a map (.dd2vtt / .uvtt)"), tag: "uvtt", lines: []string{a.t("Mapas de Dungeondraft y otros con muros y luces.", "Maps from Dungeondraft and others with walls and lights.")}},
 	}
-	return a.goTo(&menuScreen{base: base{4}, ch: newChoice(items, 0), numbered: true,
+	return a.goTo(&menuScreen{base: base{4}, ch: newChoice(items, 0),
 		intro: func(a *App, w int) string {
 			return a.th.Title.Render(a.t("¿Quieres importar algo ahora?", "Do you want to import something now?"))
 		},
@@ -68,7 +68,7 @@ func (a *App) toImport() tea.Cmd {
 
 // Lantern Link: cómo traer personajes de D&D Beyond.
 func linkScreen(a *App) screen {
-	return &textScreen{base: base{4}, hint: a.th.Muted.Render(a.t("Enter para continuar", "Enter to continue")),
+	return &textScreen{base: base{4}, kh: [][2]string{{"enter", a.t("continuar", "continue")}, {"esc", a.t("atrás", "back")}, {"?", a.t("ayuda", "help")}, {"q", a.t("salir", "quit")}},
 		enter: func(a *App) tea.Cmd { return a.toSummary() },
 		help:  a.t("Es opcional: Lantern funciona sin D&D Beyond. Link solo lee tu sesión en dndbeyond.com y nunca envía tu token al servidor.", "It is optional: Lantern works without D&D Beyond. Link only reads your dndbeyond.com session and never sends your token to the server."),
 		render: func(a *App, w int) string {
@@ -92,7 +92,7 @@ func linkScreen(a *App) screen {
 
 // Resumen previo a instalar.
 func summaryScreen(a *App) screen {
-	return &textScreen{base: base{4}, hint: a.th.Key.Render("Enter") + " " + a.th.Muted.Render(a.t("instalar · Esc volver a cambiar algo", "install · Esc to change something")),
+	return &textScreen{base: base{4}, kh: [][2]string{{"enter", a.t("instalar", "install")}, {"esc", a.t("cambiar algo", "change something")}, {"?", a.t("ayuda", "help")}, {"q", a.t("salir", "quit")}},
 		enter: func(a *App) tea.Cmd { return a.goTo(newInstallScreen(a)) },
 		help:  a.t("Nada se instala hasta que pulses Enter.", "Nothing is installed until you press Enter."),
 		render: func(a *App, w int) string {
@@ -152,7 +152,7 @@ func (a *App) toSummary() tea.Cmd {
 			{title: a.t("Sí, que arranque al encender el equipo", "Yes, start it when the computer boots"), lines: []string{a.t("Ejecuta «loginctl enable-linger»: tu servicio de usuario sigue activo aunque no hayas iniciado sesión.", "Runs “loginctl enable-linger”: your user service keeps running even when you are not logged in.")}},
 			{title: a.t("No, solo cuando inicie sesión", "No, only when I log in"), lines: []string{a.t("No cambia ningún ajuste del sistema.", "Changes no system setting.")}},
 		}
-		return a.goTo(&menuScreen{base: base{4}, ch: newChoice(items, 1), numbered: true,
+		return a.goTo(&menuScreen{base: base{4}, ch: newChoice(items, 1),
 			intro: func(a *App, w int) string {
 				return a.th.Title.Render(a.t("¿Arrancar Lantern sin iniciar sesión?", "Start Lantern without logging in?"))
 			},

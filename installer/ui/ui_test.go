@@ -6,11 +6,13 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/teatest/v2"
 
 	"lantern/installer/engine"
@@ -78,17 +80,17 @@ func TestWizardFlow(t *testing.T) {
 	app := New(Options{Paths: platform.Paths{Data: dir}, Base: base, Lang: "es"})
 	tm := teatest.NewTestModel(t, app, teatest.WithInitialTermSize(100, 30))
 
-	waitFor(t, tm, "Bienvenida a Lantern")
+	waitFor(t, tm, "Tu mesa de rol")
 	tm.Send(enter()) // idioma español
 	waitFor(t, tm, "¿Dónde quieres jugar?")
 	tm.Send(tea.KeyPressMsg{Code: '4', Text: "4"}) // Red local
 	waitFor(t, tm, "Instalar en este equipo")
 	tm.Send(enter())
-	waitFor(t, tm, "Inteligencia artificial")
-	tm.Send(down())
-	tm.Send(enter()) // saltar IA
-	waitFor(t, tm, "Laya")
-	tm.Send(enter()) // saltar Laya (preseleccionado)
+	waitFor(t, tm, "¿Qué IA quieres")
+	for range 4 {
+		tm.Send(tea.KeyPressMsg{Code: tea.KeyTab}) // hasta la pestaña «Ninguna»
+	}
+	tm.Send(enter()) // seguir sin IA
 	waitFor(t, tm, "DM")
 	tm.Send(enter()) // nombre de DM por defecto
 	tm.Send(enter()) // título
@@ -102,7 +104,7 @@ func TestWizardFlow(t *testing.T) {
 		return
 	}
 	tm.Send(enter())
-	waitFor(t, tm, "Lantern está listo")
+	waitFor(t, tm, "Tu mesa está lista")
 	st, ok := engine.LoadState(platform.Paths{Data: dir})
 	if !ok || st.Code == "" || st.Mode != "lan" {
 		t.Fatalf("estado tras instalar: %+v", st)
@@ -152,5 +154,69 @@ func TestWrap(t *testing.T) {
 	}
 	if !strings.Contains(got, "\n  tres") {
 		t.Errorf("la viñeta no sangra la continuación:\n%s", got)
+	}
+}
+
+var sgrColor = regexp.MustCompile(`\x1b\[(?:[0-9]*;)*(?:3[0-8]|4[0-8]|9[0-7]|10[0-7])(?:;|m)`)
+
+// Con NO_COLOR ninguna pantalla emite colores, y la barra de pasos lleva los siete nombres en orden.
+func TestNoColorScreens(t *testing.T) {
+	a := New(Options{Paths: platform.Paths{Data: t.TempDir()}, Base: model.Config{Lang: "es"}, Lang: "es"})
+	a.th = newTheme(true, true)
+	for name, s := range map[string]screen{"bienvenida": newWelcome(a), "donde": modeMenu(a), "ia": newProviderScreen(a), "listo": newDone(a, "")} {
+		a.cur, a.result = s, model.Result{Code: "K7Q4ZP", InviteURL: "https://x.trycloudflare.com/?code=K7Q4ZP"}
+		out := a.View().Content
+		if m := sgrColor.FindString(out); m != "" {
+			t.Errorf("%s: secuencia de color %q con NO_COLOR", name, m)
+		}
+	}
+	a.th = newTheme(true, false)
+	bar := ansi.Strip(a.stepBar())
+	last := -1
+	for _, n := range []string{"Bienvenida", "Dónde", "Enlace", "IA", "Tu mesa", "Instalar", "Listo"} {
+		i := strings.Index(bar, n)
+		if i <= last {
+			t.Fatalf("la barra de pasos no tiene %q en orden: %q", n, bar)
+		}
+		last = i
+	}
+}
+
+func TestBlockText(t *testing.T) {
+	r := blockText("K7Q-4ZP")
+	if len(r) != 5 || len([]rune(r[0])) != 7*6+6 {
+		t.Errorf("código en bloque: %d líneas, %d columnas", len(r), len([]rune(r[0])))
+	}
+}
+
+func TestMain(m *testing.M) {
+	os.Setenv("LANTERN_NO_BROWSER", "1") // ninguna prueba abre el navegador real
+	os.Exit(m.Run())
+}
+
+// La página de la clave se abre solo la primera vez por proveedor; «o» la reabre a petición.
+func TestKeyPageOpensOnce(t *testing.T) {
+	var opened []string
+	openURL = func(u string) error { opened = append(opened, u); return nil }
+	defer func() { openURL = platform.OpenURL }()
+	a := New(Options{Paths: platform.Paths{Data: t.TempDir()}, Base: model.Config{Lang: "es"}, Lang: "es"})
+	a.ai = aiFlow{}
+	a.ai.prov.ID, a.ai.prov.KeyURL, a.ai.prov.NeedsKey, a.ai.params = "x", "https://ejemplo.test/clave", true, map[string]string{}
+	for range 3 { // entrar, volver atrás y entrar otra vez
+		newKeyScreen(a).Init(a)
+	}
+	if len(opened) != 1 {
+		t.Fatalf("se abrió %d veces al entrar/salir, esperaba 1", len(opened))
+	}
+	s := newKeyScreen(a)
+	s.Init(a)
+	s.Update(a, tea.KeyPressMsg{Code: 'o', Text: "o"}) // campo vacío: «o» reabre
+	if len(opened) != 2 {
+		t.Fatalf("«o» debía reabrir la página: %d aperturas", len(opened))
+	}
+	a.ai.prov.ID, a.ai.prov.KeyURL = "y", "https://otro.test/clave" // otro proveedor: vuelve a abrir una vez
+	newKeyScreen(a).Init(a)
+	if len(opened) != 3 {
+		t.Fatalf("otro proveedor: %d aperturas", len(opened))
 	}
 }

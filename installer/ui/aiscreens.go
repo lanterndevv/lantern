@@ -29,6 +29,23 @@ type aiFlow struct {
 	sid    string // id de instalación para x-opencode-session
 	ep     ai.Endpoint
 	onDone func(a *App) tea.Cmd // qué hacer al terminar todo el flujo de IA
+	laya   bool                 // el catálogo ofrece la casilla de Laya (solo en el asistente)
+	opened map[string]bool      // proveedores cuya página de la clave ya se abrió
+}
+
+// openURL abre una página en el navegador (variable para poder contarlo en las pruebas).
+var openURL = platform.OpenURL
+
+// openKeyPage abre la página de la clave; sin force, solo la primera vez que se elige ese proveedor.
+func (f *aiFlow) openKeyPage(force bool) {
+	if f.prov.KeyURL == "" || (!force && f.opened[f.prov.ID]) {
+		return
+	}
+	if f.opened == nil {
+		f.opened = map[string]bool{}
+	}
+	f.opened[f.prov.ID] = true
+	_ = openURL(f.prov.KeyURL)
 }
 
 // headers copia las del proveedor y hace único por instalación el x-opencode-session.
@@ -47,40 +64,24 @@ func (f *aiFlow) endpoint() ai.Endpoint {
 	return ai.Endpoint{Format: f.prov.Format, URL: f.prov.Resolve(f.params), Key: f.key, Headers: f.headers()}
 }
 
-// toAI arranca el flujo de IA del asistente (después irá a Laya).
+// toAI arranca el flujo de IA del asistente (la casilla de Laya va en el mismo catálogo).
 func (a *App) toAI() tea.Cmd {
 	b := make([]byte, 8)
 	_, _ = rand.Read(b)
-	a.ai = aiFlow{sid: hex.EncodeToString(b), onDone: func(a *App) tea.Cmd { return a.toLaya() }}
+	a.ai = aiFlow{sid: hex.EncodeToString(b), onDone: func(a *App) tea.Cmd { return a.toTable() }, laya: !a.cfg.Docker}
 	a.cfg.LLM, a.cfg.LLM2 = nil, nil
-	return a.goTo(aiIntro(a))
-}
-
-func aiIntro(a *App) screen {
-	items := []item{
-		{title: a.t("Sí, elegir un proveedor de IA", "Yes, choose an AI provider"), tag: "yes", lines: []string{a.t("Para el copiloto del DM: reglas, PNJ, resúmenes. Hay opciones gratuitas.", "For the DM copilot: rules, NPCs, summaries. Free options exist.")}},
-		{title: a.t("Saltar por ahora", "Skip for now"), tag: "no", lines: []string{a.t("Lantern funciona sin IA; puedes añadirla luego desde el panel.", "Lantern works without AI; add it later from the dashboard.")}},
-	}
-	return &menuScreen{base: base{3}, ch: newChoice(items, 0), numbered: true,
-		intro: func(a *App, w int) string {
-			return a.th.Title.Render(a.t("Inteligencia artificial (opcional)", "Artificial intelligence (optional)")) + "\n" +
-				wrap(a.t("Lantern puede usar un modelo de lenguaje para ayudar al DM. Tú eliges el proveedor y la clave se guarda solo en tu equipo.", "Lantern can use a language model to help the DM. You pick the provider and the key stays on your machine only."), w)
-		},
-		pick: func(a *App, i int) tea.Cmd {
-			if items[i].tag == "no" {
-				return a.ai.onDone(a)
-			}
-			return a.goTo(newProviderScreen(a))
-		}}
+	a.cfg.Laya = a.ai.laya && platform.FreeDisk(a.cfg.DataDir) >= 5<<30 // por defecto, si sobra disco
+	return a.goTo(newProviderScreen(a))
 }
 
 // ---------- catálogo por pestañas ----------
 
 var groupNames = map[string][2]string{
-	"free": {"Gratis con clave", "Free with key"}, "subscription": {"Suscripciones", "Subscriptions"},
-	"paid": {"API de pago", "Paid API"}, "local": {"Locales", "Local"},
+	"free": {"Gratis", "Free"}, "subscription": {"Suscripción", "Subscription"},
+	"paid": {"De pago", "Paid"}, "local": {"Local", "Local"}, "none": {"Ninguna", "None"},
 }
 
+// providerScreen: una pestaña por grupo del catálogo y una última, «Ninguna», para seguir sin IA.
 type providerScreen struct {
 	base
 	tab   int
@@ -100,22 +101,24 @@ func newProviderScreen(a *App) *providerScreen {
 		}
 		s.items = append(s.items, ps)
 	}
+	s.items = append(s.items, nil)
 	s.rebuild(a)
 	return s
 }
+
+func (s *providerScreen) none() bool { return s.tab == len(s.items)-1 }
 
 func (s *providerScreen) rebuild(a *App) {
 	var its []item
 	for _, p := range s.items[s.tab] {
 		title := p.Name
-		var lines []string
 		if !p.Enabled {
 			title += a.t("  (aún no disponible)", "  (not available yet)")
 		}
-		lines = append(lines, a.pick2(p.CostES, p.CostEN))
-		its = append(its, item{title: title, disabled: !p.Enabled, lines: lines[:1]})
+		its = append(its, item{title: title, disabled: !p.Enabled})
 	}
 	s.ch = newChoice(its, 0)
+	s.ch.radio = true
 	if len(its) > 0 && its[0].disabled {
 		s.ch.update(tea.KeyPressMsg{Code: tea.KeyDown})
 	}
@@ -129,25 +132,42 @@ func (a *App) pick2(es, en string) string {
 }
 
 func (s *providerScreen) Help(a *App) string {
-	return a.t("← → cambian de pestaña. «Gratis con clave» no cuesta dinero pero tiene límites diarios. Claude Pro/Max y ChatGPT Plus/Pro no se pueden usar desde aplicaciones de terceros; si los tienes, usa la API de Anthropic u OpenAI (de pago por uso).",
-		"← → switch tabs. “Free with key” costs nothing but has daily limits. Claude Pro/Max and ChatGPT Plus/Pro cannot be used from third-party apps; if you have them, use the Anthropic or OpenAI API (pay per use).")
+	return a.t("Tab o ← → cambian de pestaña. «Gratis» no cuesta dinero pero tiene límites diarios. Claude Pro/Max y ChatGPT Plus/Pro no se pueden usar desde aplicaciones de terceros; si los tienes, usa la API de Anthropic u OpenAI (de pago por uso). «Ninguna» deja Lantern sin IA: puedes añadirla luego desde el panel.",
+		"Tab or ← → switch tabs. “Free” costs nothing but has daily limits. Claude Pro/Max and ChatGPT Plus/Pro cannot be used from third-party apps; if you have them, use the Anthropic or OpenAI API (pay per use). “None” leaves Lantern without AI: add it later from the panel.")
+}
+
+func (s *providerScreen) Keys(a *App) [][2]string {
+	ks := [][2]string{{"tab", a.t("pestaña", "tab")}, {"↑↓", a.t("elegir", "move")}}
+	if a.ai.laya && a.ai.slot == 0 {
+		ks = append(ks, [2]string{"espacio", a.t("Laya sí/no", "Laya on/off")})
+	}
+	return append(ks, [2]string{"enter", a.t("continuar", "continue")}, [2]string{"esc", a.t("atrás", "back")}, [2]string{"q", a.t("salir", "quit")})
 }
 
 func (s *providerScreen) Update(a *App, msg tea.Msg) tea.Cmd {
 	switch m := msg.(type) {
 	case tea.KeyPressMsg:
 		switch m.String() {
-		case "left", "h", "[":
+		case "left", "h", "[", "shift+tab":
 			s.tab = (s.tab + len(s.items) - 1) % len(s.items)
 			s.rebuild(a)
 			return nil
-		case "right", "l", "]":
+		case "right", "l", "]", "tab":
 			s.tab = (s.tab + 1) % len(s.items)
 			s.rebuild(a)
 			return nil
+		case "space":
+			if a.ai.laya && a.ai.slot == 0 {
+				a.cfg.Laya = !a.cfg.Laya
+			}
+			return nil
+		case "enter":
+			if s.none() {
+				return a.ai.onDone(a)
+			}
 		}
 	case tea.MouseClickMsg:
-		if m.Y == 0 && m.Button == tea.MouseLeft {
+		if m.Y == 3 && m.Button == tea.MouseLeft {
 			for i := len(s.tabX) - 1; i >= 0; i-- {
 				if m.X-2 >= s.tabX[i] {
 					s.tab = i
@@ -166,40 +186,92 @@ func (s *providerScreen) Update(a *App, msg tea.Msg) tea.Cmd {
 }
 
 func (s *providerScreen) View(a *App, w, h int) string {
-	var tabs []string
+	th := a.th
+	var tabs, under []string
 	s.tabX = s.tabX[:0]
 	x := 0
-	for i, g := range ai.Groups {
+	names := append(append([]string{}, ai.Groups...), "none")
+	for i, g := range names {
 		n := " " + a.pick2(groupNames[g][0], groupNames[g][1]) + " "
 		s.tabX = append(s.tabX, x)
-		x += lipgloss.Width(n) + 1
+		x += lipgloss.Width(n) + 3
 		if i == s.tab {
-			tabs = append(tabs, a.th.Sel.Render(n))
+			tabs = append(tabs, th.Cur.Render(n))
+			under = append(under, th.Gold.Render(strings.Repeat("━", lipgloss.Width(n))))
 		} else {
-			tabs = append(tabs, a.th.Muted.Render(n))
+			tabs = append(tabs, th.Soft.Render(n))
+			under = append(under, th.Rule.Render(strings.Repeat("─", lipgloss.Width(n))))
 		}
 	}
-	var detail string
-	if s.ch.sel >= 0 && s.ch.sel < len(s.items[s.tab]) {
+	head := th.Title.Render(a.t("¿Qué IA quieres que te ayude a dirigir?", "Which AI should help you run the game?")) + "\n" +
+		styled(th.Muted, wrap(a.t("Narra escenas, da voz a los PNJ y aclara reglas. Podrás cambiarla cuando quieras.", "It narrates scenes, voices NPCs and clarifies rules. You can change it any time."), w)) + "\n\n" +
+		strings.Join(tabs, "   ") + "\n" + strings.Join(under, th.Rule.Render("───")) + th.Rule.Render(strings.Repeat("─", max(0, w-x+3))) + "\n\n"
+
+	// piezas opcionales, de la menos a la más importante: se descartan si no dejan sitio a la lista
+	var box, warn, laya, btn string
+	label := a.t("Continuar sin IA", "Continue without AI")
+	if s.none() {
+		box = th.box(th.Sub.Render(wrap(a.t("Lantern funciona sin IA: el DM lo lleva todo a mano. Puedes añadirla más tarde desde el panel.", "Lantern works without AI: the DM runs everything by hand. You can add it later from the panel."), w-4)), w-2)
+	} else if s.ch.sel >= 0 && s.ch.sel < len(s.items[s.tab]) {
 		p := s.items[s.tab][s.ch.sel]
+		label = a.t("Continuar con ", "Continue with ") + p.Name
+		txt := a.pick2(p.CostES, p.CostEN)
 		if tm := a.pick2(p.TermsES, p.TermsEN); tm != "" {
-			detail = "\n\n" + styled(a.th.Muted, wrap(a.t("Condiciones: ", "Terms: ")+tm, w))
+			txt += "\n" + tm
 		}
 		if p.Verify {
-			detail += "\n" + styled(a.th.Muted, wrap(a.t("No he podido confirmar la dirección de este servicio; si falla, revisa su web.", "I could not confirm this service's address; if it fails, check its website."), w))
+			txt += "\n" + a.t("No he podido confirmar la dirección de este servicio; si falla, revisa su web.", "I could not confirm this service's address; if it fails, check its website.")
 		}
-		if p.TosURL != "" && !p.Enabled {
-			detail += "\n" + a.th.Link.Render(p.TosURL)
+		box = titledBox(th, p.Name, th.Sub.Render(wrap(txt, w-6)), w)
+	}
+	btn = th.button(label, a.t("pulsa enter", "press enter"))
+	if a.ai.laya && a.ai.slot == 0 {
+		chk := th.Muted.Render("[ ]")
+		if a.cfg.Laya {
+			chk = th.Cur.Render("[✓]")
+		}
+		laya = chk + " " + th.Title.Render(a.t("Laya, IA local para turnos de monstruo", "Laya, local AI for monster turns")) + th.Muted.Render(a.t("   gratis · en tu PC · ≈1,2 GB", "   free · on your PC · ≈1.2 GB")) +
+			"\n" + th.Muted.Render(a.t("    Mueve a los monstruos en combate sin gastar tu cupo de IA.", "    Moves monsters in combat without spending your AI quota."))
+	}
+	warn = th.Bad.Render("! ") + th.Bad.UnsetBold().Render(wrap(a.t("Claude Pro y ChatGPT Plus no se pueden usar desde otras apps: solo sirven en su web.", "Claude Pro and ChatGPT Plus cannot be used from other apps: they only work on their website."), w-2))
+	n := max(1, min(len(s.ch.items), 4))
+	rest := func() int { // líneas que quedan para la lista
+		used := strings.Count(head, "\n")
+		for _, p := range []string{box, warn, laya, btn} {
+			if p != "" {
+				used += strings.Count(p, "\n") + 2
+			}
+		}
+		return h - used - 1
+	}
+	for _, drop := range []*string{&warn, &box, &laya} {
+		if rest() >= n {
+			break
+		}
+		*drop = ""
+	}
+	s.ch.Y0 = strings.Count(head, "\n")
+	list := ""
+	if !s.none() {
+		list = s.ch.view(th, w, max(3, rest()), false) + "\n\n"
+	}
+	out := head + list
+	for _, p := range []string{box, warn, laya, btn} {
+		if p != "" {
+			out += p + "\n\n"
 		}
 	}
-	note := "\n\n" + styled(a.th.Muted, wrap(a.t("Claude Pro/Max y ChatGPT Plus/Pro no aparecen: no se pueden usar desde apps de terceros. Usa la API de Anthropic u OpenAI.",
-		"Claude Pro/Max and ChatGPT Plus/Pro are not listed: they cannot be used from third-party apps. Use the Anthropic or OpenAI API."), w))
-	if h < 22 { // en terminales bajas la nota (que también está en la ayuda) le quita sitio a la lista
-		note = ""
+	return strings.TrimRight(out, "\n")
+}
+
+// titledBox: caja redondeada con el título metido en el borde superior.
+func titledBox(th theme, title, body string, w int) string {
+	top := th.Rule.Render("╭─ ") + th.Title.Render(title) + th.Rule.Render(" "+strings.Repeat("─", max(0, w-6-lipgloss.Width(title)))+"╮")
+	var out = []string{top}
+	for _, l := range strings.Split(body, "\n") {
+		out = append(out, th.Rule.Render("│ ")+l+strings.Repeat(" ", max(0, w-4-lipgloss.Width(l)))+th.Rule.Render(" │"))
 	}
-	s.ch.Y0 = 2
-	room := h - 2 - strings.Count(detail, "\n") - strings.Count(note, "\n") - 3
-	return strings.Join(tabs, " ") + "\n\n" + s.ch.view(a.th, w, room, false) + detail + note
+	return strings.Join(append(out, th.Rule.Render("╰"+strings.Repeat("─", w-2)+"╯")), "\n")
 }
 
 // ---------- clave + validación ----------
@@ -216,7 +288,6 @@ type keyScreen struct {
 	err      string
 	sp       spinner.Model
 	fired    bool
-	opened   bool
 	values   map[string]*string
 	keyValue string
 	retry    *choice
@@ -267,7 +338,7 @@ func (s *keyScreen) build(a *App) {
 	if p.KeyURL != "" {
 		steps += "\n" + p.KeyURL
 	}
-	fields = append([]huh.Field{huh.NewNote().Title(p.Name).Description(steps)}, fields...)
+	fields = append([]huh.Field{huh.NewNote().Title(a.t("Consigue tu clave de ", "Get your key from ") + p.Name).Description(steps)}, fields...)
 	s.form = huh.NewForm(huh.NewGroup(fields...)).WithTheme(a.th.huh).WithShowHelp(false).WithWidth(a.width())
 }
 
@@ -284,12 +355,8 @@ func (s *keyScreen) Init(a *App) tea.Cmd {
 		s.state = 1
 		return tea.Batch(s.sp.Tick, s.check(a))
 	}
-	cmds := []tea.Cmd{s.form.Init()}
-	if !s.opened && a.ai.prov.KeyURL != "" {
-		s.opened = true
-		_ = platform.OpenURL(a.ai.prov.KeyURL) // abre la página donde se crea la clave
-	}
-	return tea.Batch(cmds...)
+	a.ai.openKeyPage(false) // la página donde se crea la clave, solo la primera vez
+	return s.form.Init()
 }
 
 func (s *keyScreen) check(a *App) tea.Cmd {
@@ -352,8 +419,19 @@ func (s *keyScreen) Update(a *App, msg tea.Msg) tea.Cmd {
 			return s.form.Init()
 		}
 	case 0:
-		if k, ok := msg.(tea.KeyPressMsg); ok && k.String() == "esc" {
-			return a.back()
+		if k, ok := msg.(tea.KeyPressMsg); ok {
+			switch k.String() {
+			case "esc":
+				return a.back()
+			case "ctrl+o":
+				a.ai.openKeyPage(true)
+				return nil
+			case "o": // con el campo vacío no es texto: reabre la página de la clave
+				if f := s.form.GetFocusedField(); f != nil && f.GetValue() == "" {
+					a.ai.openKeyPage(true)
+					return nil
+				}
+			}
 		}
 		if _, ok := msg.(tea.MouseMsg); ok {
 			return nil
@@ -379,6 +457,17 @@ func (s *keyScreen) View(a *App, w, h int) string {
 		return msg + "\n\n" + s.retry.view(a.th, w, 4, false)
 	}
 	return s.form.View()
+}
+
+func (s *keyScreen) Keys(a *App) [][2]string {
+	if s.state != 0 {
+		return [][2]string{{"↑↓", a.t("elegir", "move")}, {"enter", a.t("continuar", "continue")}, {"q", a.t("salir", "quit")}}
+	}
+	ks := [][2]string{{"enter", a.t("continuar", "continue")}, {"esc", a.t("atrás", "back")}, {"ctrl+c", a.t("salir", "quit")}}
+	if a.ai.prov.KeyURL != "" {
+		ks = append([][2]string{{"o", a.t("abrir la página de la clave", "open the key page")}}, ks...)
+	}
+	return ks
 }
 
 func (s *keyScreen) Help(a *App) string {
@@ -430,6 +519,8 @@ type testScreen struct {
 	text   string
 	err    error
 	choice *choice
+	t0     time.Time
+	took   time.Duration
 }
 
 func newTestScreen(a *App) *testScreen {
@@ -439,6 +530,7 @@ func newTestScreen(a *App) *testScreen {
 func (s *testScreen) NoBack() {}
 func (s *testScreen) Init(a *App) tea.Cmd {
 	ep, model, ctx := a.ai.endpoint(), a.ai.model, a.ctx
+	s.t0 = time.Now()
 	return tea.Batch(s.sp.Tick, func() tea.Msg {
 		c, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
@@ -456,7 +548,7 @@ func (s *testScreen) Update(a *App, msg tea.Msg) tea.Cmd {
 			return c
 		}
 	case chatMsg:
-		s.done, s.text, s.err = true, strings.TrimSpace(m.text), m.err
+		s.done, s.text, s.err, s.took = true, strings.TrimSpace(m.text), m.err, time.Since(s.t0)
 		first := a.t("Continuar", "Continue")
 		if m.err != nil {
 			first = a.t("Guardar de todos modos", "Save anyway")
@@ -483,9 +575,15 @@ func (s *testScreen) View(a *App, w, h int) string {
 	if !s.done {
 		return s.sp.View() + " " + a.t("Probando una respuesta corta de ", "Testing a short reply from ") + a.ai.model + "…"
 	}
-	head := a.th.Good.Render("✓ " + a.t("Funciona. Respuesta: ", "It works. Reply: ") + clip(s.text, w-30))
+	sec := fmt.Sprintf("%.1f s", s.took.Seconds())
+	if a.es() {
+		sec = strings.Replace(sec, ".", ",", 1)
+	}
+	head := a.th.Done.Render("✓ ") + a.th.Title.Render(a.t("Funciona: respondió en ", "It works: replied in ")+sec) + "\n\n" +
+		a.th.label(a.t("Prueba de respuesta", "Test reply")) + a.th.Muted.Render("   "+a.ai.model) + "\n" +
+		a.th.box(a.th.Muted.Render(a.t("Tú", "You")+"  ")+"Responde solo con la palabra: listo\n"+a.th.Muted.Render("IA  ")+clip(s.text, w-10), w-2)
 	if s.err != nil {
-		head = a.th.Bad.Render("✗ "+a.t("La prueba falló: ", "The test failed: ")) + wrap(ai.Explain(s.err, a.es(), a.ai.prov.KeyURL), w)
+		head = a.th.Bad.Render("! "+a.t("La prueba falló: ", "The test failed: ")) + wrap(ai.Explain(s.err, a.es(), a.ai.prov.KeyURL), w)
 	}
 	s.choice.Y0 = strings.Count(head, "\n") + 2
 	return head + "\n\n" + s.choice.view(a.th, w, 5, false)
@@ -498,7 +596,7 @@ func (a *App) acceptLLM() tea.Cmd {
 		a.cfg.LLM = l
 		items := []item{{title: a.t("No, gracias", "No, thanks")}, {title: a.t("Sí, añadir un proveedor de reserva", "Yes, add a fallback provider"),
 			lines: []string{a.t("Si el principal falla o llega a su límite diario, se usa este.", "If the main one fails or hits its daily limit, this one is used.")}}}
-		return a.replace(&menuScreen{base: base{3}, ch: newChoice(items, 0), numbered: true,
+		return a.replace(&menuScreen{base: base{3}, ch: newChoice(items, 0),
 			intro: func(a *App, w int) string {
 				return a.th.Title.Render(a.t("¿Quieres un proveedor de reserva?", "Do you want a fallback provider?"))
 			},
@@ -512,28 +610,4 @@ func (a *App) acceptLLM() tea.Cmd {
 	}
 	a.cfg.LLM2 = l
 	return a.ai.onDone(a)
-}
-
-// ---------- Laya ----------
-
-func (a *App) toLaya() tea.Cmd {
-	if a.cfg.Docker {
-		return a.toTable()
-	}
-	free := float64(platform.FreeDisk(a.cfg.DataDir)) / (1 << 30)
-	items := []item{
-		{title: a.t("Instalar Laya (≈1,2 GB, 5–15 min)", "Install Laya (≈1.2 GB, 5–15 min)"), tag: "yes"},
-		{title: a.t("Saltar por ahora", "Skip for now"), tag: "no"},
-	}
-	return a.goTo(&menuScreen{base: base{3}, ch: newChoice(items, 1), numbered: true,
-		intro: func(a *App, w int) string {
-			return a.th.Title.Render(a.t("Laya: IA local para el turno de los monstruos", "Laya: local AI for monster turns")) + "\n" +
-				wrap(a.t("Laya decide qué hacen los monstruos en combate y funciona en tu propio ordenador, sin enviar nada a Internet. Hay que descargar unos 1,2 GB, entre 5 y 15 minutos según tu conexión. ",
-					"Laya decides what monsters do in combat and runs on your own computer, sending nothing to the Internet. It needs a download of about 1.2 GB, 5–15 minutes depending on your connection. ")+
-					fmt.Sprintf(a.t("Espacio libre: %.1f GB.", "Free space: %.1f GB."), free), w)
-		},
-		pick: func(a *App, i int) tea.Cmd {
-			a.cfg.Laya = items[i].tag == "yes"
-			return a.toTable()
-		}})
 }
