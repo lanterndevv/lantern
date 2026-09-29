@@ -207,8 +207,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
 
   const renderHud = () => {
     const t = hudTok(), el = $('hud');
-    el.hidden = !t;
-    if (!t) return;
+    el.hidden = !t || !state.combat; // ponytail: HUD solo en combate; acciones fuera de combate irán por el menú radial
+    if (el.hidden || !t) return;
     const c = state.combat, u = c?.used[t.id];
     const pill = (k: 'action' | 'bonus' | 'reaction', n: string) =>
       `<span class="pill ${k}${u?.[k] ? ' gastada' : ''}"><i aria-hidden="true"></i>${n}${u?.[k] ? '<span class="sr"> (gastada)</span>' : ''}</span>`;

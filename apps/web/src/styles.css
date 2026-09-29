@@ -1,3 +1,4 @@
+[hidden] { display: none !important; } /* el atributo hidden gana siempre a display:flex/grid de los componentes */
 :root {
   --noche: #0E0B08; --sombra: #16120E; --relieve: #221B15;
   --cristal: rgba(24,18,13,.8); --borde: rgba(255,214,160,.14);
