@@ -1,16 +1,16 @@
 // Lógica pura de una mesa: sin sockets ni BD. Todo lo que llega de un cliente se valida aquí.
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
-import { CODE_ALPHABET, blocksMove } from '@lantern/protocol';
-import type { ActionCard, C2S, ChatMsg, ClientState, Combat, Id, Light, Member, Point, Role, Scene, Token, Wall } from '@lantern/protocol';
+import { CODE_ALPHABET, DICE_THEMES, blocksMove } from '@lantern/protocol';
+import type { ActionCard, C2S, ChatMsg, ClientState, Combat, DiceTheme, Die, Id, Light, Member, Point, Role, Scene, Token, Wall } from '@lantern/protocol';
 import { applyCard, resolveAction } from '@lantern/rules';
 import { MONSTERS } from '@lantern/srd';
 import { demoScene } from '@lantern/protocol/demo';
 import { pointInPolygon, sightSegments, visibility } from '@lantern/vision';
 
-export type MemberRec = { id: Id; name: string; role: Role; keyHash: string };
+export type MemberRec = { id: Id; name: string; role: Role; keyHash: string; dice: DiceTheme };
 // ponytail: automation, combat y pending viven solo en memoria (no se guardan en la BD); persistir si hay que sobrevivir a reinicios
 export type Room = { code: string; scene: Scene; members: Map<Id, MemberRec>; chat: ChatMsg[]; automation: 'assisted' | 'auto'; combat?: Combat; pending: ActionCard[] };
-export type RollFn = (expr: string) => { total: number; detail: string };
+export type RollFn = (expr: string) => { total: number; detail: string; dice?: Die[] };
 export type Effect = { error?: string; state?: boolean; chat?: ChatMsg; chats?: ChatMsg[]; ping?: { from: Id; x: number; y: number } };
 
 const MAX_CHAT = 200, MAX_ITEMS = 500;
@@ -27,7 +27,7 @@ export const genCode = (taken: (c: string) => boolean = () => false) => {
 // ---- unirse ----
 function addMember(room: Room, name: string, role: Role) {
   const key = randomBytes(24).toString('base64url');
-  const m: MemberRec = { id: randomUUID(), name, role, keyHash: sha(key) };
+  const m: MemberRec = { id: randomUUID(), name, role, keyHash: sha(key), dice: 'linterna' };
   room.members.set(m.id, m);
   return { member: m, key };
 }
@@ -63,7 +63,7 @@ export function joinRoom(room: Room, name: unknown, key: unknown): { member: Mem
 
 // ---- filtrado por miembro ----
 export function filterFor(room: Room, member: MemberRec, online: ReadonlySet<Id> = new Set()): ClientState {
-  const members: Member[] = [...room.members.values()].map((m) => ({ id: m.id, name: m.name, role: m.role, online: online.has(m.id) }));
+  const members: Member[] = [...room.members.values()].map((m) => ({ id: m.id, name: m.name, role: m.role, online: online.has(m.id), dice: m.dice }));
   const s = room.scene;
   const automation = room.automation;
   if (member.role === 'dm' || member.role === 'assistant') return { code: room.code, members, scene: structuredClone(s), automation, ...(room.combat && { combat: structuredClone(room.combat) }) };
@@ -187,6 +187,11 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
   const m2 = msg as C2S & Record<string, unknown>;
   const s = room.scene;
   const role = m.role;
+  if (m2.t === 'diceTheme') { // cualquier miembro, espectadores incluidos
+    if (!DICE_THEMES.includes(m2.theme as DiceTheme)) return { error: 'mensaje inválido' };
+    m.dice = m2.theme as DiceTheme;
+    return { state: true };
+  }
   if (role === 'spectator') return DENY;
 
   switch (m2.t) {
@@ -246,7 +251,7 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
       let r;
       try { r = rollFn(m2.expr); } catch { return { error: 'expresión inválida' }; }
       if (!r || !num(r.total)) return { error: 'expresión inválida' };
-      return { chat: pushChat(room, { id: randomUUID(), from: m.id, at: now, roll: { expr: m2.expr, total: r.total, detail: String(r.detail), secret: m2.secret === true } }) };
+      return { chat: pushChat(room, { id: randomUUID(), from: m.id, at: now, roll: { expr: m2.expr, total: r.total, detail: String(r.detail), secret: m2.secret === true, ...(Array.isArray(r.dice) && { dice: r.dice }) } }) };
     }
     case 'ping': {
       if (!inScene(s, m2.x, m2.y)) return { error: 'mensaje inválido' };

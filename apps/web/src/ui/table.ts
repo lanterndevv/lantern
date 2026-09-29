@@ -1,7 +1,8 @@
-import type { Action, ActionCard, Ability, ChatMsg, ClientState, Id, Member, Point, Role, S2C, Token } from '@lantern/protocol';
+import type { Action, ActionCard, Ability, ChatMsg, ClientState, DiceTheme, Id, Member, Point, Role, S2C, Token } from '@lantern/protocol';
 import { MONSTERS } from '@lantern/srd';
 import { createTable } from '../render/table.ts';
 import { net } from '../net.ts';
+import { DICE } from '../dice/themes.ts';
 
 const ROLES: Record<Role, string> = { dm: 'DM', assistant: 'Asistente', trusted: 'De confianza', player: 'Jugador', spectator: 'Espectador' };
 const PALETTE = ['#F5C877', '#5B9BE0', '#7FCB8A', '#E0643A', '#C79BF0', '#6FD3D3', '#F08AB4', '#E8E27A'];
@@ -81,6 +82,11 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
         </div>
         <div id="p-mesa" role="tabpanel" aria-labelledby="t-mesa" hidden>
           <ul id="miembros" class="miembros"></ul>
+          <section class="dados" aria-label="Dados">
+            <h2 id="sets-t">Tus dados</h2>
+            <ul id="sets" class="sets" role="radiogroup" aria-labelledby="sets-t"></ul>
+            <button id="d3d" type="button" role="switch" aria-checked="true">Ver dados 3D</button>
+          </section>
           <section id="dm" class="dm" aria-label="Controles del DM" hidden>
             <div class="dmbtns">
               <button type="button" data-op="start">Empezar combate</button><button type="button" data-op="next">Siguiente turno</button>
@@ -99,6 +105,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   app.append(root);
   let tt = 0;
   const $ = <T extends HTMLElement>(id: string) => root.querySelector<T>('#' + id)!;
+  // three.js (~550 kB) se carga aparte, sin retrasar la entrada a la mesa
+  const trayP = import('../dice/dice3d.ts').then(d => d.createDiceTray($('mapa')));
   const name = (id: string) => state.members.find(m => m.id === id)?.name ?? '???';
 
   // Estado de interacción
@@ -164,6 +172,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     $('miembros').innerHTML = s.members.map((m: Member) =>
       `<li><span class="dot ${m.online ? 'on' : ''}" role="img" aria-label="${m.online ? 'Conectado' : 'Desconectado'}"></span>
        <span class="nom">${esc(m.name)}</span><span class="rol">${ROLES[m.role]}</span></li>`).join('');
+    const mine3 = s.members.find(x => x.id === w.memberId)?.dice;
+    $('sets').querySelectorAll('button').forEach(b => b.setAttribute('aria-checked', String(b.dataset.th === mine3)));
     table.then(t => t.setState(s));
     if (selected && !tok(selected)) selected = undefined;
     targets = targets.filter(id => tok(id));
@@ -283,6 +293,24 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     if (id) net.send({ t: 'claim', tokenId: id });
   };
 
+  // Dados 3D: selector de set e interruptor (localStorage)
+  const themes = Object.keys(DICE) as DiceTheme[];
+  $('sets').innerHTML = themes.map(th => `<li><button type="button" role="radio" aria-checked="false" data-th="${th}" title="${esc(DICE[th].note)}">
+    <i style="background:${DICE[th].body};border-color:${DICE[th].edge}"></i>${esc(DICE[th].name)}</button></li>`).join('');
+  $('sets').onclick = e => {
+    const th = (e.target as HTMLElement).closest('button')?.dataset.th as DiceTheme | undefined;
+    if (th) net.send({ t: 'diceTheme', theme: th });
+  };
+  let show3d = true;
+  try { show3d = localStorage.getItem('lantern.dados3d') !== '0'; } catch { /* sin almacenamiento */ }
+  const paint3d = () => $('d3d').setAttribute('aria-checked', String(show3d));
+  paint3d();
+  $('d3d').onclick = () => {
+    show3d = !show3d; paint3d();
+    try { localStorage.setItem('lantern.dados3d', show3d ? '1' : '0'); } catch { /* sin almacenamiento */ }
+  };
+  const rolled = new Set<Id>(); // la tarjeta se reenvía al confirmarse: solo se anima una vez
+
   const cards = new Map<Id, HTMLElement>(); // para reemplazar tarjetas que el servidor reenvía (pendiente → aplicada)
   const addMsg = (m: ChatMsg, live = false) => {
     const log = $('log');
@@ -308,6 +336,12 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     } else {
       el.className = 'msg';
       el.innerHTML = `<span class="quien">${who}</span> ${esc(m.text ?? '')}`;
+    }
+    const dice = m.card?.dice ?? m.roll?.dice;
+    if (live && show3d && dice?.length && !rolled.has(m.id)) {
+      rolled.add(m.id);
+      const th = state.members.find(x => x.id === m.from)?.dice ?? 'linterna';
+      void trayP.then(t => t.roll(dice, th, m.card ? `${m.card.actorName} · ${m.card.actionName}` : `${name(m.from)} · ${m.roll!.expr}`, m.roll?.total));
     }
     if (!el.isConnected) log.append(el);
     log.scrollTop = log.scrollHeight;

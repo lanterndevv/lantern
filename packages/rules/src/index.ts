@@ -1,15 +1,17 @@
 // Reglas D&D 5e: tiradas de dados y núcleo de reglas (funciones puras).
 
 // ---------- Dados ----------
+import type { Die } from '@lantern/protocol';
 const TERM = /^(\d*)d(\d+)(?:k([hl])(\d+))?$|^\d+$/;
 
-export function roll(expr: string, rng: () => number = Math.random): { total: number; detail: string } {
+export function roll(expr: string, rng: () => number = Math.random): { total: number; detail: string; dice: Die[] } {
   const src = String(expr).toLowerCase().replace(/\s+/g, '');
   if (!src || !/^[+-]?[^+-]+([+-][^+-]+)*$/.test(src)) throw new Error(`Expresión de dados no válida: "${expr}"`);
   const parts = src.match(/[+-]?[^+-]+/g)!;
   if (parts.length > 20) throw new Error('Demasiados términos (máximo 20)');
   let total = 0;
-  let dice = 0;
+  let count = 0;
+  const dice: Die[] = [];
   let detail = '';
   parts.forEach((p, i) => {
     const sign = p.startsWith('-') ? -1 : 1;
@@ -26,8 +28,8 @@ export function roll(expr: string, rng: () => number = Math.random): { total: nu
     const faces = Number(m[2]);
     if (n < 1) throw new Error('Debe haber al menos un dado');
     if (faces < 2 || faces > 1000) throw new Error('Las caras del dado deben estar entre 2 y 1000');
-    dice += n;
-    if (dice > 100) throw new Error('Demasiados dados (máximo 100)');
+    count += n;
+    if (count > 100) throw new Error('Demasiados dados (máximo 100)');
     const rolls = Array.from({ length: n }, () => Math.floor(rng() * faces) + 1);
     const keep = new Array<boolean>(n).fill(true);
     if (m[3]) {
@@ -38,9 +40,10 @@ export function roll(expr: string, rng: () => number = Math.random): { total: nu
     }
     const sum = rolls.reduce((s, r, j) => s + (keep[j] ? r : 0), 0);
     total += sign * sum;
+    rolls.forEach((value, j) => dice.push({ sides: faces, value, kept: keep[j] }));
     detail += op + '[' + rolls.map((r, j) => (keep[j] ? String(r) : `~~${r}~~`)).join(',') + ']';
   });
-  return { total, detail: `${src} → ${detail} = ${total}` };
+  return { total, detail: `${src} → ${detail} = ${total}`, dice };
 }
 
 // ---------- Condiciones ----------

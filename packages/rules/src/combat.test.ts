@@ -45,3 +45,11 @@ test('applyCard con resistencia, half y none', () => {
   assert.equal(applyCard(card, [tok()], 'half')[0].hp!.cur, 15);
   assert.equal(applyCard(card, [t], 'none')[0].hp!.cur, 20);
 });
+
+test('card.dice: ventaja, salvación y daño', () => {
+  const adv = resolveAction(tok({ conditions: ['invisible'] }), sword, [tok()], seq(face(4, 20), face(15, 20), face(5, 8)));
+  assert.deepEqual(adv.dice, [{ sides: 20, value: 4, kept: false }, { sides: 20, value: 15, kept: true }, { sides: 8, value: 5, kept: true }]);
+  const save = resolveAction(tok(), { ...sword, kind: 'save', damage: '2d6', save: { ability: 'dex', dc: 12, half: true } }, [tok(), tok({ id: 'u' })], seq(face(3, 6), face(4, 6), face(9, 20), face(18, 20)));
+  assert.equal(save.dice!.length, 4);
+  assert.deepEqual(save.dice!.slice(2).map((d) => d.sides), [20, 20]);
+});

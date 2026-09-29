@@ -1,5 +1,5 @@
 // Resolución de acciones y aplicación de tarjetas (funciones puras).
-import type { Action, ActionCard, Token } from '@lantern/protocol';
+import type { Action, ActionCard, Die, Token } from '@lantern/protocol';
 import { applyDamage, autoCrit, autoFailSave, attackMode, heal, roll, saveDamage } from './index.ts';
 
 const d20 = (rng: () => number) => Math.floor(rng() * 20) + 1;
@@ -15,6 +15,7 @@ export function resolveAction(
     damageType: action.damageType, targets: [], applied: false,
   };
   const details: string[] = [];
+  const dice: Die[] = [];
   const dmg = action.damage ?? '0';
 
   if (action.kind === 'attack') {
@@ -24,10 +25,13 @@ export function resolveAction(
       const a = d20(rng);
       const b = mode === 'normal' ? a : d20(rng);
       const die = mode === 'adv' ? Math.max(a, b) : mode === 'dis' ? Math.min(a, b) : a;
+      dice.push({ sides: 20, value: a, kept: mode === 'normal' || a === die });
+      if (mode !== 'normal') dice.push({ sides: 20, value: b, kept: a !== die }); // empate: se conserva el primero
       const total = die + (action.toHit ?? 0);
       const hit = die !== 1 && (die === 20 || total >= (t.ac ?? 10) + (opts.cover?.(t) ?? 0));
       const crit = die === 20 || autoCrit(t.conditions, near);
       const r = roll(crit ? doubleDice(dmg) : dmg, rng);
+      dice.push(...r.dice);
       details.push(`${t.name}: ${r.detail}${crit ? ' (crítico)' : ''}`);
       card.targets.push({ id: t.id, name: t.name, attack: { d20: die, total, mode, hit, crit }, amount: hit ? r.total : 0 });
     }
@@ -35,8 +39,11 @@ export function resolveAction(
     const save = action.save!;
     const r = roll(dmg, rng);
     details.push(r.detail);
+    dice.push(...r.dice);
     for (const t of targets) {
-      const total = d20(rng) + (t.saves?.[save.ability] ?? 0);
+      const v = d20(rng);
+      dice.push({ sides: 20, value: v, kept: true });
+      const total = v + (t.saves?.[save.ability] ?? 0);
       const success = !autoFailSave(t.conditions, save.ability) && total >= save.dc;
       card.targets.push({
         id: t.id, name: t.name, save: { total, success, ability: save.ability, dc: save.dc },
@@ -46,11 +53,13 @@ export function resolveAction(
   } else {
     for (const t of targets) {
       const r = roll(dmg, rng);
+      dice.push(...r.dice);
       details.push(`${t.name}: ${r.detail}`);
       card.targets.push({ id: t.id, name: t.name, amount: r.total });
     }
   }
   card.detail = details.join('\n');
+  card.dice = dice;
   return card;
 }
 

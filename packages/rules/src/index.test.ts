@@ -98,3 +98,9 @@ test('abilityMod, proficiencyBonus, agotamiento, condiciones', () => {
   assert.equal(Object.keys(r.CONDITIONS).length, 15);
   assert.equal(r.CONDITIONS.blinded, 'Cegado');
 });
+
+test('roll devuelve dice con kept', () => {
+  const d = r.roll('2d20kh1+1d6+2', seq(0.9, 0.1, 0.5)).dice; // 19, 3, 4
+  assert.deepEqual(d, [{ sides: 20, value: 19, kept: true }, { sides: 20, value: 3, kept: false }, { sides: 6, value: 4, kept: true }]);
+  assert.equal(r.roll('5').dice.length, 0);
+});

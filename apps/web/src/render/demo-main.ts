@@ -14,7 +14,7 @@ document.body.style.cssText = 'margin:0;overflow:hidden;background:#070504';
 const vis = (): Point[][] =>
   scene.tokens.filter((t) => t.faction === 'ally').map((t) => visibility(t, sightSegments(scene.walls), scene.width, scene.height));
 const state = (): ClientState => ({
-  code: 'DEMO', members: [{ id: 'yo', name: 'Yo', role: dm ? 'dm' : 'player', online: true }],
+  code: 'DEMO', members: [{ id: 'yo', name: 'Yo', role: dm ? 'dm' : 'player', online: true, dice: 'linterna' }],
   scene: structuredClone(scene), automation: 'assisted', visible: dm ? undefined : vis(),
 });
 

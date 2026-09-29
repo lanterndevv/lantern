@@ -191,3 +191,21 @@ test('combate y tarjetas no filtran ocultos al jugador', () => {
   const other = { ...player, id: 'otro' };
   assert.ok(!('dc' in redact(room, f2.chat!, other).card!.targets[0].save!));
 });
+
+test('diceTheme: válido, inválido, difusión y persistencia; roll lleva dice', async () => {
+  const { room, player, dm } = setup();
+  assert.equal(player.dice, 'linterna');
+  assert.deepEqual(handle(room, player, { t: 'diceTheme', theme: 'dragon' }, fakeRoll), { state: true });
+  assert.ok(handle(room, player, { t: 'diceTheme', theme: 'nope' }, fakeRoll).error);
+  assert.ok(handle(room, player, { t: 'diceTheme' }, fakeRoll).error);
+  assert.equal(filterFor(room, dm).members.find((m) => m.id === player.id)!.dice, 'dragon');
+  const { openDb } = await import('./db.ts');
+  const db = openDb(':memory:');
+  db.save(room);
+  assert.equal(db.load(room.code)!.members.get(player.id)!.dice, 'dragon');
+  db.close();
+  const { roll } = await import('@lantern/rules');
+  const fx = handle(room, player, { t: 'roll', expr: '2d20kh1+1d6' }, roll);
+  assert.equal(fx.chat!.roll!.dice!.length, 3);
+  assert.equal(fx.chat!.roll!.dice!.filter((d) => !d.kept).length, 1);
+});
