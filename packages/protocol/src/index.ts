@@ -76,6 +76,7 @@ export type ActionCard = {
     amount?: number;             // daño (o curación) que corresponde a este objetivo
   }[];
   detail?: string;               // texto de las tiradas de daño
+  dice?: Die[];                  // todos los dados tirados (d20 de ataque/salvación + daño), para la animación 3D
   pending?: Id;                  // si está esperando confirmación del DM (automatización «asistida»)
   applied: boolean;
 };
@@ -93,7 +94,14 @@ export type Scene = {
   globalLight: number;         // 0 = oscuridad total, 1 = pleno día
 };
 
-export type Member = { id: Id; name: string; role: Role; online: boolean };
+// Un dado individual de una tirada (para animarlo en 3D en todos los clientes).
+export type Die = { sides: number; value: number; kept: boolean };
+
+// Sets de dados disponibles; el aspecto visual vive en apps/web/src/dice/themes.ts.
+export const DICE_THEMES = ['linterna', 'obsidiana', 'hueso', 'escarcha', 'bronce', 'esmeralda', 'arcano', 'dragon'] as const;
+export type DiceTheme = typeof DICE_THEMES[number];
+
+export type Member = { id: Id; name: string; role: Role; online: boolean; dice: DiceTheme };
 
 // Lo que recibe cada cliente: ya filtrado por el servidor según su rol y visión.
 export type ClientState = {
@@ -108,7 +116,7 @@ export type ClientState = {
 export type ChatMsg = {
   id: Id; from: Id; at: number;
   text?: string;
-  roll?: { expr: string; total: number; detail: string; secret: boolean };
+  roll?: { expr: string; total: number; detail: string; secret: boolean; dice?: Die[] };
   card?: ActionCard;
 };
 
@@ -130,7 +138,8 @@ export type C2S =
   | { t: 'act'; tokenId: Id; actionId: Id; targets: Id[] }           // resolver una acción
   | { t: 'confirm'; pending: Id; mode: 'full' | 'half' | 'none' }     // DM confirma daño pendiente
   | { t: 'spawn'; srd: string; x: number; y: number; hidden?: boolean } // DM añade monstruo del SRD
-  | { t: 'automation'; value: 'assisted' | 'auto' };                  // DM
+  | { t: 'automation'; value: 'assisted' | 'auto' }                   // DM
+  | { t: 'diceTheme'; theme: DiceTheme };                             // cada miembro elige su set
 
 // Servidor → cliente
 export type S2C =
