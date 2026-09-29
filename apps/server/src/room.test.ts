@@ -622,3 +622,12 @@ test('rtc: solo al destinatario; espectador no; tamaño limitado', () => {
   assert.ok(Hd(room, player, { t: 'rtc', to: dm.id, data: 'x'.repeat(16 * 1024) }).error);
   assert.ok(Hd(room, player, { t: 'rtc', to: 'nadie', data: 1 }).error);
 });
+
+test('unirse como espectador: ve lo del grupo, no controla tokens', () => {
+  const { room } = createRoom('DM', 'TESTSP') as Extract<ReturnType<typeof createRoom>, { room: unknown }>;
+  const r = joinRoom(room, 'Mesa', undefined, 'spectator') as { member: Parameters<typeof handle>[1] };
+  assert.equal(r.member.role, 'spectator');
+  assert.ok(!room.scene.tokens.some((t) => t.owners.includes(r.member.id)), 'no se le asigna personaje');
+  assert.ok(!filterFor(room, r.member).scene.tokens.some((t) => t.hidden));
+  assert.ok('error' in joinRoom(room, 'X', undefined, 'dm'));
+});

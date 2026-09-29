@@ -199,7 +199,7 @@ export type ChatMsg = {
 // Cliente → servidor
 export type C2S =
   // sin code → crea mesa nueva y quien la crea es DM. key = secreto devuelto en welcome, para reconectar.
-  | { t: 'join'; code?: string; name: string; key?: string }
+  | { t: 'join'; code?: string; name: string; key?: string; as?: 'spectator' } // as: entra como espectador (pantalla de mesa física, streaming)
   | { t: 'moveToken'; id: Id; x: number; y: number }
   | { t: 'upsert'; kind: 'token'; item: Token }
   | { t: 'upsert'; kind: 'wall'; item: Wall }

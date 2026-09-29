@@ -52,7 +52,7 @@ function cleanName(name: unknown) {
   return n.length >= 1 && n.length <= 32 ? n : null;
 }
 
-export function joinRoom(room: Room, name: unknown, key: unknown): { member: MemberRec; key?: string } | { error: string } {
+export function joinRoom(room: Room, name: unknown, key: unknown, as?: unknown): { member: MemberRec; key?: string } | { error: string } {
   if (key !== undefined) {
     if (typeof key !== 'string' || key.length > 200) return { error: 'key inválida' };
     const h = sha(key);
@@ -61,8 +61,9 @@ export function joinRoom(room: Room, name: unknown, key: unknown): { member: Mem
   }
   const n = cleanName(name);
   if (!n) return { error: 'nombre inválido' };
+  if (as !== undefined && as !== 'spectator') return { error: 'mensaje inválido' };
+  if (as === 'spectator') return addMember(room, n, 'spectator'); // pantalla de mesa física / streaming: ve lo que ve el grupo, no actúa
   const r = addMember(room, n, 'player');
-  // ponytail: selector de personaje más adelante
   const tk = room.scene.tokens.find((t) => t.faction === 'ally' && t.owners.length === 0);
   if (tk) tk.owners.push(r.member.id);
   return r;

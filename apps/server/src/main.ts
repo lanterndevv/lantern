@@ -166,7 +166,7 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
         } else {
           room = typeof msg.code === 'string' ? getRoom(normCode(msg.code)) : undefined;
           if (!room) return send(ws, { t: 'error', msg: 'mesa inexistente' });
-          const r = joinRoom(room, msg.name, msg.key);
+          const r = joinRoom(room, msg.name, msg.key, (msg as { as?: unknown }).as);
           if ('error' in r) return send(ws, { t: 'error', msg: r.error });
           member = r.member; key = r.key ?? (msg.key as string);
         }
