@@ -7,6 +7,10 @@ import { ddbCharacterId } from '@lantern/protocol/link';
 import { getCharacter, linkAvailable } from '../link.ts';
 import { mountSheet, deathSavesHtml } from './sheet.ts';
 import { mountSettings } from './settings.ts';
+import { mountAudio, mountMixer, getVolume } from './audio.ts';
+import { mountVoice } from './voice.ts';
+import { mountStory, mountScenePanel } from './story.ts';
+import { sfx } from './sfx.ts';
 
 const ROLES: Record<Role, string> = { dm: 'DM', assistant: 'Asistente', trusted: 'De confianza', player: 'Jugador', spectator: 'Espectador' };
 const PALETTE = ['#F5C877', '#5B9BE0', '#7FCB8A', '#E0643A', '#C79BF0', '#6FD3D3', '#F08AB4', '#E8E27A'];
@@ -74,6 +78,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
           <button role="tab" id="t-reg" aria-selected="true" aria-controls="p-reg">Registro</button>
           <button role="tab" id="t-hoja" aria-selected="false" aria-controls="p-hoja">Hoja</button>
           <button role="tab" id="t-mesa" aria-selected="false" aria-controls="p-mesa">Mesa</button>
+          <button role="tab" id="t-esc" aria-selected="false" aria-controls="p-esc" hidden>Escena</button>
           <button role="tab" id="t-aj" aria-selected="false" aria-controls="p-aj" hidden>Ajustes</button>
         </div>
         <button id="plegar" type="button" aria-expanded="true" aria-controls="cuerpo" aria-label="Plegar panel">▾</button>
@@ -88,9 +93,12 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
           </form>
         </div>
         <div id="p-hoja" role="tabpanel" aria-labelledby="t-hoja" class="hoja" hidden></div>
+        <div id="p-esc" role="tabpanel" aria-labelledby="t-esc" class="ajustes escena" hidden></div>
         <div id="p-aj" role="tabpanel" aria-labelledby="t-aj" class="ajustes" hidden></div>
         <div id="p-mesa" role="tabpanel" aria-labelledby="t-mesa" hidden>
           <ul id="miembros" class="miembros"></ul>
+          <section id="voz" class="voz" aria-label="Voz"></section>
+          <section id="mezcla" class="mezcla" aria-label="Mezclador de sonido"></section>
           <section id="mios" aria-label="Tu personaje"></section>
           <section class="dados" aria-label="Dados">
             <h2 id="sets-t">Tus dados</h2>
@@ -184,8 +192,15 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   const staff = w.role === 'dm' || w.role === 'assistant';
   const settings = staff ? mountSettings($('p-aj'), m => net.send(m), w.memberId) : undefined;
   $('t-aj').hidden = !staff;
+  mountMixer($('mezcla'));
+  const voz = mountVoice($('voz'), { me: w.memberId, members: () => state.members, getVolume: () => getVolume('voz') });
+  const audio = mountAudio(root, { own: () => mine()[0], send: m => net.send(m) });
+  const story = mountStory(root, $('mapa'), { isDm: w.role === 'dm', send: m => net.send(m) });
+  const scenePanel = staff || w.role === 'trusted' ? mountScenePanel($('p-esc'), { role: w.role, code: w.state.code, send: m => net.send(m) }) : undefined;
+  $('t-esc').hidden = !scenePanel;
 
   const render = (s: ClientState) => {
+    voz.onState(s.members);
     state = s;
     $('escena').textContent = s.scene.name;
     $('cod').textContent = `${s.code.slice(0, 3)}-${s.code.slice(3)}`;
@@ -199,7 +214,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     targets = targets.filter(id => tok(id));
     if (armed && !tok(armed.tok)) armed = undefined;
     $('simple').hidden = state.settings.mode === 'full'; $('cbt').hidden = !layerOn('initiative');
-    sheet.render(); settings?.render(s); renderMios(); renderInit(); renderTurn(); renderHud(); renderDm(); renderClaim(); marks();
+    story.update(s); audio.update(s.audio); scenePanel?.render(s); sheet.render(); settings?.render(s); renderMios(); renderInit(); renderTurn(); renderHud(); renderDm(); renderClaim(); marks();
   };
 
   const renderInit = () => {
@@ -393,6 +408,27 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     show3d = !show3d; paint3d();
     try { localStorage.setItem('lantern.dados3d', show3d ? '1' : '0'); } catch { /* sin almacenamiento */ }
   };
+  const fxDone = new Set<Id>(); // efectos de tarjeta: una vez por mensaje
+  const cardFx = (c: ActionCard) => {
+    const A = tok(c.actorId), act = A?.actions?.find(a => a.name === c.actionName), melee = (act?.range ?? 5) <= 5;
+    const at = (id: Id) => { const k = tok(id); return k && { x: k.x, y: k.y }; };
+    const ts = c.targets.map(t => ({ t, p: at(t.id) })).filter((x): x is { t: typeof x.t; p: Point } => !!x.p);
+    if (!ts.length) return;
+    const from = A && { x: A.x, y: A.y };
+    void table.then(tb => {
+      if (c.kind === 'heal') ts.forEach(x => tb.effect({ kind: 'heal', at: x.p }));
+      else if (c.kind === 'attack') for (const { t, p } of ts) {
+        if (!t.attack?.hit) tb.effect({ kind: 'miss', at: p });
+        else if (!melee && from) tb.effect({ kind: 'projectile', from, to: p, damageType: c.damageType });
+        else tb.effect({ kind: 'impact', at: p, damageType: c.damageType, crit: t.attack.crit });
+      } else if (act?.area) {
+        const n = ts.length;
+        tb.effect({ kind: 'burst', at: { x: ts.reduce((a, x) => a + x.p.x, 0) / n, y: ts.reduce((a, x) => a + x.p.y, 0) / n }, radius: areaR(act), damageType: c.damageType });
+      } else ts.forEach(x => tb.effect({ kind: 'impact', at: x.p, damageType: c.damageType }));
+    });
+    const hits = c.kind === 'attack' ? c.targets.filter(t => t.attack?.hit) : c.targets;
+    sfx(c.kind === 'heal' ? 'heal' : c.kind === 'attack' && !hits.length ? 'miss' : hits.some(t => t.attack?.crit) ? 'crit' : 'hit');
+  };
   const rolled = new Set<Id>(); // la tarjeta se reenvía al confirmarse: solo se anima una vez
 
   const cards = new Map<Id, HTMLElement>(); // para reemplazar tarjetas que el servidor reenvía (pendiente → aplicada)
@@ -410,6 +446,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
         net.send({ t: 'confirm', pending: c.pending!, mode: b.dataset.m as 'full' | 'half' | 'none' });
         el.querySelectorAll('button').forEach(x => x.disabled = true);
       });
+      if (live && (c.applied || c.pending) && !fxDone.has(m.id)) { fxDone.add(m.id); cardFx(c); }
       if (live && c.applied) for (const t of c.targets) if (t.amount && t.amount > 0)
         table.then(tb => tb.floatText(t.id, `${c.kind === 'heal' ? '+' : '−'}${t.amount}`, c.kind === 'heal' ? HEAL : dmgColor(c.damageType)));
     } else if (m.roll) {
@@ -461,8 +498,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   };
 
   // Pestañas y plegado
-  const tab = (a: 'reg' | 'hoja' | 'mesa' | 'aj') => {
-    for (const k of ['reg', 'hoja', 'mesa', 'aj'] as const) {
+  const tab = (a: 'reg' | 'hoja' | 'mesa' | 'esc' | 'aj') => {
+    for (const k of ['reg', 'hoja', 'mesa', 'esc', 'aj'] as const) {
       $('t-' + k).setAttribute('aria-selected', String(k === a));
       $('p-' + k).hidden = k !== a;
     }
@@ -471,6 +508,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   $('t-mesa').onclick = () => tab('mesa');
   $('t-hoja').onclick = () => tab('hoja');
   $('t-aj').onclick = () => tab('aj');
+  $('t-esc').onclick = () => tab('esc');
   $('plegar').onclick = () => {
     const c = $('lado').classList.toggle('plegado');
     $('plegar').setAttribute('aria-expanded', String(!c));
@@ -495,6 +533,10 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       else if (m.t === 'state') render(m.state);
       else if (m.t === 'chat') addMsg(m.msg, true);
       else if (m.t === 'ping') table.then(t => t.ping(m.x, m.y, colorOf(m.from)));
+      else if (m.t === 'npcSay') story.npcSay(m);
+      else if (m.t === 'transition') story.transition(m);
+      else if (m.t === 'sfx') sfx(m.name);
+      else if (m.t === 'clock') audio.clock(m.now);
       else if (m.t === 'error') { const t = $('toast'); t.textContent = m.msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3000); }
     },
   };
