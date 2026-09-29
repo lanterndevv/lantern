@@ -16,3 +16,12 @@ export const ddbCharacterId = (s: string): number | undefined => {
   const m = s.trim().match(/(?:characters\/)?(\d{4,12})(?:\D|$)/);
   return m ? Number(m[1]) : undefined;
 };
+
+// Fase 9: monstruos de la cuenta DDB del DM (solo los que posee; los lee su propia sesión).
+export type LinkMonsterHit = { id: number; name: string; cr: string; type: string; avatar?: string };
+export type LinkReq2 =
+  | { lantern: 'link'; dir: 'req'; rid: string; t: 'searchMonsters'; query: string }
+  | { lantern: 'link'; dir: 'req'; rid: string; t: 'getMonster'; id: number };
+export type LinkRes2 =
+  | { lantern: 'link'; dir: 'res'; rid: string; t: 'monsters'; list: LinkMonsterHit[] }
+  | { lantern: 'link'; dir: 'res'; rid: string; t: 'monster'; data: import('./index.ts').ImportedCharacter & { cr: string; size: number } };

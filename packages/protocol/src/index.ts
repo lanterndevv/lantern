@@ -16,6 +16,8 @@ export type Light = {
   color: string;               // '#ffb85c'
   anim?: 'none' | 'torch' | 'pulse';
   level?: Id;
+  burnUntil?: number;          // minuto del reloj del mundo en que se apaga (antorchas); ausente = permanente
+  follow?: Id;                 // la luz sigue a este token (antorcha en mano)
 };
 
 export type Hp = { cur: number; max: number; temp: number };
@@ -58,6 +60,10 @@ export type Token = {
   notes?: string;              // nota privada del DM (el servidor la quita para los demás)
   level?: Id;                  // planta en la que está (ausente = planta base)
   heroPoints?: number;         // regla opcional «puntos de héroe»
+  elevation?: number;          // pies sobre el suelo (vuelo, balcón); cuenta en distancias
+  carriedBy?: Id;              // montura/agarre: se mueve con este token
+  legendary?: { max: number; used: number }; // acciones legendarias por ronda
+  lair?: boolean;              // tiene acciones de guarida (turno en iniciativa 20)
   ddb?: { id: number; level: number; classes: string; syncedAt: number }; // vinculado a un personaje de D&D Beyond
   abilities?: Record<Ability, number>;        // puntuaciones (no modificadores)
   skills?: Record<string, number>;            // modificador total por habilidad (ids en inglés: 'perception', 'stealth'…)
@@ -129,6 +135,8 @@ export type Scene = {
   weather?: Weather;
   regions?: Region[];
   levels?: { id: Id; name: string }[];      // plantas de abajo arriba; la base es la primera (o la única si no hay lista)
+  drawings?: Drawing[];                     // dibujo persistente (el efímero va solo por S2C)
+  outdoor?: boolean;                        // al aire libre: la luz global sigue al reloj del mundo
   folder?: string;             // carpeta en la biblioteca
   audioPreset?: AudioState;    // música/ambiente que se activan con la escena
   dmNotes?: string;            // notas del DM de la escena (solo DM)
@@ -152,12 +160,17 @@ export type Region = {
   text?: string;                            // message (lo ve quien entra) / descripción
   level?: Id;                               // planta de la región
   toLevel?: Id;                             // teleport/escalera: planta de destino (con `to` o misma posición)
+  trigger?: 'enter' | 'turnStart' | 'turnEnd'; // cuándo se dispara (por defecto al entrar); turnStart/End: áreas persistentes (Espíritus guardianes…)
+  untilRound?: number;                      // se borra al acabar esa ronda (conjuros con duración)
 };
+
+export type Drawing = { id: Id; points: Point[]; color: string; width: number; by: Id; level?: Id };
 
 export type JournalEntry = {
   id: Id; title: string; body: string;      // body: texto plano con saltos de línea
   image?: string;                            // URL https o /assets/…
   visibleTo: 'dm' | 'all' | Id[];            // quién puede leerla
+  table?: { dice: string; rows: { min: number; max: number; text: string }[] }; // tabla aleatoria («1d6», filas por rango)
   folder?: string;
 };
 
@@ -207,11 +220,16 @@ export type ClientState = {
   safety: { lines: string[]; veils: string[] }; // líneas y velos de la mesa (anónimos)
   sessionStart?: number;       // ms del servidor en que empezó la sesión actual
   copilot: boolean;            // hay un modelo configurado en el servidor
+  clock: number;               // reloj del mundo en minutos desde el inicio de la campaña (día = floor(/1440))
+  canUndo: boolean;            // hay algo que deshacer para este miembro
 };
 
 export type ChatMsg = {
   id: Id; from: Id; at: number;
   text?: string;
+  to?: Id[];                   // susurro: solo estos miembros (y el DM) lo ven
+  as?: string;                 // en personaje: nombre del token con el que habla
+  emote?: boolean;             // /me: acción narrada
   roll?: { expr: string; total: number; detail: string; secret: boolean; dice?: Die[]; blind?: boolean; external?: 'beyond20' }; // blind: ni quien tira lo ve · external: tirada hecha fuera (confianza del cliente)
   card?: ActionCard;
 };
@@ -226,11 +244,26 @@ export type C2S =
   | { t: 'upsert'; kind: 'light'; item: Light }
   | { t: 'remove'; kind: 'token' | 'wall' | 'light'; id: Id }
   | { t: 'door'; id: Id; open: boolean }
-  | { t: 'chat'; text: string }
+  | { t: 'chat'; text: string; to?: Id[]; as?: Id; emote?: boolean } // as = token propio para hablar en personaje
   | { t: 'roll'; expr: string; secret?: boolean }
   | { t: 'ping'; x: number; y: number }
   | { t: 'claim'; tokenId: Id }                                      // jugador elige un aliado sin dueño
   | { t: 'combat'; op: 'start' | 'next' | 'prev' | 'end' }           // DM
+  | { t: 'combat'; op: 'delay'; tokenId: Id }                       // dueño en su turno (o DM): retrasa hasta después del siguiente
+  | { t: 'combat'; op: 'add' | 'remove'; tokenId: Id }               // DM: meter/sacar una criatura en caliente
+  | { t: 'legendary'; tokenId: Id; op: 'use' | 'reset' }             // DM
+  | { t: 'react'; pending: Id; tokenId: Id; actionId: Id }           // dueño del objetivo: reacción (Escudo) sobre una tarjeta aún pendiente
+  | { t: 'draw'; item: Drawing; persist: boolean }                   // dibujo: efímero (5 s, solo difusión) o persistente
+  | { t: 'erase'; id: Id | 'mine' | 'all' }                          // 'all' solo DM
+  | { t: 'cursor'; x: number; y: number }                            // posición del puntero (limitado)
+  | { t: 'focusAll'; x: number; y: number }                          // DM: mueve la cámara de todos (ping forzado / modo cinematográfico)
+  | { t: 'undo' }                                                    // deshace el último cambio propio (DM: el último de la escena)
+  | { t: 'clock'; advance: number }                                  // DM: avanza el reloj del mundo (minutos, puede ser negativo)
+  | { t: 'rollTable'; entryId: Id; secret?: boolean }                // tira en una tabla aleatoria del diario
+  | { t: 'tokenImage'; tokenId: Id; img: string }                    // dueño: cambia la imagen de su token (https o /assets/)
+  | { t: 'moveMany'; moves: { id: Id; x: number; y: number }[] }     // mover un grupo en formación (mismas reglas que moveToken)
+  | { t: 'carry'; tokenId: Id; by: Id | null }                       // montura/agarre: tokenId pasa a moverse con `by`
+  | { t: 'spawnCustom'; monster: ImportedCharacter & { cr?: string; size?: number; srdLike?: true }; x: number; y: number; hidden?: boolean } // DM: monstruo traído de su cuenta DDB
   | { t: 'act'; tokenId: Id; actionId: Id; targets: Id[] }           // resolver una acción
   | { t: 'confirm'; pending: Id; mode: 'full' | 'half' | 'none' }     // DM confirma daño pendiente
   | { t: 'spawn'; srd: string; x: number; y: number; hidden?: boolean } // DM añade monstruo del SRD
@@ -294,6 +327,10 @@ export type S2C =
   | { t: 'clock'; now: number }                                        // reloj del servidor (ms) para sincronizar audio; se envía tras welcome
   | { t: 'handout'; entry: JournalEntry }
   | { t: 'regionMsg'; text: string }                                   // mensaje de una región al token que entra
+  | { t: 'draw'; item: Drawing }                                        // dibujo efímero (se borra solo a los 5 s)
+  | { t: 'cursor'; from: Id; x: number; y: number }
+  | { t: 'focus'; x: number; y: number }                                // el DM mueve la cámara de todos
+  | { t: 'reactionPrompt'; pending: Id; tokenId: Id; actionId: Id; text: string; expires: number } // «¿Usas Escudo?»
   | { t: 'safety'; op: 'x' }                                           // tarjeta X: todos ven la pausa (sin autor)
   | { t: 'checkRequest'; id: Id; tokenIds: Id[]; kind: 'save' | 'skill' | 'ability'; key: string; label: string; dc?: number } // a los dueños
   | { t: 'sessionSummary'; summary: SessionSummary }
