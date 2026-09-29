@@ -410,7 +410,8 @@ test('plantilla colocada: el servidor elige los objetivos dentro del área respe
   kael.actions!.push({ id: 'col', name: 'Columna', cost: 'action', kind: 'save', range: 150, save: { ability: 'dex', dc: 15, half: true }, damage: '2d6', area: { shape: 'cylinder', size: 10 } });
   const cyl = withRandom([0.5], () => H(player, { t: 'act', tokenId: 'kael', actionId: 'col', targets: [], at: p(930, 510) }));
   assert.deepEqual(ids(cyl), ['kael', 'trasgo-b']); // el lanzador queda dentro de una esfera centrada a 1 casilla
-  // sin punto: sigue valiendo la lista del cliente
+  // sin punto: el DM puede dar la lista; un jugador no (elegiría objetivos fuera del cono o la línea)
+  assert.match(H(player, { t: 'act', tokenId: 'kael', actionId: 'col', targets: ['trasgo-b'] }).error!, /plantilla/);
   assert.equal(H(dm, { t: 'act', tokenId: 'kael', actionId: 'col', targets: ['trasgo-b'] }).error, undefined);
 });
 

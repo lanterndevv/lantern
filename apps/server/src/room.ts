@@ -601,6 +601,7 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       const w = s.walls.find((w) => w.id === m2.id && w.kind === 'door');
       if (!w) return { error: 'puerta inexistente' };
       if (!isDM(m)) {
+        if (w.secret) return { error: 'puerta inexistente' }; // al jugador le llega como muro: no confirmar que hay algo
         if (w.locked && m2.open) return { error: 'cerrada con llave' };
         if (role !== 'player') return DENY;
         const mid = { x: (w.a.x + w.b.x) / 2, y: (w.a.y + w.b.y) / 2 };
@@ -731,6 +732,7 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
           && cover(origin, t, t.size * s.grid.size / 2, so) !== 'total');
         from = origin;
       } else {
+        if (act.area && !isDM(m)) return { error: 'falta la plantilla' }; // un jugador no elige a mano quién queda en el área
         if (!m2.targets.length) return { error: 'mensaje inválido' };
         const vis = isDM(m) ? null : new Set(filterFor(room, m).scene.tokens.map((t) => t.id));
         for (const id of new Set(m2.targets as string[])) {
@@ -739,7 +741,7 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
           targets.push(t);
         }
         const reach = act.range + 5 * (tk.size - 1);
-        // ponytail: sin punto de plantilla (`at`) solo se comprueba el alcance al primer objetivo
+        // ponytail: sin plantilla (solo DM y copiloto) el alcance se mira en el primer objetivo y areaError no valida conos ni líneas
         if ((act.area ? targets.slice(0, 1) : targets).some((t) => dist(t) > reach + 1e-6)) return { error: 'fuera de alcance' };
         if (act.area) { const ae = areaError(s.grid, act.area, targets); if (ae) return { error: ae }; }
       }
@@ -970,13 +972,12 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       if (!isDM(m)) return DENY;
       if (!str(m2.id, 64) || (m2.name !== undefined && !str(m2.name, 60)) || (m2.folder !== undefined && !short(m2.folder, 40))) return { error: 'mensaje inválido' };
       if (!Object.hasOwn(room.scenes, m2.id)) return { error: 'escena inexistente' };
+      // visibleTo: null/[] = todos; solo miembros existentes. Se valida todo antes de tocar la escena.
+      if (m2.visibleTo !== undefined && m2.visibleTo !== null && !(Array.isArray(m2.visibleTo) && m2.visibleTo.length <= 50 && m2.visibleTo.every((id) => str(id, 64) && room.members.has(id)))) return { error: 'mensaje inválido' };
       const sc = room.scenes[m2.id];
       if (m2.name !== undefined) sc.name = m2.name;
       if (m2.folder !== undefined) { if (m2.folder) sc.folder = m2.folder; else delete sc.folder; } // '' quita la carpeta
-      if (m2.visibleTo !== undefined) { // null/[] = todos; solo miembros existentes
-        if (m2.visibleTo !== null && !(Array.isArray(m2.visibleTo) && m2.visibleTo.length <= 50 && m2.visibleTo.every((id) => str(id, 64) && room.members.has(id)))) return { error: 'mensaje inválido' };
-        if (m2.visibleTo?.length) sc.visibleTo = [...new Set(m2.visibleTo)]; else delete sc.visibleTo;
-      }
+      if (m2.visibleTo !== undefined) { if (m2.visibleTo?.length) sc.visibleTo = [...new Set(m2.visibleTo)]; else delete sc.visibleTo; }
       return { state: true };
     }
     case 'sceneDelete': {

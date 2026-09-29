@@ -47,6 +47,8 @@ test('biblioteca de escenas: nueva, copia, activar, renombrar, borrar', () => {
   assert.equal(H(dm, { t: 'sceneUpdate', id: empty.id, name: 'Taberna', folder: 'Acto 1' }).state, true);
   assert.deepEqual([empty.name, empty.folder], ['Taberna', 'Acto 1']);
   assert.ok(H(dm, { t: 'sceneUpdate', id: empty.id, folder: 'x'.repeat(41) }).error);
+  assert.ok(H(dm, { t: 'sceneUpdate', id: empty.id, name: 'Otra', visibleTo: ['nadie'] }).error);
+  assert.equal(empty.name, 'Taberna'); // el error no deja cambios a medias
   // activar: termina el combate y aplica el audioPreset
   H(dm, { t: 'combat', op: 'start' }); assert.ok(room.combat);
   empty.audioPreset = { track: { url: '/assets/a.mp3', name: 'Taberna', startedAt: 5, loop: true }, layers: [] };

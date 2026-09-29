@@ -80,6 +80,10 @@ test('puertas: solo con token cerca', () => {
   assert.ok(handle(room, player, { t: 'door', id: 'd1', open: true }, fakeRoll).error); // Kael lejos de d1
   tok(room, 'kael').x = 330; tok(room, 'kael').y = 270;
   assert.equal(handle(room, player, { t: 'door', id: 'd1', open: true }, fakeRoll).state, true);
+  // la puerta secreta le llega como muro: por protocolo tampoco se abre, aunque esté al lado
+  tok(room, 'kael').x = 1300; tok(room, 'kael').y = 570;
+  assert.equal(handle(room, player, { t: 'door', id: 'd3', open: true }, fakeRoll).error, 'puerta inexistente');
+  assert.equal(room.scene.walls.find((w) => w.id === 'd3')!.open, false);
 });
 
 test('reconectar con key y key inválida', () => {
