@@ -47,3 +47,13 @@ export function pointInPolygon(p: Point, poly: Point[]): boolean {
   }
   return inside;
 }
+
+// Cobertura del objetivo (círculo de radio targetRadius) vista desde `from`: líneas al centro y a 4 esquinas.
+// 0 libres → 0; 1–2 bloqueadas → 2 (media); 3–4 → 5 (tres cuartos); 5 → 'total'.
+export function cover(from: Point, to: Point, targetRadius: number, segs: Seg[]): 0 | 2 | 5 | 'total' {
+  const o = (a: Point, b: Point, c: Point) => Math.sign((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
+  const blocked = (p: Point) => segs.some(([a, b]) => o(from, p, a) * o(from, p, b) < 0 && o(a, b, from) * o(a, b, p) < 0);
+  const r = targetRadius;
+  const n = [{ x: to.x, y: to.y }, { x: to.x - r, y: to.y - r }, { x: to.x + r, y: to.y - r }, { x: to.x - r, y: to.y + r }, { x: to.x + r, y: to.y + r }].filter(blocked).length;
+  return n === 0 ? 0 : n <= 2 ? 2 : n <= 4 ? 5 : 'total';
+}

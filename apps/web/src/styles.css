@@ -140,6 +140,9 @@ input[type=checkbox] { width: auto; min-height: 0; }
 #p-mesa:not([hidden]) { flex: 1; min-height: 0; overflow-y: auto; }
 dialog { background: var(--sombra); color: var(--txt); border: 1px solid var(--borde); border-radius: var(--r-panel); padding: 24px; width: min(380px, 92vw); }
 dialog::backdrop { background: rgba(0,0,0,.6); }
+.cob { display: inline-flex; align-items: center; gap: 4px; color: var(--ambar-claro); }
+.mov { display: grid; gap: 2px; font-size: .8rem; }
+#ddbst { color: var(--txt2); }
 dialog h2 { font: 1.3rem var(--serif); margin: 0 0 12px; }
 @media (max-width: 699px) { .hud { bottom: 80px; max-width: calc(100% - 16px); } .init { top: 64px; } }
 

@@ -4,11 +4,11 @@ import { CODE_ALPHABET, DICE_THEMES, blocksMove } from '@lantern/protocol';
 import type { ActionCard, C2S, ChatMsg, ClientState, Combat, DiceTheme, Die, Id, Light, Member, Point, Role, Scene, Token, Wall } from '@lantern/protocol';
 import { applyCard, resolveAction } from '@lantern/rules';
 import { MONSTERS } from '@lantern/srd';
+import { parseCharacter } from './import.ts';
 import { demoScene } from '@lantern/protocol/demo';
-import { pointInPolygon, sightSegments, visibility } from '@lantern/vision';
+import { cover, pointInPolygon, sightSegments, visibility } from '@lantern/vision';
 
 export type MemberRec = { id: Id; name: string; role: Role; keyHash: string; dice: DiceTheme };
-// ponytail: automation, combat y pending viven solo en memoria (no se guardan en la BD); persistir si hay que sobrevivir a reinicios
 export type Room = { code: string; scene: Scene; members: Map<Id, MemberRec>; chat: ChatMsg[]; automation: 'assisted' | 'auto'; combat?: Combat; pending: ActionCard[] };
 export type RollFn = (expr: string) => { total: number; detail: string; dice?: Die[] };
 export type Effect = { error?: string; state?: boolean; chat?: ChatMsg; chats?: ChatMsg[]; ping?: { from: Id; x: number; y: number } };
@@ -205,6 +205,16 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
         // trusted no está sujeto a muros (solo el jugador raso), según el plan
         if (role === 'player' && pathBlocked(s, t, to)) return { error: 'camino bloqueado' };
       }
+      const cb = room.combat;
+      if (cb && !isDM(m)) {
+        if (cb.order[cb.turn]?.tokenId !== t.id) return { error: 'no es su turno' };
+        // regla 5-5-5: cada movimiento cuesta max(|dx|,|dy|) casillas × pies por casilla
+        const feet = Math.max(Math.abs(to.x - t.x), Math.abs(to.y - t.y)) / s.grid.size * s.grid.feet;
+        const u = (cb.used[t.id] ??= { action: false, bonus: false, reaction: false, moved: 0 });
+        const speed = t.speed ?? 30;
+        if (u.moved + feet > speed + 1e-6) return { error: `sin movimiento: te quedan ${Math.max(0, Math.floor(speed - u.moved))} pies` };
+        u.moved += feet;
+      }
       t.x = to.x; t.y = to.y;
       return { state: true };
     }
@@ -324,6 +334,13 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
       const reach = act.range + 5 * (tk.size - 1);
       // ponytail: en acciones de área solo se comprueba el alcance al primer objetivo (punto de impacto); sin plantilla de área real
       if ((act.area ? targets.slice(0, 1) : targets).some((t) => dist(t) > reach + 1e-6)) return { error: 'fuera de alcance' };
+      // cobertura por muros: 'total' invalida al objetivo; ½ y ¾ suman a la CA (ataques) y a las salvaciones de DES
+      const segs = sightSegments(s.walls), cov = new Map<Id, 0 | 2 | 5>();
+      for (const t of targets) {
+        const c = cover(tk, t, t.size * s.grid.size / 2, segs);
+        if (c === 'total') return { error: 'sin línea de visión' };
+        cov.set(t.id, c);
+      }
       const cb = room.combat;
       if (cb) {
         if (!isDM(m) && act.cost !== 'reaction' && cb.order[cb.turn]?.tokenId !== tk.id) return { error: 'no es su turno' };
@@ -334,13 +351,28 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
         lvl = Object.keys(tk.slots ?? {}).map(Number).sort((a, b) => a - b).find((l) => l >= act.slot! && tk.slots![l].used < tk.slots![l].max) ?? 0;
         if (!lvl) return { error: 'sin espacios de conjuro' };
       }
-      const card = resolveAction(tk, act, targets, undefined, { within5ft: (t) => dist(t) <= 5 + 5 * (tk.size - 1), cover: () => 0 /* ponytail: cobertura por muros pendiente */ });
+      const dexSave = act.kind === 'save' && act.save?.ability === 'dex';
+      // resolveAction solo aplica la cobertura a la CA: en salvaciones de DES se suma al bono de la salvación del objetivo
+      const rt = dexSave ? targets.map((t) => ({ ...t, saves: { ...t.saves, dex: (t.saves?.dex ?? 0) + cov.get(t.id)! } })) : targets;
+      const card = resolveAction(tk, act, rt, undefined, { within5ft: (t) => dist(t) <= 5 + 5 * (tk.size - 1), cover: (t) => cov.get(t.id) ?? 0 });
+      if (act.kind === 'attack' || dexSave) for (const ct of card.targets) { const c = cov.get(ct.id); if (c) ct.cover = c; }
       if (lvl) tk.slots![lvl].used++;
       if (cb) (cb.used[tk.id] ??= { action: false, bonus: false, reaction: false, moved: 0 })[act.cost] = true;
       if (room.automation === 'auto' || act.kind === 'heal') { s.tokens = applyCard(card, s.tokens, 'full'); card.applied = true; }
       else if (card.targets.some((t) => (t.amount ?? 0) > 0)) { card.pending = randomUUID(); room.pending.push(card); }
       else card.applied = true; // nada que aplicar (todo fallado)
       return { state: true, chat: pushChat(room, { id: randomUUID(), from: m.id, at: now, card: structuredClone(card) }) };
+    }
+    case 'importCharacter': {
+      if (!str(m2.tokenId, 64)) return { error: 'mensaje inválido' };
+      const t = s.tokens.find((t) => t.id === m2.tokenId);
+      if (!t || t.faction !== 'ally') return { error: 'token inexistente' };
+      if (!isDM(m) && !t.owners.includes(m.id)) return DENY;
+      const d = parseCharacter(m2.data);
+      if (!d) return { error: 'datos de personaje inválidos' };
+      const { ddbId, level, classes, avatar, ...stats } = d;
+      Object.assign(t, stats, { ddb: { id: ddbId, level, classes, syncedAt: now } }, avatar && { img: avatar });
+      return { state: true, chat: pushChat(room, { id: randomUUID(), from: m.id, at: now, text: `${t.name} se ha vinculado con D&D Beyond (nivel ${level})` }) };
     }
     case 'confirm': {
       if (!isDM(m)) return DENY;

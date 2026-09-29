@@ -141,9 +141,10 @@ test('assisted deja pendiente y confirm aplica; auto aplica al momento', () => {
   assert.ok(tok(room, 'trasgo-a').hp!.cur < before);
   assert.ok(handle(room, dm, { t: 'confirm', pending: id, mode: 'full' }, fakeRoll).error); // ya aplicada
   handle(room, dm, { t: 'automation', value: 'auto' }, fakeRoll);
-  const b2 = tok(room, 'trasgo-b').hp!.cur;
-  act(room, dm, 'kael', 'proyectil-magico', ['trasgo-b']);
-  assert.ok(tok(room, 'trasgo-b').hp!.cur < b2);
+  tok(room, 'trasgo-a').hp!.cur = 20;
+  const b2 = 20;
+  act(room, dm, 'kael', 'proyectil-magico', ['trasgo-a']);
+  assert.ok(tok(room, 'trasgo-a').hp!.cur < b2);
   assert.ok(handle(room, player, { t: 'automation', value: 'assisted' }, fakeRoll).error);
 });
 
@@ -180,6 +181,7 @@ test('combate y tarjetas no filtran ocultos al jugador', () => {
   assert.ok(!JSON.stringify(st.combat).includes('trasgo-c') && !JSON.stringify(st.combat).includes('hobgoblin-2'));
   assert.equal(st.combat!.order.length, st.scene.tokens.length);
   assert.ok(st.combat!.turn < st.combat!.order.length);
+  room.scene.walls = []; // sin muros para que haya línea de visión
   // kael ataca a un oculto (como DM) y luego una CD ajena
   const fx = act(room, dm, 'kael', 'rayo-escarcha', ['hobgoblin-2']);
   assert.equal(fx.error, undefined);
@@ -208,4 +210,112 @@ test('diceTheme: válido, inválido, difusión y persistencia; roll lleva dice',
   const fx = handle(room, player, { t: 'roll', expr: '2d20kh1+1d6' }, roll);
   assert.equal(fx.chat!.roll!.dice!.length, 3);
   assert.equal(fx.chat!.roll!.dice!.filter((d) => !d.kept).length, 1);
+});
+
+test('persistencia: automation, combat y pending sobreviven a recargar', async () => {
+  const { room, dm, player } = setup();
+  handle(room, dm, { t: 'automation', value: 'auto' }, fakeRoll);
+  handle(room, dm, { t: 'automation', value: 'assisted' }, fakeRoll);
+  handle(room, dm, { t: 'combat', op: 'start' }, fakeRoll);
+  toTurn(room, dm, 'kael');
+  assert.ok(act(room, player, 'kael', 'proyectil-magico', ['trasgo-a']).chat!.card!.pending);
+  const { openDb } = await import('./db.ts');
+  const db = openDb(':memory:');
+  db.save(room);
+  const r = db.load(room.code)!;
+  assert.equal(r.automation, 'assisted');
+  assert.deepEqual(r.combat, room.combat);
+  assert.deepEqual(r.pending, room.pending);
+  assert.equal(r.pending.length, 1);
+  handle(room, dm, { t: 'combat', op: 'end' }, fakeRoll);
+  db.save(room);
+  assert.equal(db.load(room.code)!.combat, undefined);
+  db.close();
+});
+
+test('movimiento en combate: turno y pies (5-5-5)', () => {
+  const { room, dm, player } = setup();
+  handle(room, dm, { t: 'combat', op: 'start' }, fakeRoll);
+  const mv = (m: any, x: number, y = 570) => handle(room, m, { t: 'moveToken', id: 'kael', x, y }, fakeRoll);
+  toTurn(room, dm, 'nix');
+  assert.equal(mv(player, 450).error, 'no es su turno');
+  toTurn(room, dm, 'kael');
+  tok(room, 'kael').speed = 10;
+  assert.equal(mv(player, 450).state, true);            // 60 px = 5 pies
+  assert.equal(room.combat!.used.kael.moved, 5);
+  assert.equal(mv(player, 390, 510).state, true);       // diagonal: 5 pies
+  assert.equal(mv(player, 330).error, 'sin movimiento: te quedan 0 pies');
+  assert.equal(tok(room, 'kael').x, 390);
+  assert.equal(mv(dm, 330).state, true);                // el DM no tiene límite
+  assert.equal(room.combat!.used.kael.moved, 10);
+});
+
+test('cobertura: total invalida, media suma a la CA y a salvaciones de DES', () => {
+  const wall = (y2: number) => ({ id: 'cw', kind: 'wall' as const, a: { x: 535, y: 0 }, b: { x: 535, y: y2 } });
+  let s = setup();
+  s.room.scene.walls.push(wall(1000));
+  assert.equal(act(s.room, s.dm, 'kael', 'rayo-escarcha', ['trasgo-a']).error, 'sin línea de visión');
+  s = setup(); s.room.scene.walls.push(wall(500)); // tapa 1 de 5 puntos → media (+2)
+  const c = act(s.room, s.dm, 'kael', 'rayo-escarcha', ['trasgo-a']).chat!.card!;
+  assert.equal(c.targets[0].cover, 2);
+  const base = setup();
+  const save = (r: Room, d: any) => act(r, d, 'kael', 'bola-fuego', ['trasgo-a']).chat!.card!.targets[0];
+  const t0 = save(base.room, base.dm);
+  s = setup(); s.room.scene.walls.push(wall(500));
+  const t1 = save(s.room, s.dm);
+  assert.equal(t1.cover, 2);
+  assert.equal(t1.save!.total, t0.save!.total + 2);
+});
+
+const goodChar = () => ({
+  name: 'Kael el Grande', hp: { cur: 20, max: 30, temp: 0 }, ac: 16, speed: 30, initMod: 3, saves: { dex: 5, wis: 2 }, darkvision: 720,
+  defenses: { resist: ['fire'] },
+  actions: [{ id: 'daga', name: 'Daga', cost: 'action', kind: 'attack', range: 5, toHit: 6, damage: '1d4+3', damageType: 'piercing' }],
+  slots: { 1: { max: 4, used: 1 } }, ddbId: 12345, level: 5, classes: 'Mago 5', avatar: 'https://www.dndbeyond.com/avatars/1.png',
+});
+
+test('importCharacter: válido conserva id, posición, dueños y condiciones', () => {
+  const { room, player } = setup();
+  const k = tok(room, 'kael'); k.conditions = ['prone'];
+  const fx = handle(room, player, { t: 'importCharacter', tokenId: 'kael', data: goodChar() }, fakeRoll, 42);
+  assert.equal(fx.state, true);
+  assert.equal(fx.chat!.text, 'Kael el Grande se ha vinculado con D&D Beyond (nivel 5)');
+  assert.deepEqual([k.id, k.x, k.y, k.owners, k.conditions], ['kael', 510, 570, [player.id], ['prone']]);
+  assert.deepEqual([k.name, k.hp!.cur, k.ac, k.actions![0].id, k.slots![1].used, k.img], ['Kael el Grande', 20, 16, 'daga', 1, 'https://www.dndbeyond.com/avatars/1.png']);
+  assert.deepEqual(k.ddb, { id: 12345, level: 5, classes: 'Mago 5', syncedAt: 42 });
+  const g = goodChar(); g.avatar = 'https://evil.com/a.png';
+  handle(room, player, { t: 'importCharacter', tokenId: 'kael', data: g }, fakeRoll);
+  assert.equal(k.img, 'https://www.dndbeyond.com/avatars/1.png'); // avatar descartado: se conserva el anterior
+});
+
+test('importCharacter: datos maliciosos y permisos', () => {
+  const { room, player, dm } = setup();
+  const before = JSON.stringify(room.scene);
+  const bad = (f: (c: any) => void) => {
+    const c: any = goodChar(); f(c);
+    assert.equal(handle(room, player, { t: 'importCharacter', tokenId: 'kael', data: c }, fakeRoll).error, 'datos de personaje inválidos');
+  };
+  bad((c) => { c.actions[0].damage = '1d1000000'; });
+  bad((c) => { c.hp.cur = -1; });
+  bad((c) => { c.hp.cur = 40; });
+  bad((c) => { c.name = 'x'.repeat(41); });
+  bad((c) => { c.ac = 0; });
+  bad((c) => { c.saves = { foo: 1 }; });
+  bad((c) => { c.saves = JSON.parse('{"__proto__": 1}'); });
+  bad((c) => { c.slots = { 1: { max: 2, used: 3 } }; });
+  bad((c) => { c.slots = { 10: { max: 2, used: 0 } }; });
+  bad((c) => { c.actions = Array.from({ length: 41 }, (_, i) => ({ ...c.actions[0], id: 'a' + i })); });
+  bad((c) => { c.level = 21; });
+  bad((c) => { c.ddbId = 1.5; });
+  bad((c) => { c.defenses = { resist: Array(21).fill('fire') }; });
+  assert.equal(JSON.stringify(room.scene), before);
+  // avatar peligroso: se acepta el personaje pero sin imagen
+  const c: any = goodChar(); c.avatar = 'javascript:alert(1)';
+  assert.equal(handle(room, player, { t: 'importCharacter', tokenId: 'kael', data: c }, fakeRoll).state, true);
+  assert.equal(tok(room, 'kael').img, undefined);
+  // no dueño, token enemigo y espectador
+  const otra = joinRoom(room, 'Otra', undefined) as { member: any };
+  assert.equal(handle(room, otra.member, { t: 'importCharacter', tokenId: 'kael', data: goodChar() }, fakeRoll).error, 'no permitido');
+  assert.ok(handle(room, dm, { t: 'importCharacter', tokenId: 'trasgo-a', data: goodChar() }, fakeRoll).error);
+  assert.equal(handle(room, dm, { t: 'importCharacter', tokenId: 'nix', data: goodChar() }, fakeRoll).state, true);
 });

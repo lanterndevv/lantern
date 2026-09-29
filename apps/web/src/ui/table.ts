@@ -1,8 +1,10 @@
-import type { Action, ActionCard, Ability, ChatMsg, ClientState, DiceTheme, Id, Member, Point, Role, S2C, Token } from '@lantern/protocol';
+import type { Action, ImportedCharacter, ActionCard, Ability, ChatMsg, ClientState, DiceTheme, Id, Member, Point, Role, S2C, Token } from '@lantern/protocol';
 import { MONSTERS } from '@lantern/srd';
 import { createTable } from '../render/table.ts';
 import { net } from '../net.ts';
 import { DICE } from '../dice/themes.ts';
+import { ddbCharacterId } from '@lantern/protocol/link';
+import { getCharacter, linkAvailable } from '../link.ts';
 
 const ROLES: Record<Role, string> = { dm: 'DM', assistant: 'Asistente', trusted: 'De confianza', player: 'Jugador', spectator: 'Espectador' };
 const PALETTE = ['#F5C877', '#5B9BE0', '#7FCB8A', '#E0643A', '#C79BF0', '#6FD3D3', '#F08AB4', '#E8E27A'];
@@ -37,7 +39,8 @@ function cardHtml(c: ActionCard, canConfirm: boolean) {
     const sa = sv ? `<span class="det">${AB[sv.ability]}${sv.dc != null ? ` CD ${sv.dc}` : ''}: <strong class="tot">${sv.total}</strong></span>
       <em class="res ${sv.success ? 'ok' : 'ko'}">${sv.success ? 'Supera' : 'Falla'}</em>` : '';
     const am = t.amount ? `<strong class="amt" style="color:${col}">${c.kind === 'heal' ? '+' : '−'}${t.amount}${c.kind === 'heal' ? '' : ' ' + esc(dmgName(c.damageType))}</strong>` : '';
-    return `<li><span class="obj">${esc(t.name)}</span>${at}${sa}${am}</li>`;
+    const cv = t.cover === 2 || t.cover === 5 ? `<span class="chip cob"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 1l6 2v5c0 3-2.5 5.5-6 7-3.5-1.5-6-4-6-7V3z" fill="currentColor"/></svg>Cobertura ${t.cover === 2 ? '½ (+2)' : '¾ (+5)'}</span>` : '';
+    return `<li><span class="obj">${esc(t.name)}</span>${cv}${at}${sa}${am}</li>`;
   }).join('');
   const btns = c.pending && !c.applied && canConfirm
     ? `<div class="conf" data-p="${esc(c.pending)}"><button class="primary" data-m="full" type="button">Aplicar</button>
@@ -57,7 +60,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     <div id="init" class="init panel" hidden></div>
     <div id="aviso" class="aviso" role="alert" aria-live="assertive"></div>
     <div id="hud" class="hud panel" hidden></div>
-    <dialog id="elegir" aria-labelledby="elegir-t"><h2 id="elegir-t">Elige tu personaje</h2><ul id="libres" class="libres"></ul></dialog>
+    <dialog id="elegir" aria-labelledby="elegir-t"><h2 id="elegir-t">Elige tu personaje</h2><ul id="libres" class="libres"></ul><button type="button" id="ddbc">Traer mi personaje de D&amp;D Beyond</button></dialog>
     <div class="panel tl">
       <h1 id="escena"></h1>
       <button class="chip" id="cod" type="button" title="Copiar enlace"></button>
@@ -82,6 +85,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
         </div>
         <div id="p-mesa" role="tabpanel" aria-labelledby="t-mesa" hidden>
           <ul id="miembros" class="miembros"></ul>
+          <section id="mios" aria-label="Tu personaje"></section>
           <section class="dados" aria-label="Dados">
             <h2 id="sets-t">Tus dados</h2>
             <ul id="sets" class="sets" role="radiogroup" aria-labelledby="sets-t"></ul>
@@ -101,6 +105,10 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
         </div>
       </div>
     </aside>
+    <dialog id="ddb" aria-labelledby="ddb-t"><h2 id="ddb-t">Traer mi personaje de D&amp;D Beyond</h2>
+      <form id="ddbf"><label>Enlace o id del personaje<input id="ddbid" autocomplete="off" placeholder="dndbeyond.com/characters/12345678" required></label>
+        <p id="ddbst" role="status"></p><div id="ddbprev"></div>
+        <div class="dmbtns"><button class="primary" type="submit" id="ddbgo">Traer</button><span id="ddbap"></span><button type="button" class="secondary" id="ddbno">Cancelar</button></div></form></dialog>
     <div id="toast" class="toast" role="status"></div>`;
   app.append(root);
   let tt = 0;
@@ -178,7 +186,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     if (selected && !tok(selected)) selected = undefined;
     targets = targets.filter(id => tok(id));
     if (armed && !tok(armed.tok)) armed = undefined;
-    renderInit(); renderTurn(); renderHud(); renderDm(); renderClaim(); marks();
+    renderMios(); renderInit(); renderTurn(); renderHud(); renderDm(); renderClaim(); marks();
   };
 
   const renderInit = () => {
@@ -231,14 +239,18 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       `<span class="slot" role="img" aria-label="Nivel ${lv}: ${s.max - s.used} de ${s.max} espacios">N${lv} ${'◆'.repeat(Math.max(0, s.max - s.used))}${'◇'.repeat(Math.min(s.used, s.max))}</span>`).join('');
     // ponytail: hoy `combat` es solo del DM; si el servidor rechaza «next» se muestra su error (toast)
     const end = c && (activeId() === t.id || w.role === 'dm') ? '<button type="button" class="primary" data-end>Fin de turno</button>' : '';
+    const mv = c ? Math.min(u?.moved ?? 0, 9999) : 0, sp = t.speed ?? 30;
+    const move = c ? `<div class="mov"><span>Movimiento ${mv}/${sp} pies</span><span class="hpbar" role="progressbar" aria-label="Movimiento" aria-valuemin="0" aria-valuemax="${sp}" aria-valuenow="${Math.min(mv, sp)}"><i style="width:${Math.min(100, mv / sp * 100)}%"></i></span></div>` : '';
+    const ddb = t.ddb ? `<div class="det">Vinculado · nivel ${t.ddb.level} <button type="button" data-sync="${esc(t.id)}">Resincronizar</button></div>` : '';
     el.innerHTML = `${portrait(t)}<div class="info"><strong>${esc(t.name)}</strong>
-      <span>${t.hp ? `PG ${t.hp.cur}/${t.hp.max}${t.hp.temp ? ` (+${t.hp.temp})` : ''}` : ''}${t.ac != null ? ` · CA ${t.ac}` : ''}</span></div>
+      <span>${t.hp ? `PG ${t.hp.cur}/${t.hp.max}${t.hp.temp ? ` (+${t.hp.temp})` : ''}` : ''}${t.ac != null ? ` · CA ${t.ac}` : ''}</span>${move}${ddb}</div>
       ${c ? `<div class="eco">${pill('action', 'Acción')}${pill('bonus', 'Adicional')}${pill('reaction', 'Reacción')}</div>` : ''}
       <div class="acts">${acts}</div>${slots ? `<div class="slots">${slots}</div>` : ''}${end}`;
   };
   $('hud').onclick = e => {
     const b = (e.target as HTMLElement).closest('button'); if (!b) return;
-    if (b.dataset.i) pick(+b.dataset.i);
+    if (b.dataset.sync) void resync(b.dataset.sync);
+    else if (b.dataset.i) pick(+b.dataset.i);
     else if (b.hasAttribute('data-end')) net.send({ t: 'combat', op: 'next' });
   };
   document.addEventListener('keydown', e => {
@@ -278,6 +290,59 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   };
   renderMonsters();
 
+  // D&D Beyond (extensión Lantern Link)
+  const ddbd = $<HTMLDialogElement>('ddb'), ddbst = $('ddbst'), ddbprev = $('ddbprev'), ddbap = $('ddbap');
+  let got: ImportedCharacter | undefined, tgt: Token[] = [], claim = false;
+  const list = (a: string[]) => a.length ? a.join(', ') : '—';
+  const openImport = (ts: Token[], claimFirst = false) => {
+    tgt = ts; claim = claimFirst; got = undefined;
+    ddbprev.replaceChildren(); ddbap.replaceChildren(); ddbst.textContent = 'Comprobando la extensión…';
+    if (!ddbd.open) ddbd.showModal();
+    void linkAvailable().then(l => {
+      ddbst.textContent = !l.ok ? 'Hace falta la extensión Lantern Link: en tu navegador, carga la carpeta apps/link como extensión sin empaquetar y recarga esta página.'
+        : !l.loggedIn ? 'Inicia sesión en dndbeyond.com en este navegador.' : '';
+    });
+  };
+  $('ddbf').onsubmit = async e => {
+    e.preventDefault();
+    const id = ddbCharacterId($<HTMLInputElement>('ddbid').value);
+    if (!id) { ddbst.textContent = 'No reconozco ese enlace o id.'; return; }
+    ddbst.textContent = 'Trayendo personaje…'; ddbprev.replaceChildren(); ddbap.replaceChildren();
+    try {
+      const c = got = await getCharacter(id);
+      ddbst.textContent = '';
+      const sv = Object.entries(c.saves ?? {}).map(([k, v]) => `${AB[k as Ability]} ${v! >= 0 ? '+' : ''}${v}`);
+      ddbprev.innerHTML = `<h3>${esc(c.name)}</h3><p>${esc(c.classes)} · nivel ${c.level}</p>
+        <p>PG ${c.hp?.max ?? '—'} · CA ${c.ac ?? '—'} · Velocidad ${c.speed ?? 30} pies</p>
+        <p>Salvaciones: ${esc(list(sv))}</p><p>Acciones: ${esc(list((c.actions ?? []).map(a => a.name)))}</p>`;
+      ddbap.innerHTML = tgt.map(t => `<button type="button" class="primary" data-t="${esc(t.id)}">Aplicar a ${esc(t.name)}</button>`).join('');
+    } catch (err) { ddbst.textContent = (err as Error).message; }
+  };
+  ddbap.onclick = e => {
+    const id = (e.target as HTMLElement).closest('button')?.dataset.t;
+    if (!id || !got) return;
+    if (claim) net.send({ t: 'claim', tokenId: id });
+    net.send({ t: 'importCharacter', tokenId: id, data: got });
+    ddbd.close();
+  };
+  $('ddbno').onclick = () => ddbd.close();
+  const resync = async (id: Id) => {
+    const t = tok(id); if (!t?.ddb) return;
+    say('Resincronizando…');
+    try { net.send({ t: 'importCharacter', tokenId: id, data: await getCharacter(t.ddb.id) }); say('Personaje resincronizado'); }
+    catch (err) { say((err as Error).message, 4000); }
+  };
+  const renderMios = () => {
+    $('mios').innerHTML = mine().map(t => `<div><strong>${esc(t.name)}</strong>
+      ${t.ddb ? `<p class="det">Vinculado · nivel ${t.ddb.level}</p><button type="button" data-sync="${esc(t.id)}">Resincronizar</button>` : ''}
+      <button type="button" data-imp="${esc(t.id)}">Traer mi personaje de D&amp;D Beyond</button></div>`).join('');
+  };
+  $('mios').onclick = e => {
+    const b = (e.target as HTMLElement).closest('button'); if (!b) return;
+    if (b.dataset.sync) void resync(b.dataset.sync);
+    else if (b.dataset.imp) { const t = tok(b.dataset.imp); if (t) openImport([t]); }
+  };
+
   // Elegir personaje
   const dlg = $<HTMLDialogElement>('elegir');
   dlg.oncancel = e => e.preventDefault(); // obligatorio elegir
@@ -288,6 +353,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       if (!dlg.open) dlg.showModal();
     } else if (dlg.open) dlg.close();
   };
+  $('ddbc').onclick = () => openImport(state.scene.tokens.filter(t => t.faction === 'ally' && !t.owners.length), true);
   $('libres').onclick = e => {
     const id = (e.target as HTMLElement).closest('button')?.dataset.id;
     if (id) net.send({ t: 'claim', tokenId: id });
