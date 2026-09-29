@@ -257,7 +257,7 @@ export type S2C =
   | { t: 'rtc'; from: Id; data: unknown }
   | { t: 'clock'; now: number }                                        // reloj del servidor (ms) para sincronizar audio; se envía tras welcome
   | { t: 'handout'; entry: JournalEntry }
-  | { t: 'regionMsg'; text: string };                                  // mensaje de una región al token que entra
+  | { t: 'regionMsg'; text: string }                                   // mensaje de una región al token que entra
   | { t: 'error'; msg: string };
 
 export const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // sin 0/O/1/I/L
