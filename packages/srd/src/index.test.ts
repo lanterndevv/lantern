@@ -5,7 +5,7 @@ import { MONSTERS, SPELLS } from './index.ts';
 
 test('todas las acciones tienen daño válido para roll', () => {
   for (const [id, m] of Object.entries(MONSTERS)) {
-    for (const a of m.actions ?? []) assert.doesNotThrow(() => roll(a.damage!), `${id}/${a.id}`);
+    for (const a of m.actions ?? []) if (!a.multi) assert.doesNotThrow(() => roll(a.damage!), `${id}/${a.id}`);
   }
   for (const [id, a] of Object.entries(SPELLS)) assert.doesNotThrow(() => roll(a.damage!), id);
 });
@@ -67,4 +67,15 @@ test('levelUp: PG medios/tirada, dado, espacios y mejora de característica', ()
   assert.equal(levelUp({ ...ch, abilities: { ...ch.abilities, con: 1 } }, 'wizard').hpGain, 1); // mín. 1
   assert.throws(() => levelUp({ ...ch, level: 20 }, 'wizard'));
   assert.throws(() => levelUp(ch, 'nope'));
+});
+
+test('monstruos generados: Multiataque, rasgos, legendarias y campos fijos en español', () => {
+  const a = MONSTERS.aboleth;
+  assert.deepEqual(a.actions![0].multi, [{ id: 'tentacle', n: 2 }]);
+  assert.ok(a.actions!.some((x) => x.id === 'tentacle'));
+  assert.equal(a.type, 'aberración');
+  assert.ok(a.traits!.length && a.sizeName === 'Grande' && a.align === 'legal malvado');
+  const d = MONSTERS['adult-red-dragon'];
+  assert.equal(d.name, 'Dragón rojo adulto');
+  assert.ok(d.legend!.length && d.legendary!.max === 3);
 });

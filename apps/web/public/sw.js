@@ -15,8 +15,9 @@ self.addEventListener('fetch', e => {
       .catch(() => caches.match('/').then(m => m || Response.error())));
   } else if (u.pathname.startsWith('/static/') || u.pathname.startsWith('/assets/')) {
     e.respondWith(caches.open(C).then(async c => {
-      const hit = await c.match(r);
-      const net = fetch(r).then(res => { if (res.ok) c.put(r, res.clone()); return res; }).catch(() => hit || Response.error());
+      const key = u.pathname.startsWith('/assets/') ? u.pathname : r; // /assets/ puede llevar ?e=&s= (URL firmada): se cachea por ruta
+      const hit = await c.match(key);
+      const net = fetch(r).then(res => { if (res.ok) c.put(key, res.clone()); return res; }).catch(() => hit || Response.error());
       return hit || net;
     }));
   }

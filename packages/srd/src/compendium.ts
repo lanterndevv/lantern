@@ -1,9 +1,11 @@
 // This work includes material from the System Reference Document 5.2 by Wizards of the Coast LLC, licensed under CC BY 4.0
 import type { Action, Token } from '@lantern/protocol';
 import { GEN_MONSTERS } from './monsters.gen.ts';
-import { GEN_SPELLS } from './spells.gen.ts';
+import { GEN_SPELLS, SPELL_INDEX } from './spells.gen.ts';
 
-export type SrdMonster = Omit<Token, 'id' | 'x' | 'y' | 'owners' | 'hidden'> & { cr: string; type: string };
+type Text = { name: string; text: string };
+// traits/legend: textos del SRD en inglés · sizeName/align/condImm: campos fijos ya traducidos (condImm = ids de condición)
+export type SrdMonster = Omit<Token, 'id' | 'x' | 'y' | 'owners' | 'hidden'> & { cr: string; type: string; sizeName?: string; align?: string; traits?: Text[]; legend?: Text[]; condImm?: string[] };
 
 // 1 casilla = 60 px = 5 pies. Todo lo que no ataca (Multiataque, rasgos, Telaraña, veneno…) queda fuera.
 // ponytail: monstruos sin rasgos especiales; añadirlos cuando el servidor los automatice.
@@ -66,4 +68,5 @@ const HAND_SPELLS: Record<string, Action> = {
 };
 
 export const MONSTERS: Record<string, SrdMonster> = { ...GEN_MONSTERS, ...HAND_MONSTERS };
-export const SPELLS: Record<string, Action> = { ...GEN_SPELLS, ...HAND_SPELLS };
+// la escuela sale del catálogo (SPELL_INDEX) para el rótulo del conjuro; el import de DDB hereda la acción tal cual
+export const SPELLS: Record<string, Action> = Object.fromEntries(Object.entries({ ...GEN_SPELLS, ...HAND_SPELLS }).map(([k, a]) => [k, SPELL_INDEX[k] ? { ...a, school: SPELL_INDEX[k].school } : a]));

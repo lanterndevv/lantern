@@ -2,11 +2,13 @@
 // Cada uno es un ajuste local del cliente (localStorage) que la UI lee/escribe vía Table.getPost/setPost.
 import { BlurFilter, ColorMatrixFilter, Container, Graphics, Matrix, RenderTexture, Sprite, Texture, TilingSprite } from 'pixi.js';
 import type { Application } from 'pixi.js';
+import { PORTATIL } from './portatil.ts';
 
 export type PostFx = { bloom: boolean; vignette: boolean; grain: boolean; breathing: boolean };
 const KEY = 'lantern:post';
 const DEF: PostFx = { bloom: false, vignette: true, grain: true, breathing: true }; // ponytail: bloom apagado por defecto (iGPU)
 export function loadPost(): PostFx {
+  if (PORTATIL) return { bloom: false, vignette: false, grain: false, breathing: false }; // modo portátil: sin postproceso
   try { return { ...DEF, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; } catch { return { ...DEF }; }
 }
 const canvasTex = (w: number, h: number, f: (x: CanvasRenderingContext2D) => void) => {

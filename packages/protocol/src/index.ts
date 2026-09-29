@@ -44,6 +44,7 @@ export type Action = {
   slot?: number;                       // nivel de espacio de conjuro que gasta (0/ausente = no gasta)
   school?: string;                     // escuela del conjuro (para el rótulo)
   condition?: string;                  // condición que aplica a quien falla la salvación (ligada a la concentración del lanzador)
+  multi?: { id: Id; n: number }[];     // Multiataque: encadena n veces cada acción (por id) con los mismos objetivos, gastando solo esta acción
 };
 
 export type Token = {
@@ -162,20 +163,23 @@ export type Scene = {
   globalLight: number;         // 0 = oscuridad total, 1 = pleno día
   weather?: Weather;
   regions?: Region[];
-  levels?: { id: Id; name: string }[];      // plantas de abajo arriba; la base es la primera (o la única si no hay lista)
+  levels?: { id: Id; name: string; weather?: Weather }[]; // plantas de abajo arriba; la base es la primera (o la única si no hay lista) · weather: clima de esa planta (prevalece sobre el de la escena)
+  miles?: number;                           // mapa del mundo: millas por casilla (herramienta de viaje)
   drawings?: Drawing[];                     // dibujo persistente (el efímero va solo por S2C)
   outdoor?: boolean;                        // al aire libre: la luz global sigue al reloj del mundo
   folder?: string;             // carpeta en la biblioteca
   audioPreset?: AudioState;    // música/ambiente que se activan con la escena
   dmNotes?: string;            // notas del DM de la escena (solo DM)
   story?: { image?: string; title?: string; subtitle?: string; layers?: StoryLayer[] }; // ilustración del modo Historia
+  visibleTo?: Id[];            // solo estos miembros (y el DM) ven la escena cuando está activa; ausente = todos
   pins?: { id: Id; x: number; y: number; entryId: Id }[]; // marcadores enlazados a entradas del diario (el jugador solo recibe los de entradas que puede leer)
 };
 
 // Región del mapa con comportamiento. points = polígono en px de mundo.
 export type Region = {
   id: Id; name: string; points: Point[];
-  kind: 'difficult' | 'trap' | 'teleport' | 'fog' | 'darkness' | 'sound' | 'message';
+  kind: 'difficult' | 'trap' | 'teleport' | 'fog' | 'darkness' | 'sound' | 'message' | 'weather';
+  weather?: Weather;                        // kind weather: clima recortado al polígono (kind none = zona despejada)
   // difficult: el movimiento dentro cuesta el doble · fog: oculta a los jugadores lo que hay dentro hasta que el DM la quita
   // darkness: sin luz dentro · trap/teleport/sound/message: se disparan al entrar un token
   hidden: boolean;             // los jugadores no ven la región (las trampas suelen estarlo)
@@ -208,7 +212,7 @@ export type JournalEntry = {
   pdf?: string;                              // /assets/….pdf: se muestra en un visor
 };
 
-export type LibraryItem = { id: Id; name: string; folder?: string; active: boolean; tokens: number; walls: number; background?: string };
+export type LibraryItem = { id: Id; name: string; folder?: string; visibleTo?: Id[]; active: boolean; tokens: number; walls: number; background?: string };
 
 // Turno propuesto por el copiloto; el cliente del DM lo aplica con los C2S normales (moveToken + act) si lo acepta.
 export type CopilotTurn = { tokenId: Id; moveTo?: Point; actionId?: Id; targets: Id[]; rationale: string };
@@ -218,7 +222,11 @@ export type SessionSummary = {
   highlights: { kind: 'crit' | 'fumble' | 'kill' | 'down' | 'highest'; text: string }[];
   perToken: { tokenId: Id; name: string; damageDealt: number; damageTaken: number; healed: number; crits: number }[];
   xp?: number;                 // PX de los enemigos derrotados (SRD)
+  tips?: { text: string; patch: Extract<C2S, { t: 'settings' }>['patch'] }[]; // solo DM, mesa en modo Sencillo: «¿Activar X?» con el ajuste que lo activa
 };
+
+export type TransitionKind = 'fade' | 'ink' | 'scroll' | 'title'; // fundido · barrido de tinta · pergamino que pasa · corte a título
+export type TravelPace = 'slow' | 'normal' | 'fast';
 
 export type Weather = { kind: 'none' | 'rain' | 'snow' | 'fog' | 'ash' | 'storm' | 'leaves' | 'embers' | 'fireflies' | 'sand' | 'dust'; intensity: number; wind: number }; // intensity 0–1, wind −1…1
 
@@ -268,6 +276,7 @@ export type ChatMsg = {
   roll?: { expr: string; total: number; detail: string; secret: boolean; dice?: Die[]; blind?: boolean; external?: 'beyond20'; rerolled?: true }; // blind: ni quien tira lo ve · external: tirada hecha fuera (confianza del cliente)
   card?: ActionCard;
   loot?: { title: string; lines: { item: string; to?: string }[] }; // tarjeta de botín con su reparto
+  doc?: { entryId: Id; title: string; image?: string; pdf?: boolean }; // tarjeta de documento mostrado (susurro a quienes lo reciben)
 };
 
 // Cliente → servidor
@@ -322,10 +331,10 @@ export type C2S =
   | { t: 'concentration'; tokenId: Id; spell: string | null }        // dueño o DM
   | { t: 'deathSave'; tokenId: Id }                                   // dueño en su turno (o DM)
   | { t: 'check'; tokenId: Id; kind: 'save' | 'skill' | 'ability'; key: string; secret?: boolean } // tirada desde la hoja: el servidor aplica mods, agotamiento y condiciones
-  | { t: 'scene'; patch: Partial<Pick<Scene, 'name' | 'background' | 'globalLight' | 'weather' | 'story' | 'grid' | 'width' | 'height'>> } // DM
+  | { t: 'scene'; patch: Partial<Pick<Scene, 'name' | 'background' | 'globalLight' | 'weather' | 'story' | 'grid' | 'width' | 'height' | 'miles'>> } // DM
   | { t: 'view'; value: 'tactical' | 'story' }                         // DM: cambia la vista de todos
   | { t: 'npcSay'; name: string; text: string; portrait?: string }     // DM: un PNJ habla (modo Historia o encima del mapa)
-  | { t: 'transition'; title: string; subtitle?: string }              // DM: tarjeta de título para todos
+  | { t: 'transition'; title: string; subtitle?: string; kind?: TransitionKind; ms?: number } // DM: tarjeta de título para todos (kind/ms: estilo y duración)
   | { t: 'audio'; op: 'play'; url: string; name: string; loop?: boolean }  // DM (y trusted)
   | { t: 'audio'; op: 'pause' | 'resume' | 'stop' }
   | { t: 'audio'; op: 'layer'; layer: AudioState['layers'][number] }  // añade/actualiza capa de ambiente
@@ -335,8 +344,8 @@ export type C2S =
   | { t: 'upsert'; kind: 'region'; item: Region }                    // DM
   | { t: 'remove'; kind: 'region'; id: Id }                          // DM
   | { t: 'sceneNew'; name: string; from?: Id }                       // DM: escena vacía o duplicada de `from`
-  | { t: 'sceneActivate'; id: Id }                                   // DM: todos pasan a esa escena (se aplica su audioPreset)
-  | { t: 'sceneUpdate'; id: Id; name?: string; folder?: string }      // DM
+  | { t: 'sceneActivate'; id: Id; transition?: { kind: TransitionKind; ms: number } } // DM: todos pasan a esa escena (se aplica su audioPreset) · transition: efecto con el que se cambia
+  | { t: 'sceneUpdate'; id: Id; name?: string; folder?: string; visibleTo?: Id[] | null } // DM · visibleTo: null/[] = visible para todos
   | { t: 'sceneDelete'; id: Id }                                     // DM (no la activa)
   | { t: 'journal'; entry: JournalEntry }                            // DM: crea/actualiza
   | { t: 'journalDelete'; id: Id }                                   // DM
@@ -344,7 +353,7 @@ export type C2S =
   | { t: 'spawnMany'; items: { srd: string; x: number; y: number }[]; hidden?: boolean } // DM: encuentro
   | { t: 'extInstall'; manifest: ExtensionManifest }                 // DM (el cliente descarga el manifiesto; el servidor lo valida)
   | { t: 'extRemove'; id: string }                                   // DM
-  | { t: 'upsert'; kind: 'level'; item: { id: Id; name: string } } | { t: 'remove'; kind: 'level'; id: Id } // DM
+  | { t: 'upsert'; kind: 'level'; item: { id: Id; name: string; weather?: Weather | null } } | { t: 'remove'; kind: 'level'; id: Id } // DM
   | { t: 'heroPoint'; tokenId: Id }                                   // dueño: gasta 1 punto de héroe → +1d6 a su última tirada/tarjeta
   | { t: 'heroPoints'; tokenId: Id; value: number }                   // DM: fija los puntos
   | { t: 'safety'; op: 'x' }                                         // cualquiera: tarjeta X anónima (pausa)
@@ -372,7 +381,10 @@ export type C2S =
   | { t: 'loot'; title: string; lines: { item: string; to?: string }[] } // DM
   | { t: 'docView'; entryId: Id; zoom: number; page?: number }          // DM: zoom sincronizado del visor PDF
   | { t: 'pin'; op: 'add'; x: number; y: number; entryId: Id } | { t: 'pin'; op: 'remove'; id: Id } // DM
-  | { t: 'backup'; op: 'list' | 'now' } | { t: 'backup'; op: 'restore'; name: string }; // DM                                                 // miembro: pide token de voz SFU (solo si state.livekit)                       // DM: resumen narrativo de la sesión → diario
+  | { t: 'backup'; op: 'list' | 'now' } | { t: 'backup'; op: 'restore'; name: string } // DM
+  | { t: 'scenePrepare'; id: Id }                                    // DM: los clientes precargan las imágenes de esa escena antes de activarla
+  | { t: 'travel'; points: Point[]; pace: TravelPace; tableId?: Id; dc?: number } // DM: viaje medido con la regla (mapa del mundo): avanza el reloj y tira encuentros (1d20 ≥ dc por jornada; tableId = tabla del diario)
+  | { t: 'tokenOwners'; tokenId: Id; owners: Id[] }; // DM: quién controla (mueve/actúa) el token; // DM                                                 // miembro: pide token de voz SFU (solo si state.livekit)                       // DM: resumen narrativo de la sesión → diario
 
 // Servidor → cliente
 export type S2C =
@@ -381,7 +393,8 @@ export type S2C =
   | { t: 'chat'; msg: ChatMsg }
   | { t: 'ping'; from: Id; x: number; y: number }
   | { t: 'npcSay'; name: string; text: string; portrait?: string }
-  | { t: 'transition'; title: string; subtitle?: string }
+  | { t: 'transition'; title: string; subtitle?: string; kind?: TransitionKind; ms?: number }
+  | { t: 'prepare'; urls: string[] }                                   // precarga de la escena que el DM va a activar (solo imágenes)
   | { t: 'sfx'; name: string }
   | { t: 'rtc'; from: Id; data: unknown }
   | { t: 'clock'; now: number }                                        // reloj del servidor (ms) para sincronizar audio; se envía tras welcome

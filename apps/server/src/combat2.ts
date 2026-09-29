@@ -7,7 +7,7 @@ import { ABILITY_ES, abilityMod, applyDamage, encounterXP, heal, inArea } from '
 import { cover, pointInPolygon, sightSegments } from '@lantern/vision';
 import { parseCharacter } from './import.ts';
 import { MAX_ITEMS, inScene, obj, parseEffect, str } from './validate.ts';
-import { applyCardFx, d20Test, damageFx, delCond, filterFor, fireRegion, flr, healFx, pushChat, type Ctx, type Effect, type MemberRec, type Room } from './room.ts';
+import { applyCardFx, d20Test, damageFx, delCond, filterFor, fireRegion, flr, healFx, pushChat, type Ctx, type Effect, type MemberRec, type Room, type SaveHold } from './room.ts';
 
 type Out = Pick<Effect, 'chats' | 'sends'>;
 const dmOf = (m: MemberRec) => m.role === 'dm' || m.role === 'assistant';
@@ -468,32 +468,29 @@ export function saveEndEffect(t: Token, cond: string, name: string, save: { abil
 }
 
 // ---- salvaciones tiradas por los jugadores (opción de mesa playerSaves) ----
-type Hold = { until: number; res: Map<Id, { save: NonNullable<ActionCard['targets'][number]['save']>; amount?: number; die?: import('@lantern/protocol').Die }> };
-const holds = new WeakMap<Room, Map<Id, Hold>>(); // resultados ya tirados por el servidor, ocultos hasta que el dueño pulse (o caduque)
+type Hold = SaveHold; // resultados ya tirados por el servidor, ocultos hasta que el dueño pulse (o caduque); viven en room.holds y se persisten
 /** Retiene las salvaciones de los tokens con dueño: la tarjeta queda pendiente («esperando») y cada dueño recibe una petición. */
 export function holdSaves(c: Ctx, card: ActionCard): NonNullable<Effect['sends']> {
   const { room, now } = c, toks = card.targets.map((ct) => room.scene.tokens.find((t) => t.id === ct.id));
   if (card.kind !== 'save' || !toks.some((t) => t?.owners.length)) return [];
-  const dice = card.dice ?? [], base = dice.length - card.targets.length, res: Hold['res'] = new Map(), out: NonNullable<Effect['sends']> = [];
+  const dice = card.dice ?? [], base = dice.length - card.targets.length, res: Hold['res'] = {}, out: NonNullable<Effect['sends']> = [];
   card.pending ??= randomUUID();
   if (!room.pending.includes(card)) room.pending.push(card);
   const expires = now + SAVE_MS;
   card.targets.forEach((ct, i) => {
     const t = toks[i];
     if (!t?.owners.length || !ct.save) return;
-    res.set(ct.id, { save: ct.save, amount: ct.amount, die: dice[base + i] });
+    res[ct.id] = { save: ct.save, amount: ct.amount, die: dice[base + i] };
     out.push({ who: (m) => t.owners.includes(m.id), msg: { t: 'saveRequest', pending: card.pending!, tokenId: t.id, ability: ct.save!.ability, dc: ct.save!.dc, text: `${card.actorName} te obliga a una salvación de ${ABILITY_ES[ct.save!.ability]} (${card.actionName})`, expires } });
     delete ct.save; delete ct.amount;
   });
   delete card.dice;
-  card.awaiting = [...res.keys()];
-  let h = holds.get(room);
-  if (!h) holds.set(room, h = new Map());
-  h.set(card.pending, { until: expires, res });
+  card.awaiting = Object.keys(res);
+  (room.holds ??= {})[card.pending] = { until: expires, res };
   return out;
 }
 const reveal = (card: ActionCard, id: Id, h: Hold) => {
-  const r = h.res.get(id), ct = card.targets.find((x) => x.id === id);
+  const r = h.res[id], ct = card.targets.find((x) => x.id === id);
   if (!r || !ct) return;
   ct.save = r.save; if (r.amount !== undefined) ct.amount = r.amount;
   card.awaiting = card.awaiting?.filter((x) => x !== id);
@@ -501,7 +498,7 @@ const reveal = (card: ActionCard, id: Id, h: Hold) => {
 /** Con todas las salvaciones a la vista: en automático se aplica; si no, sigue pendiente para el DM. Se republica la tarjeta. */
 function finishSaves(c: Ctx, card: ActionCard): ChatMsg[] {
   const { room, now } = c;
-  delete card.awaiting; holds.get(room)?.delete(card.pending!);
+  delete card.awaiting; delete room.holds?.[card.pending!];
   const old = room.chat.find((x) => x.card?.pending === card.pending);
   if (old?.card) { delete old.card.pending; delete old.card.awaiting; }
   const auto = room.automation === 'auto' && room.settings.mode === 'full' && room.settings.layers.automation;
@@ -510,12 +507,12 @@ function finishSaves(c: Ctx, card: ActionCard): ChatMsg[] {
   return [msg, ...(card.applied ? applyCardFx(c, card, 'full') : [])];
 }
 export function answerSave(c: Ctx, m: MemberRec, msg: { pending: unknown; tokenId: unknown }): Effect {
-  const { room, now } = c, h = str(msg.pending, 64) ? holds.get(room)?.get(msg.pending) : undefined, card = room.pending.find((x) => x.pending === msg.pending);
+  const { room, now } = c, h = str(msg.pending, 64) ? room.holds?.[msg.pending] : undefined, card = room.pending.find((x) => x.pending === msg.pending);
   const t = str(msg.tokenId, 64) ? room.scene.tokens.find((x) => x.id === msg.tokenId) : undefined;
   if (!h || !card || !t) return { error: 'no hay salvación pendiente' };
   if (!t.owners.includes(m.id)) return { error: 'no permitido' };
   if (!card.awaiting?.includes(t.id)) return { error: 'ya has tirado' };
-  const r = h.res.get(t.id)!;
+  const r = h.res[t.id];
   reveal(card, t.id, h);
   const chats = [pushChat(room, { id: randomUUID(), from: m.id, at: now, roll: { expr: `Salvación de ${ABILITY_ES[r.save.ability]} de ${t.name}`, total: r.save.total, detail: `${r.save.total}`, secret: false, ...(r.die && { dice: [r.die] }) } })];
   if (!card.awaiting?.length) chats.push(...finishSaves(c, card));
@@ -523,22 +520,21 @@ export function answerSave(c: Ctx, m: MemberRec, msg: { pending: unknown; tokenI
 }
 /** Caducidad de las salvaciones (20 s): se revela lo que el servidor ya había tirado. Se llama al principio de cada mensaje. */
 export function sweepSaves(c: Ctx): ChatMsg[] {
-  const hs = holds.get(c.room), out: ChatMsg[] = [];
-  if (!hs) return out;
-  for (const [pid, h] of [...hs]) {
-    if (h.until > c.now) continue;
-    const card = c.room.pending.find((x) => x.pending === pid);
-    if (!card) { hs.delete(pid); continue; }
-    for (const id of [...(card.awaiting ?? [])]) reveal(card, id, h);
+  const out: ChatMsg[] = [];
+  for (const card of [...c.room.pending]) { // tarjetas retenidas sin hold (datos previos a persistirlos): se cierran sin salvación
+    const pid = card.pending!, h = c.room.holds?.[pid];
+    if (!card.awaiting || (h && h.until > c.now)) continue;
+    for (const id of [...card.awaiting]) if (h) reveal(card, id, h);
     out.push(...finishSaves(c, card));
   }
+  for (const pid of Object.keys(c.room.holds ?? {})) if (!c.room.pending.some((x) => x.pending === pid)) delete c.room.holds![pid];
   return out;
 }
 /** El DM confirma con salvaciones sin tirar: se revelan ya (la tarjeta la republica el propio confirm). */
 export function forceSaves(c: Ctx, card: ActionCard) {
-  const h = holds.get(c.room)?.get(card.pending!);
+  const h = c.room.holds?.[card.pending!];
   if (h) for (const id of [...(card.awaiting ?? [])]) reveal(card, id, h);
-  delete card.awaiting; holds.get(c.room)?.delete(card.pending!);
+  delete card.awaiting; delete c.room.holds?.[card.pending!];
 }
 
 // ---- quién ve a un token (para difundir rótulos y rutas solo a quien corresponde) ----

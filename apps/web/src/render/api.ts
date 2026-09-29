@@ -32,7 +32,7 @@ export type Table = {
   setState(s: ClientState): void;                   // idempotente; se llama con cada estado del servidor
   setMarks(m: Marks): void;                         // idempotente
   ping(x: number, y: number, color: string): void;
-  floatText(tokenId: Id, text: string, color: string): void; // número flotante (daño/curación) sobre un token
+  floatText(tokenId: Id, text: string, color: string, iconSvg?: string): void; // número flotante (daño/curación) sobre un token
   effect(e: import("./api.ts").Effect): void;       // VFX puntual; el clima sale de scene.weather en setState
   setTool(t: import("./api.ts").EditTool): void;    // fase 5: herramientas de edición (DM); 'draw' y 'erase' valen para todos
   focus(x: number, y: number, zoom?: number): void; // fase 6: mueve la cámara con suavidad (instantáneo con movimiento reducido)

@@ -16,8 +16,11 @@ import { MAX_ASSET, exportCampaign, importCampaign, parseUvtt, sha256 } from './
 import { copilot } from './copilot.ts';
 import { asPlayer, finishState } from './extras.ts';
 import { createBackups, mergeInto, parsePick, restoreInto } from './backup.ts';
-import { canSee, chatFor, redact, createRoom, filterFor, genCode, handle, joinRoom, normCode, sha, type MemberRec, type Room, type RollFn } from './room.ts';
+import { canSeeScene } from './perms.ts';
+import { createSigner } from './signed.ts';
+import { canSee, chatFor, redact, createRoom, filterFor, genCode, handle, joinRoom, normCode, sha, sweepHolds, type MemberRec, type Room, type RollFn } from './room.ts';
 
+const SCENE_MSGS = ['draw', 'cursor', 'route', 'focus', 'regionMsg', 'spellBanner', 'reactionPrompt']; // difusiones ligadas al mapa: no van a quien no ve la escena
 const MAX_IMPORT = 250 * 1024 * 1024, MAX_UVTT = 60 * 1024 * 1024;
 const EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/webm': 'webm', 'video/webm': 'webm', 'video/mp4': 'mp4', 'application/pdf': 'pdf' };
 const TYPE: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', mp3: 'audio/mpeg', ogg: 'audio/ogg', webm: 'video/webm', mp4: 'video/mp4', pdf: 'application/pdf' };
@@ -59,7 +62,8 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
     if (timers.has(r.code)) return;
     timers.set(r.code, setTimeout(() => { timers.delete(r.code); db.save(r); }, 500).unref());
   };
-  const send = (ws: WebSocket, m: S2C) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m));
+  const signer = process.env.LANTERN_SIGNED_ASSETS === '1' ? createSigner() : undefined; // secreto por arranque: al reiniciar, los clientes reciben URLs nuevas al reconectar
+  const send = (ws: WebSocket, m: S2C) => ws.readyState === ws.OPEN && ws.send(signer ? signer.sign(JSON.stringify(m)) : JSON.stringify(m));
   const online = (r: Room) => new Set([...conns.values()].filter((c) => c.room === r).map((c) => c.member.id as Id));
   const broadcastState = (r: Room) => {
     const on = online(r);
@@ -133,7 +137,7 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
         const j = JSON.parse(decodeURIComponent(attr)) as Record<string, unknown>, cut = (k: string) => typeof j[k] === 'string' ? (j[k] as string).slice(0, 300) : undefined;
         await writeFile(join(assets, name + '.attr.json'), JSON.stringify({ title: cut('title'), creator: cut('creator'), license: cut('license'), url: cut('url'), source: cut('source') }));
       } catch { /* atribución mal formada: se ignora */ }
-      res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ url: '/assets/' + name }));
+      res.setHeader('content-type', 'application/json'); const out = JSON.stringify({ url: '/assets/' + name }); res.end(signer ? signer.sign(out) : out);
       return;
     }
     if (req.method === 'GET' && req.url === '/api/credits') { // atribuciones de los recursos usados en la mesa
@@ -194,13 +198,15 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
       }
       return fail(req, res, 405);
     }
-    const f = req.method === 'GET' && /^\/assets\/([0-9a-f]{64}\.(png|jpg|webp|mp3|ogg|webm|mp4|pdf))$/.exec(req.url ?? '');
+    const [aPath, aQuery = ''] = (req.url ?? '').split('?');
+    const f = req.method === 'GET' && /^\/assets\/([0-9a-f]{64}\.(png|jpg|webp|mp3|ogg|webm|mp4|pdf))$/.exec(aPath);
+    if (f && signer && !signer.verify(f[1], new URLSearchParams(aQuery))) { res.writeHead(403, { 'cache-control': 'no-store' }); res.end(); return; }
     if (f) {
       // Range es necesario para que <audio>/<video> puedan saltar (sincronizar el jukebox a mitad de pista).
       // ponytail: el archivo entero en memoria (≤25 MB); .webm se sirve como video/webm también para audio.
       const data = await readFile(join(assets, f[1])).catch(() => null);
       if (data) {
-        const head = { 'content-type': TYPE[f[2]], ...(f[2] === 'pdf' && { 'content-disposition': 'inline' }), 'cache-control': 'public, max-age=31536000, immutable', 'x-content-type-options': 'nosniff', 'accept-ranges': 'bytes' };
+        const head = { 'content-type': TYPE[f[2]], ...(f[2] === 'pdf' && { 'content-disposition': 'inline' }), 'cache-control': `${signer ? 'private' : 'public'}, max-age=31536000, immutable`, 'x-content-type-options': 'nosniff', 'accept-ranges': 'bytes' };
         const r = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
         if (r && (r[1] || r[2])) {
           const size = data.length;
@@ -217,6 +223,17 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
     if (serveWeb && (req.method === 'GET' || req.method === 'HEAD')) return web(req, res);
     res.statusCode = 404; res.end();
   });
+  // Difunde un Effect a la mesa (ws: quien lo provocó, para el reloj)
+  const deliver = (room: Room, fx: ReturnType<typeof handle>, ws?: WebSocket) => {
+    for (const cm of [fx.chat, ...(fx.chats ?? [])]) if (cm) for (const [w, c] of conns) if (c.room === room && canSee(cm, c.member)) send(w, { t: 'chat', msg: redact(room, cm, c.member) as ChatMsg });
+    if (fx.ping) for (const [w, c] of conns) if (c.room === room && canSeeScene(room.scene, c.member)) send(w, { t: 'ping', ...fx.ping });
+    if (fx.all) for (const [w, c] of conns) if (c.room === room && (canSeeScene(room.scene, c.member) || !SCENE_MSGS.includes(fx.all.t))) send(w, fx.all);
+    for (const sd of fx.sends ?? []) for (const [w, c] of conns) if (c.room === room && sd.who(c.member)) send(w, sd.msg);
+    if (fx.to) for (const [w, c] of conns) if (c.room === room && c.member.id === fx.to.id) send(w, fx.to.msg);
+    if (fx.clock) ws && send(ws, { t: 'clock', now: Date.now() });
+    if (fx.state) broadcastState(room);
+    dirty(room);
+  };
   const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 64 * 1024 });
 
   wss.on('connection', (ws, req) => {
@@ -234,7 +251,7 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
       }
       bucket--; excess = 0;
       let msg: any;
-      try { msg = JSON.parse(raw.toString()); } catch { return send(ws, { t: 'error', msg: 'JSON inválido' }); }
+      try { msg = JSON.parse(signer ? signer.strip(raw.toString()) : raw.toString()); } catch { return send(ws, { t: 'error', msg: 'JSON inválido' }); }
       if (typeof msg !== 'object' || msg === null) return send(ws, { t: 'error', msg: 'mensaje inválido' });
       const conn = conns.get(ws);
 
@@ -296,14 +313,7 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
       const fx = handle(room, member, msg, rollFn);
       if (msg.t === 'sessionEnd' && !fx.error) void backups.save(room); // copia al cerrar la sesión
       if (fx.error) return send(ws, { t: 'error', msg: fx.error });
-      for (const cm of [fx.chat, ...(fx.chats ?? [])]) if (cm) for (const [w, c] of conns) if (c.room === room && canSee(cm, c.member)) send(w, { t: 'chat', msg: redact(room, cm, c.member) as ChatMsg });
-      if (fx.ping) for (const [w, c] of conns) if (c.room === room) send(w, { t: 'ping', ...fx.ping });
-      if (fx.all) for (const [w, c] of conns) if (c.room === room) send(w, fx.all);
-      for (const sd of fx.sends ?? []) for (const [w, c] of conns) if (c.room === room && sd.who(c.member)) send(w, sd.msg);
-      if (fx.to) for (const [w, c] of conns) if (c.room === room && c.member.id === fx.to.id) send(w, fx.to.msg);
-      if (fx.clock) send(ws, { t: 'clock', now: Date.now() });
-      if (fx.state) broadcastState(room);
-      dirty(room);
+      deliver(room, fx, ws);
     });
     ws.on('close', () => {
       const c = conns.get(ws);
@@ -314,12 +324,14 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
   });
 
   const bk = backups.enabled ? setInterval(() => { for (const r of rooms.values()) void backups.save(r); }, Number(process.env.LANTERN_BACKUP_MIN ?? 10) * 60_000).unref() : undefined;
+  // salvaciones de jugadores: caducan a su hora aunque nadie escriba
+  const sweep = setInterval(() => { for (const r of rooms.values()) { const fx = sweepHolds(r, rollFn); if (fx) deliver(r, fx); } }, 1000).unref();
   http.listen(port, process.env.HOST ?? '0.0.0.0');
   return {
     port: () => (http.address() as { port: number }).port,
     ready: new Promise<void>((ok) => http.once('listening', ok)),
     close: () => new Promise<void>((done) => {
-      clearInterval(bk);
+      clearInterval(bk); clearInterval(sweep);
       for (const [code, t] of timers) { clearTimeout(t); const r = rooms.get(code); if (r) db.save(r); }
       timers.clear();
       for (const ws of wss.clients) ws.terminate();

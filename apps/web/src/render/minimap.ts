@@ -27,9 +27,9 @@ export function createMinimap(host: HTMLElement, o: {
       x.globalAlpha = t.hidden ? 0.5 : 1; x.fillStyle = o.color(t);
       const mine = t.owners.length > 0;
       x.beginPath(); x.arc(t.x * kk, t.y * kk, mine ? 4 : 3, 0, 7); x.fill();
-      if (mine) { x.strokeStyle = '#F5C877'; x.lineWidth = 1.5; x.stroke(); }
+      if (mine) { x.strokeStyle = '#E8C766'; x.lineWidth = 1.5; x.stroke(); }
     }
-    x.globalAlpha = 1; x.strokeStyle = '#fff'; x.lineWidth = 1.5;
+    x.globalAlpha = 1; x.strokeStyle = '#F0E2C0'; x.lineWidth = 1.5;
     const w = o.world, sc = w.scale.x;
     x.strokeRect(-w.x / sc * kk, -w.y / sc * kk, (o.app.screen.width / sc) * kk, (o.app.screen.height / sc) * kk);
     cap.textContent = o.level();

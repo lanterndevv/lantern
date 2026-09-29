@@ -1,0 +1,5 @@
+/* Tarjeta de documento en el chat: miniatura + título + botón Abrir. */
+.msg.doc { display: flex; gap: 10px; align-items: center; }
+.msg.doc img, .msg.doc .doc-ico { width: 48px; height: 48px; flex: none; object-fit: cover; border: 1px solid var(--borde); border-radius: var(--r-card); background: var(--relieve); display: grid; place-items: center; }
+.msg.doc .doc-t { flex: 1; min-width: 0; }
+.msg.doc button { min-height: 44px; }

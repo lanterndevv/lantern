@@ -218,7 +218,7 @@ test('spawnMany: hasta 30, todo o nada, reutiliza spawn', () => {
 test('parseToken conserva la ficha completa de todos los monstruos del SRD', () => {
   const s = demoScene();
   for (const [srd, m] of Object.entries(MONSTERS)) {
-    const { cr: _c, type: _t, ...base } = structuredClone(m);
+    const { cr: _c, type: _t, sizeName: _s, align: _a, traits: _r, legend: _l, condImm: _i, ...base } = structuredClone(m);
     const tok = { ...base, id: srd, x: 100, y: 100, owners: [], hidden: false, srd, notes: 'n' };
     assert.deepEqual(JSON.parse(JSON.stringify(parseToken(s, tok))), JSON.parse(JSON.stringify(tok)), srd);
   }

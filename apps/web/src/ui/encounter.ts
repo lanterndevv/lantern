@@ -13,7 +13,7 @@ function difficulty(levels: number[], crs: string[], ed: '2014' | '2024'): { xp:
   const d = encounterDifficulty(levels, crs, ed);
   return { ...d, rating: ES[d.rating] ?? d.rating };
 }
-const STYLE: Record<string, [string, string]> = { Trivial: ['○', '#9A8A74'], Fácil: ['●', '#7FCB8A'], Media: ['◆', '#F5C877'], Difícil: ['▲', '#F08A64'], Mortal: ['✖', '#E0643A'] };
+const STYLE: Record<string, [string, string]> = { Trivial: ['○', 'var(--txt3)'], Fácil: ['●', 'var(--exito)'], Media: ['◆', 'var(--ambar-claro)'], Difícil: ['▲', 'var(--peligro)'], Mortal: ['✖', 'var(--enemigo)'] }; // tokens del tema: legibles en día y en noche
 
 export function mountEncounter(el: HTMLElement, ctx: UiCtx) {
   const list = Object.entries(MONSTERS).map(([id, m]) => ({ id, name: m.name, cr: m.cr, size: m.size }));

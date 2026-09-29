@@ -121,7 +121,7 @@ function atlas(s: Shape, labels: string[], body: string | null, ink: string, fs:
   const g = cv.getContext('2d')!;
   g.fillStyle = body ?? '#000'; g.fillRect(0, 0, cv.width, cv.height);
   const size = CELL * fs;
-  g.font = `700 ${size}px Fraunces, Georgia, serif`;
+  g.font = `700 ${size}px 'EB Garamond', Georgia, serif`;
   g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = ink;
   labels.forEach((t, i) => {
     const x = (i % s.cols + 0.5) * CELL, y = (Math.floor(i / s.cols) + 0.5) * CELL;
@@ -219,7 +219,7 @@ export function createDiceTray(parent: HTMLElement, onSettle?: (r: Settled) => v
   };
 
   const run = async (dice: Die[], theme: DiceTheme, label: string, total?: number) => {
-    await document.fonts?.load('700 48px Fraunces').catch(() => {});
+    await document.fonts?.load("700 48px 'EB Garamond'").catch(() => {});
     if (dead) return;
     const look = DICE[theme] ?? DICE.linterna;
     const shown = dice.slice(0, MAX), extra = dice.length - shown.length;

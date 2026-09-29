@@ -1,7 +1,9 @@
 // VFX procedurales (Graphics + partículas propias) y clima de pantalla. Sin texturas externas.
 // El ticker propio solo corre mientras haya efectos vivos, clima o sacudida.
+import { PORTATIL } from './portatil.ts';
 import { Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import type { Application } from 'pixi.js';
+import { pointInPolygon } from '@lantern/vision';
 import type { Point, Region, Weather } from '@lantern/protocol';
 import type { Effect } from './api.ts';
 
@@ -58,7 +60,7 @@ const col = (t?: string) => TYPE[t ?? ''] ?? 0xe4dacb; // slashing/piercing/blud
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
 const ease = (t: number) => 1 - (1 - t) ** 3;
 // ponytail: móvil/equipo modesto = mitad de partículas y mapas de luz/niebla a ⅓; umbrales fijos, sin medir FPS
-export const LITE = (navigator.hardwareConcurrency || 8) <= 4 || (matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 900);
+export const LITE = PORTATIL || (navigator.hardwareConcurrency || 8) <= 4 || (matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 900);
 const F = LITE ? 0.5 : 1;
 const MAX_P = 600 * F, MAX_W = 400;
 
@@ -205,10 +207,10 @@ export function createVfx(app: Application, world: Container, fxL: Container, re
 
   function heal(at: { x: number; y: number }) {
     if (reduced) return flash(at.x, at.y, 30, 0x6fcb7c, 150);
-    flash(at.x, at.y, 34, 0xf5c877, 300);
+    flash(at.x, at.y, 34, 0xe8c766, 300);
     for (let i = 0; i < 28; i++) {
       const a0 = rnd(0, 6.283), rad = rnd(10, 30), sp = rnd(3, 5), rise = rnd(40, 80), life = rnd(900, 1300);
-      emit({ x: at.x, y: at.y, life, c: i % 2 ? 0x6fcb7c : 0xf5c877, r: rnd(1.8, 3.2), upd: (p) => {
+      emit({ x: at.x, y: at.y, life, c: i % 2 ? 0x6fcb7c : 0xe8c766, r: rnd(1.8, 3.2), upd: (p) => {
         const k = p.age / life;
         p.x = at.x + Math.cos(a0 + k * sp) * rad * (1 - 0.3 * k); p.y = at.y + 10 - rise * k + Math.sin(a0 + k * sp) * rad * 0.3;
       } });
@@ -255,7 +257,7 @@ export function createVfx(app: Application, world: Container, fxL: Container, re
     bolt(a, b) { projectile({ kind: 'projectile', from: a, to: b, damageType: 'lightning' }); flash(b.x, b.y, 70, 0xf2e45a, 320); shake(220, 5); later(120, () => beam(a, b, 0x8fa6f7, 14, 200)); },
     heal(_, b) { heal(b); later(250, () => radial(b.x, b.y, 10, 0xfff4d0, 60, 700, 2.4, { vy: -50 })); },
     word(a, b) {
-      for (let i = 0; i < 14; i++) { const k = i / 14; emit({ x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, life: 500 + i * 30, c: i % 2 ? 0xfff4d0 : 0xf5c877, r: 2.4, vy: -30, d: 1 }); }
+      for (let i = 0; i < 14; i++) { const k = i / 14; emit({ x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, life: 500 + i * 30, c: i % 2 ? 0xfff4d0 : 0xe8c766, r: 2.4, vy: -30, d: 1 }); }
       later(300, () => heal(b));
     },
     scorch(a, b) { for (let i = 0; i < 3; i++) later(i * 120, () => { const j = { x: b.x + rnd(-18, 18), y: b.y + rnd(-18, 18) }; beam(a, j, 0xf58a3c, 10, 220); impact(j, 'fire'); }); },
@@ -579,10 +581,26 @@ export function createVfx(app: Application, world: Container, fxL: Container, re
   function wake() { if (!running) { running = true; app.ticker.add(tick); } }
   function stop() { running = false; app.ticker.remove(tick); addG.clear(); nrmG.clear(); tN.clear(); tA.clear(); }
 
-  function sync(on: boolean, w?: Weather) {
+  // Clima por zona: una región 'weather' bajo el centro de la pantalla manda y el emisor se recorta a su polígono; si no, el de la planta/escena sin recorte.
+  // ponytail: un solo emisor; fuera de la región vuelve al clima base (no se mezclan dos). Varios emisores = refactor de setWeather.
+  const clipG = new Graphics();
+  screenL.addChild(clipG);
+  let wBase: Weather | undefined, wZones: Region[] = [], camKey = '';
+  function zonePick(force = false) {
+    if (!wZones.length && !screenL.mask && !force) return;
+    const c = world.toLocal({ x: app.screen.width / 2, y: app.screen.height / 2 }), k = `${Math.round(c.x)},${Math.round(c.y)},${world.scale.x.toFixed(3)}`;
+    if (k === camKey && !force) return;
+    camKey = k;
+    const z = enabled ? wZones.find((r) => pointInPolygon(c, r.points)) : undefined;
+    setWeather(enabled ? (z ? z.weather : wBase) : undefined);
+    if (z) { const s = world.scale.x; clipG.clear().poly(z.points.flatMap((p) => [p.x * s + world.x, p.y * s + world.y])).fill(0xffffff); screenL.mask = clipG; }
+    else if (screenL.mask) { screenL.mask = null; clipG.clear(); }
+  }
+  function sync(on: boolean, w?: Weather, zones: Region[] = []) {
     if (on !== enabled) { enabled = on; buildRegions(); }
     if (!on) { anims.splice(0).forEach(() => 0); parts.length = 0; addG.clear(); nrmG.clear(); }
-    setWeather(on ? w : undefined);
+    wBase = w; wZones = zones.filter((r) => r.weather && r.points.length > 2);
+    zonePick(true);
   }
   function setRegions(rs: Region[]) {
     const k = JSON.stringify(rs.map((r) => [r.id, r.kind, r.fx, r.points]));
@@ -596,5 +614,5 @@ export function createVfx(app: Application, world: Container, fxL: Container, re
     running = false;
     soft.destroy(true);
   }
-  return { effect, sync, setRegions, wind: () => wx.wind, destroy };
+  return { effect, sync, zonePick, setRegions, wind: () => wx.wind, destroy };
 }

@@ -8,6 +8,7 @@ import { CLASSES, SPELL_INDEX, levelUp } from '@lantern/srd';
 import { pointInPolygon } from '@lantern/vision';
 import { parseCharacter } from './import.ts';
 import { d20Test, delCond, filterFor, fireRegion, flr, pushChat, type Ctx, type Effect, type MemberRec, type Room, type RollFn } from './room.ts';
+import { canReadDoc } from './perms.ts';
 import { MAX_ITEMS, inScene, num, obj, short, str } from './validate.ts';
 
 type Next = (room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now: number) => Effect;
@@ -235,7 +236,7 @@ const H: Record<string, H> = {
     const e = str(msg.entryId, 64) ? room.journal.find((x) => x.id === msg.entryId) : undefined;
     if (!e?.pdf) return { error: 'no es un documento' };
     if (!Number.isInteger(msg.zoom) || (msg.zoom as number) < 25 || (msg.zoom as number) > 500 || (msg.page !== undefined && !(Number.isInteger(msg.page) && (msg.page as number) >= 1 && (msg.page as number) <= 9999))) return BAD;
-    return { sends: [{ who: (x) => isDM(x) || e.visibleTo === 'all' || (Array.isArray(e.visibleTo) && e.visibleTo.includes(x.id)), msg: { t: 'docView', entryId: e.id, zoom: msg.zoom as number, ...(msg.page !== undefined && { page: msg.page as number }) } }] };
+    return { sends: [{ who: (x) => canReadDoc(e, x), msg: { t: 'docView', entryId: e.id, zoom: msg.zoom as number, ...(msg.page !== undefined && { page: msg.page as number }) } }] };
   },
 
   pin(room, m, msg) {

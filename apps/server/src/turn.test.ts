@@ -463,3 +463,38 @@ test('salvaciones de jugador en su cliente: petición, respuesta y caducidad', (
   H(dm, { t: 'confirm', pending: pid, mode: 'full' }, roll, 51_000);
   assert.equal(room.pending.length, 0);
 });
+
+test('salvaciones de jugador: el temporizador del servidor las revela y sobreviven a un reinicio', async () => {
+  const { openDb } = await import('./db.ts');
+  const { sweepHolds } = await import('./room.ts');
+  const { room, dm, H } = setup();
+  tok(room, 'trasgo-b').actions = [{ id: 'chispa', name: 'Chispa', cost: 'action', kind: 'save', range: 60, save: { ability: 'dex', dc: 12, half: true }, damage: '2d6' }];
+  H(dm, { t: 'settings', patch: { optional: { playerSaves: true } } });
+  withRandom([0.5], () => H(dm, { t: 'act', tokenId: 'trasgo-b', actionId: 'chispa', targets: ['kael'] }, roll, 1000));
+  const pid = room.pending[0].pending!;
+  assert.equal(sweepHolds(room, roll, 5000), null); // aún no caduca
+  const db = openDb(':memory:'); // reinicio: se guarda y se carga
+  db.save(room);
+  const r2 = db.load(room.code)!;
+  assert.deepEqual(r2.pending[0].awaiting, ['kael']);
+  assert.ok(r2.holds![pid]);
+  const fx = sweepHolds(r2, roll, 22_000)!; // sin ningún mensaje de por medio
+  assert.equal(fx.state, true);
+  assert.equal(r2.pending[0].awaiting, undefined);
+  assert.ok(r2.pending[0].targets.every((t) => t.save));
+  assert.equal(r2.holds?.[pid], undefined);
+  db.close();
+});
+
+test('Multiataque: encadena los ataques con los mismos objetivos y gasta la acción una sola vez', () => {
+  const { room, dm, H } = setup();
+  const g = tok(room, 'trasgo-a');
+  g.actions = [{ id: 'lanza', name: 'Lanza', cost: 'action', kind: 'attack', range: 30, toHit: 5, damage: '1d6', damageType: 'piercing' },
+    { id: 'multiattack', name: 'Multiataque', cost: 'action', kind: 'attack', range: 30, multi: [{ id: 'lanza', n: 2 }] }];
+  combat(room, ['trasgo-a', 'kael']);
+  const fx = withRandom([0.5], () => H(dm, { t: 'act', tokenId: 'trasgo-a', actionId: 'multiattack', targets: ['kael'] }));
+  assert.equal(fx.error, undefined);
+  assert.equal(fx.chats!.filter((c) => c.card).length, 2);
+  assert.equal(room.combat!.used['trasgo-a'].action, true);
+  assert.equal(H(dm, { t: 'act', tokenId: 'trasgo-a', actionId: 'multiattack', targets: ['kael'] }).error, 'ya usada');
+});

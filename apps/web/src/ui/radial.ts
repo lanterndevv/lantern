@@ -1,5 +1,6 @@
-import type { C2S, Token } from '@lantern/protocol';
+import type { C2S, Member, Token } from '@lantern/protocol';
 import { CONDITIONS } from '@lantern/rules';
+import { pickMembers } from './perms.ts';
 import './mobile.css';
 
 export type RadialItem = { id: string; label: string; icon: string; disabled?: boolean; run(): void };
@@ -118,6 +119,7 @@ export type RadialCtx = {
   openSheet(tokenId: string): void;               // hoja del token, en Condiciones
   ping(x: number, y: number): void;
   lit?(tokenId: string): boolean;                 // ¿ya tiene luz de antorcha? (por defecto: no)
+  members?(): Member[];                           // miembros de la mesa (para conceder control de un token)
   grid?: number;                                  // px por casilla (por defecto 70), para el radio de la luz
 };
 
@@ -157,6 +159,7 @@ export function tokenRadialItems(t: Token, c: RadialCtx): RadialItem[] {
   it.push({ id: 'ping', label: 'Ping', icon: 'ping', run: () => c.ping(t.x, t.y) });
   if (dm) it.push(
     { id: 'hide', label: t.hidden ? 'Mostrar' : 'Ocultar', icon: t.hidden ? 'show' : 'hide', run: () => c.send({ t: 'upsert', kind: 'token', item: { ...t, hidden: !t.hidden } }) },
+    { id: 'owners', label: 'Controlan…', icon: 'status', run: () => pickMembers(`Quién controla a ${t.name}`, 'Pueden moverlo y actuar con él.', c.members?.() ?? [], t.owners, ids => c.send({ t: 'tokenOwners', tokenId: t.id, owners: ids })) },
     { id: 'notes', label: 'Notas', icon: 'notes', run: () => {
       const v = prompt(`Notas de ${t.name} (solo DM)`, t.notes ?? ''); // nativo y accesible
       if (v != null) c.send({ t: 'upsert', kind: 'token', item: { ...t, notes: v } });

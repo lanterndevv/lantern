@@ -79,6 +79,13 @@ export const SFX_LIST: [string, string, Fn][] = [
     osc(x, t + 0.03, 1.2, 0.1, 'sine', 1560);
   }],
   ['heal', 'Curación', (x, t) => [0, 4, 7, 12].forEach((n, i) => osc(x, t + i * 0.05, 1.3, 0.1, 'sine', semis(523, n), semis(523, n), 0.15))],
+  ['doorclose', 'Puerta (cerrar)', (x, t) => { osc(x, t, 0.3, 0.5, 'sine', 100, 40); noise(x, t, 0.15, 0.4, 'lowpass', 600, 150); }],
+  ['locked', 'Cerrada con llave', (x, t) => { for (let i = 0; i < 2; i++) { noise(x, t + i * 0.09, 0.04, 0.6, 'highpass', 2500); osc(x, t + i * 0.09, 0.08, 0.25, 'square', 1500, 700); } }],
+  ['dice', 'Dados', (x, t) => { for (let i = 0; i < 7; i++) { const s = t + i * 0.09 + Math.random() * 0.04; noise(x, s, 0.05, 0.5 * (1 - i / 9), 'bandpass', 2000 + Math.random() * 2500, 1500, 3); osc(x, s, 0.05, 0.15, 'triangle', 700 + Math.random() * 500); } }],
+  ['ping', 'Ping', (x, t) => { osc(x, t, 0.5, 0.3, 'sine', 880); osc(x, t + 0.12, 0.6, 0.25, 'sine', 1320); }],
+  ['fumble', 'Pifia', (x, t) => { osc(x, t, 0.7, 0.3, 'sawtooth', 300, 70, 0.02); noise(x, t, 0.3, 0.2, 'lowpass', 900, 200); }],
+  ['levelup', 'Subida de nivel', (x, t) => [0, 4, 7, 12, 16].forEach((n, i) => { osc(x, t + i * 0.12, 0.9, 0.16, 'triangle', semis(392, n)); osc(x, t + i * 0.12, 0.9, 0.06, 'sine', semis(784, n)); })],
+  ['rest', 'Descanso', (x, t) => [0, 7, 12].forEach((n, i) => osc(x, t + i * 0.35, 2.2, 0.1, 'sine', semis(262, n), semis(262, n), 0.4))],
   ['miss', 'Fallo', (x, t) => noise(x, t, 0.3, 0.25, 'bandpass', 800, 2500, 2, 0.08)],
 ];
 const BY_NAME = new Map(SFX_LIST.map(([n, , f]) => [n, f]));

@@ -1,6 +1,7 @@
 // Convierte el SRD 5.2.1 (CC-BY-4.0) de 5e-bits/5e-database (código MIT) al esquema de packages/srd.
 // Uso: node tools/srd-import.mjs   (descarga de GitHub; SRD_DIR=/ruta usa copias locales de los JSON)
 import { readFile, writeFile } from 'node:fs/promises';
+import { MONSTER_ES, SIZE_ES, TYPE_ES, alignES } from '../packages/srd/src/es.ts';
 
 const BASE = 'https://raw.githubusercontent.com/5e-bits/5e-database/main/src/2024/en/';
 const OUT = new URL('../packages/srd/src/', import.meta.url);
@@ -25,7 +26,7 @@ function monster(m) {
   const seen = new Set(), actions = [];
   for (const a of m.actions ?? []) {
     const d = dmgOf(a);
-    if (!d) continue; // Multiataque, rasgos… quedan fuera, como en los monstruos a mano
+    if (!d) continue; // Multiataque y rasgos se tratan aparte
     let id = kebab(a.name);
     while (seen.has(id)) id += '-2';
     seen.add(id);
@@ -33,13 +34,27 @@ function monster(m) {
     if (a.attack_bonus !== undefined) actions.push({ id, name: a.name, cost: 'action', kind: 'attack', range, toHit: a.attack_bonus, ...d });
     else if (a.dc) actions.push({ id, name: a.name, cost: 'action', kind: 'save', range, save: { ability: a.dc.dc_type.index, dc: a.dc.dc_value, half: a.dc.success_type === 'half' }, ...d });
   }
+  // Multiataque: «makes two Claw attacks and one Bite attack» → encadena esas acciones (solo la primera alternativa; lo que no ataca queda fuera)
+  const ma = (m.actions ?? []).find((a) => /^Multiattack/.test(a.name));
+  if (ma) {
+    const N = { one: 1, two: 2, three: 3, four: 4, five: 5 }, first = ma.desc.split(/, or | or it /)[0], multi = [];
+    const byName = (n) => actions.find((a) => a.name.toLowerCase() === n.trim().toLowerCase());
+    for (const [, n, name] of first.matchAll(/\b(one|two|three|four|five) ([A-Z][\w' -]*?) attacks?\b/g)) { const a = byName(name); if (a) multi.push({ id: a.id, n: N[n] }); }
+    const any = /makes (one|two|three|four|five) attacks?, using ([A-Z][\w' -]*?)(?: or |,| in )/.exec(first), a0 = any && byName(any[2]);
+    if (!multi.length && a0) multi.push({ id: a0.id, n: N[any[1]] });
+    if (multi.length) actions.unshift({ id: 'multiattack', name: 'Multiataque', cost: 'action', kind: 'attack', range: Math.max(...multi.map((e) => actions.find((a) => a.id === e.id).range)), multi });
+  }
+  const text = (l) => (l ?? []).map((x) => ({ name: x.name, text: x.desc }));
   const list = (k) => (m[k] ?? []).filter((x) => DMG.includes(x));
   const defenses = { resist: list('damage_resistances'), immune: list('damage_immunities'), vuln: list('damage_vulnerabilities') };
   for (const k of Object.keys(defenses)) if (!defenses[k].length) delete defenses[k];
   return {
-    name: m.name, faction: 'enemy', size: SIZE[m.size] ?? 1, darkvision: ft(m.senses?.darkvision) * 12, hp: { cur: m.hit_points, max: m.hit_points, temp: 0 },
+    name: MONSTER_ES[m.index] ?? m.name, faction: 'enemy', size: SIZE[m.size] ?? 1, darkvision: ft(m.senses?.darkvision) * 12, hp: { cur: m.hit_points, max: m.hit_points, temp: 0 },
     ac: m.armor_class[0].value, speed: Math.max(ft(m.speed?.walk), ...speeds, 0), initMod: modOf(score.dex), saves, ...(Object.keys(defenses).length && { defenses }),
-    actions, cr: CR[m.challenge_rating] ?? String(m.challenge_rating), type: m.type, conditions: [],
+    actions, cr: CR[m.challenge_rating] ?? String(m.challenge_rating), type: TYPE_ES[m.type] ?? m.type, conditions: [],
+    sizeName: SIZE_ES[m.size] ?? m.size, align: alignES(m.alignment), ...(m.special_abilities?.length && { traits: text(m.special_abilities) }),
+    ...(m.legendary_actions?.length && { legend: text(m.legendary_actions), legendary: { max: 3, used: 0 } }),
+    ...(m.condition_immunities?.length && { condImm: m.condition_immunities.map((c) => c.index) }),
   };
 }
 

@@ -1,20 +1,20 @@
 /* Menú radial (radial.ts) */
-.rad-fondo { position: fixed; inset: 0; z-index: 100; background: rgba(14,11,8,.35); }
+.rad-fondo { position: fixed; inset: 0; z-index: 100; background: rgba(12,10,8,.35); }
 .rad { position: fixed; z-index: 101; width: 0; height: 0; }
 .rad-centro { position: absolute; left: 0; top: 0; transform: translate(-50%,-50%); width: 84px; height: 84px; border-radius: 50%; display: grid; place-items: center; padding: 8px; text-align: center; pointer-events: none;
-  font: 700 .8rem/1.15 var(--serif); color: var(--ambar-claro); background: var(--cristal); border: 1px solid var(--borde); backdrop-filter: blur(18px); }
+  font: 600 .9rem/1.1 var(--serif); font-variant-caps: small-caps; color: var(--txt); background: var(--isla); border: 1px solid var(--filete); box-shadow: var(--sombra-isla); }
 .rad-item { position: absolute; transform: translate(-50%,-50%); width: 56px; height: 56px; min-height: 56px; padding: 0; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
-  background: var(--cristal); backdrop-filter: blur(18px); color: var(--txt); box-shadow: var(--brillo); }
-.rad-item span { font-size: 10px; line-height: 1; white-space: nowrap; }
-.rad-item:hover:not(:disabled), .rad-item:focus-visible { background: var(--ambar); color: var(--sobre-ambar); border-color: transparent; }
+  background: var(--isla); color: var(--txt); border-color: var(--filete); box-shadow: var(--sombra-isla); }
+.rad-item span { font-size: 11px; line-height: 1; white-space: nowrap; }
+.rad-item:hover:not(:disabled), .rad-item:focus-visible { background: var(--oro-fondo); color: var(--sobre-ambar); border-color: var(--oro-borde); box-shadow: var(--sombra-isla), var(--halo); }
 
 /* Paleta de comandos (palette.ts) */
-dialog.pal { position: fixed; top: 12vh; margin: 0 auto; width: min(560px, calc(100% - 32px)); padding: 12px; color: var(--txt); background: var(--sombra); border: 1px solid var(--borde); border-radius: var(--r-panel); box-shadow: var(--brillo), 0 20px 60px rgba(0,0,0,.6); }
-dialog.pal::backdrop { background: rgba(14,11,8,.6); }
+dialog.pal { position: fixed; top: 12vh; margin: 0 auto; width: min(560px, calc(100% - 32px)); padding: 12px; color: var(--txt); background: var(--isla); border: 1px solid var(--filete); border-radius: var(--r-panel); box-shadow: var(--sombra-isla), 0 20px 60px rgba(0,0,0,.6); }
+dialog.pal::backdrop { background: rgba(12,10,8,.6); }
 .pal ul { list-style: none; margin: 8px 0 0; padding: 0; max-height: 50vh; overflow-y: auto; }
 .pal li { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: var(--r-btn); border-left: 3px solid transparent; cursor: pointer; }
 .pal li small { color: var(--txt3); white-space: nowrap; }
-.pal li[aria-selected=true] { background: var(--relieve); border-left-color: var(--ambar); font-weight: 700; }
+.pal li[aria-selected=true] { background: var(--tinte-oro); border-left-color: var(--oro-borde); font-weight: 600; }
 .pal li.vacio { color: var(--txt3); cursor: default; }
 
 @media (pointer: coarse) {
@@ -64,6 +64,9 @@ dialog.pal::backdrop { background: rgba(14,11,8,.6); }
   /* plegado: solo el botón, flotando arriba a la derecha (el HUD ocupa el fondo) */
   .mesa .lado.plegado { top: calc(var(--sa-t) + 8px); bottom: auto; left: auto; right: calc(var(--sa-r) + 8px); width: auto; height: auto; padding-bottom: 0; border-radius: var(--r-panel); }
   .mesa .lado.plegado [role=tablist] { display: none; }
+  .mesa .lado.plegado .dock-btns { display: none; } /* plegado en el móvil: solo el botón, no tapa el título */
+  .mesa .init button { flex: none; white-space: nowrap; }
+  body .tarjeta-x { left: auto; right: calc(var(--sa-r) + 8px); bottom: auto; top: calc(var(--sa-t) + 148px); } /* fuera de la hoja inferior del HUD */
   .mesa .lado.plegado header { padding: 4px; }
   .mesa #plegar { min-width: 44px; }
   .mesa [role=tab] { padding: 0 12px; }

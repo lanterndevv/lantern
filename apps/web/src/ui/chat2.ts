@@ -1,5 +1,7 @@
 // Chat fase 9 A: susurros, en personaje (IC) y emotes.
+import './docchat.css';
 import type { C2S, ChatMsg, ClientState, Id } from '@lantern/protocol';
+import { showHandout } from './journal.ts';
 
 export type ChatCtx = { send(m: C2S): void; state(): ClientState; me: Id; toast(msg: string): void };
 
@@ -47,6 +49,7 @@ export function chatSendFromInput(text: string, c: ChatCtx): boolean {
  * html ya va escapado; sustituye al contenido del div.msg.
  */
 export function renderChatExtras(m: ChatMsg, name: (id: Id) => string): { cls: string; html: string } | null {
+  if (m.doc) return { cls: 'msg doc', html: `${m.doc.image ? `<img src="${esc(m.doc.image)}" alt="">` : '<span class="doc-ico" aria-hidden="true">📄</span>'}<span class="doc-t"><strong>${esc(m.doc.title)}</strong><br><span class="det">${esc(name(m.from))} te muestra un documento</span></span><button type="button" data-doc="${esc(m.doc.entryId)}">Abrir<span class="sr"> ${esc(m.doc.title)}</span></button>` };
   if (m.loot) return { cls: 'msg botin', html: `<strong>${esc(m.loot.title)}</strong> <span class="det">botín</span><ul class="filas">${m.loot.lines.map(l => `<li><span class="obj">${esc(l.item)}</span>${l.to ? `<em class="res ok">→ ${esc(l.to)}</em>` : ''}</li>`).join('')}</ul>` };
   if (m.text == null || (!m.to?.length && !m.as && !m.emote)) return null;
   const from = esc(m.as ?? name(m.from)), text = esc(m.text);
@@ -65,6 +68,10 @@ export function mountChat2(form: HTMLElement, c: ChatCtx) {
   const as = box.querySelector<HTMLSelectElement>('#cx-as')!, to = box.querySelector<HTMLSelectElement>('#cx-to')!;
   as.onchange = () => { sel.as = as.value || undefined; };
   to.onchange = () => { sel.to = to.value || undefined; };
+  form.ownerDocument.addEventListener('click', e => { // botón Abrir de las tarjetas de documento
+    const id = (e.target as HTMLElement).closest<HTMLElement>('[data-doc]')?.dataset.doc, en = id ? c.state().journal.find(x => x.id === id) : undefined;
+    if (en) showHandout(en); else if (id) c.toast('Ya no puedes abrir ese documento');
+  });
   let sig = '';
   return {
     update(s: ClientState) {

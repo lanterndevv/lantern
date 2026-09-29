@@ -3,7 +3,8 @@ import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { CODE_ALPHABET, DEFAULT_SETTINGS, DICE_THEMES, blocksMove } from '@lantern/protocol';
 import type { Ability, ActionCard, AudioState, C2S, ChatMsg, ClientState, Combat, DiceTheme, Die, ExtensionManifest, Hp, Id, JournalEntry, LibraryItem, Member, MoveMode, Point, Region, Role, S2C, Scene, SessionSummary, TableSettings, Token, Wall } from '@lantern/protocol';
 import { ABILITY_ES, CONDITIONS, SKILLS, abilityMod, applyCard, applyDamage, autoFailSave, concentrationDC, d20Penalty, deathSave, encounterXP, grantTemp, heal, inArea, resolveAction, roll as diceRoll } from '@lantern/rules';
-import { MONSTERS } from '@lantern/srd';
+import { MONSTERS, SPELL_INDEX } from '@lantern/srd';
+import { spellRegions } from './areas.ts';
 import { livekitOn, livekitToken } from './livekit.ts';
 import { parseCharacter } from './import.ts';
 import { acOf, afterTurn, answerSave, areaError, breakConcentration, budget, combatEdit, dist3d, effectOp, endCombat, forceInit, forceSaves, holdSaves, legendary, oppChats, react, reactionPrompts, rollInit, saveEndEffect, seenBy, snapshotTurn, spawnCustom, startCombat, sweepSaves, turnAction, undoTurn } from './combat2.ts';
@@ -12,11 +13,15 @@ import { demoScene } from '@lantern/protocol/demo';
 import { cover, perceives, pointInPolygon, sightSegments, visibility } from '@lantern/vision';
 import { canUndo, clockOf, handleWorld, hiddenWhisper } from './world.ts';
 import { handleExtras } from './extras.ts';
-import { MAX_EXTENSIONS, MAX_ITEMS, MAX_JOURNAL, MAX_LAYERS, MAX_LEVELS, MAX_REGIONS, MAX_SCENES, MAX_WALLS, SFX, inScene, inr, num, obj, parseAudio, parseJournal, parseLayer, parseLight, parseManifest, parseRegion, parseToken, parseWall, patchScene, pt, short, str, urlOk } from './validate.ts';
+import { handleJourney } from './journey.ts';
+import { canReadDoc, canSeeScene } from './perms.ts';
+import { MAX_EXTENSIONS, MAX_ITEMS, MAX_JOURNAL, MAX_LAYERS, MAX_LEVELS, MAX_REGIONS, MAX_SCENES, MAX_WALLS, SFX, inScene, inr, num, obj, parseAudio, parseJournal, parseLayer, parseLight, parseManifest, parseRegion, parseToken, parseWall, parseWeather, patchScene, pt, short, str, urlOk } from './validate.ts';
 
+/** Salvaciones tiradas por el servidor y ocultas hasta que el dueño pulse (o caduquen), por tarjeta pendiente. */
+export type SaveHold = { until: number; res: Record<Id, { save: NonNullable<ActionCard['targets'][number]['save']>; amount?: number; die?: Die }> };
 export type MemberRec = { id: Id; name: string; role: Role; keyHashes: string[]; dice: DiceTheme };
 export type Room = { code: string; scene: Scene; scenes: Record<Id, Scene>; activeId: Id; journal: JournalEntry[]; members: Map<Id, MemberRec>; chat: ChatMsg[]; automation: 'assisted' | 'auto' | 'manual'; combat?: Combat; pending: ActionCard[]; settings: TableSettings; view: 'tactical' | 'story'; audio: AudioState; extensions: ExtensionManifest[];
-  safety: { lines: string[]; veils: string[] }; sessionStart: number; maxRound: number; clock?: number; // persistidos (clock: minutos del mundo, 480 por defecto)
+  safety: { lines: string[]; veils: string[] }; sessionStart: number; maxRound: number; clock?: number; holds?: Record<Id, SaveHold>; // persistidos (clock: minutos del mundo, 480 por defecto; holds: salvaciones de jugadores ya tiradas y ocultas)
   checks?: Map<Id, CheckReq>; xAt?: number; extLog?: Map<Id, number[]> }; // solo en memoria
 type CheckReq = { id: Id; tokenIds: Id[]; kind: 'save' | 'skill' | 'ability'; key: string; dc?: number; blind: boolean; label: string; answers: Map<Id, { name: string; total: number; ok?: boolean }> };
 export type RollFn = (expr: string) => { total: number; detail: string; dice?: Die[] };
@@ -79,8 +84,8 @@ export function joinRoom(room: Room, name: unknown, key: unknown, as?: unknown):
 
 // ---- filtrado por miembro ----
 const inRegion = (r: Region, p: Point) => pointInPolygon(p, r.points);
-const canRead = (e: JournalEntry, m: MemberRec) => isDM(m) || e.visibleTo === 'all' || (Array.isArray(e.visibleTo) && e.visibleTo.includes(m.id));
-const libraryOf = (room: Room): LibraryItem[] => Object.values(room.scenes).map((s) => ({ id: s.id, name: s.name, ...(s.folder && { folder: s.folder }), active: s.id === room.activeId,
+const canRead = canReadDoc;
+const libraryOf = (room: Room): LibraryItem[] => Object.values(room.scenes).map((s) => ({ id: s.id, name: s.name, ...(s.folder && { folder: s.folder }), ...(s.visibleTo && { visibleTo: [...s.visibleTo] }), active: s.id === room.activeId,
   tokens: s.tokens.length, walls: s.walls.length, ...(s.background && { background: s.background }) }));
 
 export const filterFor = (room: Room, member: MemberRec, online?: ReadonlySet<Id>): ClientState => ({ ...filterBase(room, member, online), clock: clockOf(room), canUndo: canUndo(room, member) });
@@ -92,6 +97,10 @@ function filterBase(room: Room, member: MemberRec, online: ReadonlySet<Id> = new
   const safety = structuredClone(room.safety), sessionStart = room.sessionStart;
   if (isDM(member)) return { code: room.code, members, scene: structuredClone(s), automation, settings, view, audio, journal, extensions, safety, sessionStart, copilot: !!process.env.LANTERN_LLM_URL, livekit: livekitOn(), library: libraryOf(room), ...(room.combat && { combat: structuredClone(room.combat) }) };
 
+  if (!canSeeScene(s, member)) { // escena reservada a otros: mapa en blanco, sin fichas, paredes ni historia
+    const blank: Scene = { id: s.id, name: '', width: s.width, height: s.height, grid: structuredClone(s.grid), walls: [], lights: [], tokens: [], globalLight: 0 };
+    return { code: room.code, members, visible: [], scene: blank, automation, settings, view, audio, journal, extensions, safety, sessionStart, copilot: !!process.env.LANTERN_LLM_URL, livekit: livekitOn() };
+  }
   // ponytail: las capas de audio posicionales NO se filtran por visión: el sonido atraviesa paredes (y el jugador ve x/y de capas ajenas)
   // Plantas: el jugador recibe las entidades de las plantas donde tiene algún token (o la base); la visión usa solo los muros de cada planta.
   const mine = new Set(s.tokens.filter((t) => t.owners.includes(member.id)).map((t) => flr(s, t.level)));
@@ -130,7 +139,7 @@ function filterBase(room: Room, member: MemberRec, online: ReadonlySet<Id> = new
   // ponytail: luces filtradas solo por su centro; un halo que asome desde fuera de la visión no se distingue
   const lights = s.lights.filter((l) => mine.has(flr(s, l.level)) && seen(l, l.level));
   // ponytail: a los jugadores solo llegan id, nombre, polígono, tipo y plantas de las regiones no ocultas
-  const regions = (s.regions ?? []).filter((r) => !r.hidden && mine.has(flr(s, r.level))).map((r): Region => ({ id: r.id, name: r.name, points: structuredClone(r.points), kind: r.kind, hidden: false, ...(r.level && { level: r.level }), ...(r.toLevel && { toLevel: r.toLevel }) }));
+  const regions = (s.regions ?? []).filter((r) => !r.hidden && mine.has(flr(s, r.level))).map((r): Region => ({ id: r.id, name: r.name, points: structuredClone(r.points), kind: r.kind, hidden: false, ...(r.level && { level: r.level }), ...(r.toLevel && { toLevel: r.toLevel }), ...(r.weather && { weather: r.weather }) }));
   const ids = new Set(tokens.map((t) => t.id));
   let combat: Combat | undefined;
   if (room.combat) {
@@ -140,7 +149,8 @@ function filterBase(room: Room, member: MemberRec, online: ReadonlySet<Id> = new
     for (let i = Math.min(c.turn, c.order.length - 1); i >= 0 && turn < 0; i--) turn = order.findIndex((o) => o.tokenId === c.order[i].tokenId);
     combat = { round: c.round, turn, order, used: Object.fromEntries(Object.entries(c.used).filter(([id]) => ids.has(id))), ...(c.awaiting && { awaiting: c.awaiting.filter((id) => ids.has(id)) }) };
   }
-  const { dmNotes: _d, regions: _r, tokens: _t, walls: _w, lights: _l, ...pub } = structuredClone(s);
+  const { dmNotes: _d, regions: _r, tokens: _t, walls: _w, lights: _l, visibleTo: _v, ...pub } = structuredClone(s);
+  if (pub.pins) pub.pins = pub.pins.filter((p) => room.journal.some((e) => e.id === p.entryId && canRead(e, member))); // solo marcadores de entradas legibles
   return { code: room.code, members, visible, scene: { ...pub, walls, lights, tokens, ...(regions.length && { regions }) }, automation, settings, view, audio, journal, extensions, safety, sessionStart, copilot: !!process.env.LANTERN_LLM_URL, livekit: livekitOn(), ...(combat && { combat }) };
 }
 
@@ -297,9 +307,11 @@ function flanked(s: Scene, at: Token, t: Token) {
 const DENY: Effect = { error: 'no permitido' };
 const isDM = (m: MemberRec) => m.role === 'dm' || m.role === 'assistant';
 
+const OFF_SCENE = ['chat', 'roll', 'rtc', 'diceTheme', 'safety', 'clock', 'clockReq', 'livekit', 'rollTable', 'join']; // lo único que puede hacer quien no ve la escena activa
 export const handle = (room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now = Date.now()): Effect => {
-  const swept = room.pending.some((c) => c.awaiting) ? sweepSaves({ room, from: m.id, now, rollFn }) : []; // salvaciones de jugadores caducadas
-  const fx = handleExtras(room, m, msg, rollFn, now, (r2, m2, g, rf, n) => handleWorld(r2, m2, g, rf, n, handleBase)); // extras.ts: mensajes de la fase 11
+  if (!canSeeScene(room.scene, m) && !(obj(msg) && OFF_SCENE.includes(msg.t as string))) return { error: 'no permitido' };
+  const swept = sweepSaves({ room, from: m.id, now, rollFn }); // salvaciones de jugadores caducadas (además del temporizador del servidor)
+  const fx = handleJourney(room, m, msg, rollFn, now, (r1, m1, g1, rf1, n1) => handleExtras(r1, m1, g1, rf1, n1, (r2, m2, g, rf, n) => handleWorld(r2, m2, g, rf, n, handleBase))); // journey.ts: transiciones, viaje, avisos · extras.ts: mensajes de la fase 11
   return swept.length ? { ...fx, state: true, chats: [...swept, ...(fx.chats ?? [])] } : fx;
 };
 function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now = Date.now()): Effect {
@@ -529,9 +541,12 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
         const it = m2.item;
         if (!obj(it) || !str(it.id, 40) || !str(it.name, 40)) return { error: 'mensaje inválido' };
         const ls = (s.levels ??= []), i = ls.findIndex((l) => l.id === it.id);
-        if (i >= 0) ls[i] = { id: it.id, name: it.name };
+        const w = 'weather' in it ? (it.weather === null ? undefined : parseWeather(it.weather)) : i >= 0 ? ls[i].weather : undefined; // weather ausente = se conserva · null = quita
+        if ('weather' in it && it.weather !== null && !w) return { error: 'mensaje inválido' };
+        const lv = { id: it.id, name: it.name, ...(w && { weather: w }) };
+        if (i >= 0) ls[i] = lv;
         else if (ls.length >= MAX_LEVELS) return { error: 'demasiadas plantas' };
-        else ls.push({ id: it.id, name: it.name });
+        else ls.push(lv);
         return { state: true };
       }
       const list = m2.kind === 'token' ? s.tokens : m2.kind === 'wall' ? s.walls : m2.kind === 'light' ? s.lights : m2.kind === 'region' ? (s.regions ??= []) : null;
@@ -668,6 +683,21 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       if (!isDM(m) && !tk.owners.includes(m.id) && !(role === 'trusted' && tk.faction === 'ally')) return DENY;
       const act = tk.actions?.find((a) => a.id === m2.actionId);
       if (!act) return { error: 'acción inexistente' };
+      if (act.multi) { // Multiataque: cada ataque va como un `act` normal con los mismos objetivos; el coste se gasta una sola vez
+        const cb = room.combat, chats: ChatMsg[] = [], sends: NonNullable<Effect['sends']> = [];
+        if (cb && !isDM(m) && cb.order[cb.turn]?.tokenId !== tk.id) return { error: 'no es su turno' };
+        if (cb?.used[tk.id]?.[act.cost]) return { error: 'ya usada' };
+        for (const { id, n } of act.multi) for (let i = 0; i < n; i++) {
+          const sub = tk.actions?.find((a) => a.id === id);
+          if (!sub || sub.multi) return { error: 'acción inexistente' };
+          if (cb?.used[tk.id]) cb.used[tk.id][act.cost] = false; // cada golpe pasa por la comprobación de «ya usada»
+          const fx = handleBase(room, m, { ...m2, actionId: id }, rollFn, now);
+          if (fx.error) { if (cb) (cb.used[tk.id] ??= { action: false, bonus: false, reaction: false, moved: 0 })[act.cost] = !!chats.length; return chats.length ? { state: true, chats, sends } : fx; }
+          chats.push(...[fx.chat, ...(fx.chats ?? [])].filter((c): c is ChatMsg => !!c)); sends.push(...(fx.sends ?? []));
+        }
+        if (cb) cb.used[tk.id][act.cost] = true;
+        return { state: true, chats, sends };
+      }
       let targets: Token[] = [];
       const dist = (t: Token) => dist3d(s.grid, tk, t); // 5-5-5 horizontal + elevación
       const lvlWalls = s.walls.filter((w) => flr(s, w.level) === flr(s, tk.level));
@@ -726,7 +756,11 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       if (act.kind === 'attack' || dexSave) for (const ct of card.targets) { const c = cov.get(ct.id); if (c) ct.cover = c; }
       if (manual) { card.manual = true; for (const ct of card.targets) if (ct.save) ct.save.total += 999; }
       const brk: ChatMsg[] = [];
-      if (lvl) { tk.slots![lvl].used++; if (CONC.has(act.name.toLowerCase())) { if (tk.concentration) brk.push(...breakConcentration(ctx, tk)); tk.concentration = act.name; } } // reemplaza a la anterior
+      if (lvl) { tk.slots![lvl].used++; if (CONC.has(act.name.toLowerCase()) || SPELL_INDEX[act.id]?.concentration) { if (tk.concentration) brk.push(...breakConcentration(ctx, tk)); tk.concentration = act.name; } } // reemplaza a la anterior
+      if (lvl) { // área persistente del conjuro: región con su comportamiento, duración y (si concentra) sourceId para que se borre al romperse
+        const rs = spellRegions(s, tk, act, { at: at ?? undefined, aim: aim ?? undefined, targets, round: cb?.round, conc: tk.concentration === act.name });
+        if (rs.length && (s.regions?.length ?? 0) + rs.length <= MAX_REGIONS) (s.regions ??= []).push(...rs);
+      }
       if (cb) (cb.used[tk.id] ??= { action: false, bonus: false, reaction: false, moved: 0 })[act.cost] = true;
       // en modo sencillo, o sin la capa de automatización, el servidor no automatiza el daño: se comporta como 'assisted'
       const auto = room.automation === 'auto' && room.settings.mode === 'full' && room.settings.layers.automation;
@@ -740,7 +774,7 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       const chats = [...brk, ...(now2 ? applyCardFx(ctx, card, 'full') : [])];
       if (opt.fumbles && card.targets.some((x) => x.attack?.d20 === 1)) chats.push(say(ctx, `¡Pifia! ${tk.name} falla estrepitosamente`)); // ponytail: sin tabla de pifias
       const sends = [...hold, ...reactionPrompts(room, card, now)];
-      if (act.slot !== undefined) sends.push({ who: seenBy(room, tk.id), msg: { t: 'spellBanner', name: act.name, ...(act.school && { school: act.school }), level: act.slot, caster: tk.name } }); // rótulo del conjuro
+      if (act.slot !== undefined) sends.push({ who: seenBy(room, tk.id), msg: { t: 'spellBanner', name: act.name, school: act.school ?? SPELL_INDEX[act.id]?.school, level: act.slot, caster: tk.name } }); // rótulo del conjuro
       return { state: true, chat: cardMsg, chats, sends };
     }
     case 'route': { // ruta planificada mientras se arrastra: fantasma para quien ve el token (opción de mesa)
@@ -921,6 +955,10 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       const sc = room.scenes[m2.id];
       if (m2.name !== undefined) sc.name = m2.name;
       if (m2.folder !== undefined) { if (m2.folder) sc.folder = m2.folder; else delete sc.folder; } // '' quita la carpeta
+      if (m2.visibleTo !== undefined) { // null/[] = todos; solo miembros existentes
+        if (m2.visibleTo !== null && !(Array.isArray(m2.visibleTo) && m2.visibleTo.length <= 50 && m2.visibleTo.every((id) => str(id, 64) && room.members.has(id)))) return { error: 'mensaje inválido' };
+        if (m2.visibleTo?.length) sc.visibleTo = [...new Set(m2.visibleTo)]; else delete sc.visibleTo;
+      }
       return { state: true };
     }
     case 'sceneDelete': {
@@ -954,6 +992,14 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       if (!e) return { error: 'no existe' };
       return { sends: [{ who: (x) => canRead(e, x), msg: { t: 'handout', entry: structuredClone(e) } }] };
     }
+    case 'tokenOwners': {
+      if (!isDM(m)) return DENY;
+      const t = tokenOf();
+      if (!t) return { error: 'token inexistente' };
+      if (!Array.isArray(m2.owners) || m2.owners.length > 50 || !m2.owners.every((id) => str(id, 64) && room.members.get(id) && room.members.get(id)!.role !== 'spectator')) return { error: 'mensaje inválido' };
+      t.owners = [...new Set(m2.owners as string[])];
+      return { state: true };
+    }
     default: return { error: 'mensaje desconocido' };
   }
 }
@@ -966,7 +1012,7 @@ export function pushChat(room: Room, c: ChatMsg) {
 
 // Crea un monstruo del SRD en la escena (tamaño par → esquina de casilla; impar → centro de casilla).
 function spawnOne(s: Scene, srd: string, x: number, y: number, hidden: boolean) {
-  const { cr: _cr, type: _ty, ...base } = structuredClone(MONSTERS[srd]);
+  const { cr: _cr, type: _ty, sizeName: _sn, align: _al, traits: _tr, legend: _lg, condImm: _ci, ...base } = structuredClone(MONSTERS[srd]); // la ficha completa se consulta por `srd`
   const g = s.grid, snap = (v: number, off: number) => base.size % 2 === 0 ? Math.round((v - off) / g.size) * g.size + off : Math.floor((v - off) / g.size) * g.size + off + g.size / 2;
   const names = new Set(s.tokens.map((t) => t.name));
   let name = base.name;
@@ -1083,3 +1129,11 @@ const summaryText = (r: SessionSummary) => [
   ...r.highlights.map((h) => `- ${h.text}`),
   ...r.perToken.map((p) => `${p.name}: daño hecho ${p.damageDealt}, recibido ${p.damageTaken}, curación ${p.healed}, críticos ${p.crits}`),
 ].join('\n');
+
+/** Temporizador del servidor: revela las salvaciones de jugadores caducadas aunque nadie escriba (y las que quedaron retenidas antes de un reinicio). */
+export function sweepHolds(room: Room, rollFn: RollFn, now = Date.now()): Effect | null {
+  if (!room.pending.some((c) => c.awaiting)) return null;
+  const dm = [...room.members.values()].find((m) => m.role === 'dm');
+  const chats = dm ? sweepSaves({ room, from: dm.id, now, rollFn }) : [];
+  return chats.length ? { state: true, chats } : null;
+}

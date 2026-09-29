@@ -98,7 +98,7 @@ export function mountCopilot(root: HTMLElement, ctx: Ctx) {
     const act = tok.actions?.find(a => a.id === t.actionId);
     const names = t.targets.map(id => s.scene.tokens.find(x => x.id === id)?.name ?? '?');
     const desc = `${tok.name}: ${t.moveTo ? 'moverse aquí' + (act ? ' y ' : '') : ''}${act ? `atacar a ${names.join(', ') || 'nadie'} con ${act.name}` : t.moveTo ? '' : 'sin acción'} — ${t.rationale}`;
-    void ctx.table.then(tb => tb.setMarks({ active: activeId(), targets: t.targets, ...(t.moveTo ? { area: { ...t.moveTo, radius: s.scene.grid.size / 2, color: '#E8A33D' } } : {}) }));
+    void ctx.table.then(tb => tb.setMarks({ active: activeId(), targets: t.targets, ...(t.moveTo ? { area: { ...t.moveTo, radius: s.scene.grid.size / 2, color: '#D4AD4A' } } : {}) }));
     card?.remove();
     card = document.createElement('div'); card.className = 'cop-card'; card.setAttribute('role', 'dialog'); card.setAttribute('aria-label', 'Turno sugerido por la IA');
     const p = document.createElement('p'); p.textContent = desc;

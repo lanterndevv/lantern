@@ -34,9 +34,12 @@ import { showLobby } from './lobby.ts';
 import { mountSafety, handleSafety, checkProtocol } from './safety.ts';
 import { mountCheckRequester, handleCheckRequest, handleSaveRequest, rollBadges, heroButton } from './checks.ts';
 import { showSummary, sessionEndButton } from './summary.ts';
+import { preload } from './transiciones.ts';
+import { mountTravel } from './viaje.ts';
 import { linkCurrentTable } from './account.ts';
 import { mountPalette, defaultCommands } from './palette.ts';
 import { applyDisplayMode, displayModeFromUrl } from './display.ts';
+import { dmgColor, dmgIcon, dmgName, dmgSvg } from './dmgtypes.ts';
 import { mountA11y, mountScreenReaderMirror, matchesShortcut } from './a11y.ts';
 
 const ROLES: Record<Role, string> = { dm: 'DM', assistant: 'Asistente', trusted: 'De confianza', player: 'Jugador', spectator: 'Espectador' };
@@ -47,13 +50,6 @@ const colorOf = (id: string) => {
   return PALETTE[h % PALETTE.length];
 };
 const esc = (s: string) => s.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
-const DMG: Record<string, [string, string]> = {
-  fire: ['fuego', '#F58A3C'], cold: ['frío', '#8FD3F5'], lightning: ['rayo', '#F2E45A'], acid: ['ácido', '#A5D65A'],
-  poison: ['veneno', '#6FCB7C'], necrotic: ['necrótico', '#9DBB86'], radiant: ['radiante', '#FFE08A'], force: ['fuerza', '#C29CF5'],
-  psychic: ['psíquico', '#EE8CCB'], thunder: ['trueno', '#8FA6F7'],
-};
-const dmgName = (t?: string) => (t && DMG[t]?.[0]) || t || '';
-const dmgColor = (t?: string) => (t && DMG[t]?.[1]) || '#D3C3A6'; // físicos y desconocidos
 const HEAL = '#7FCB8A';
 const AB: Record<Ability, string> = { str: 'FUE', dex: 'DES', con: 'CON', int: 'INT', wis: 'SAB', cha: 'CAR' };
 const initials = (n: string) => n.split(/\s+/).map(x => x[0] ?? '').join('').slice(0, 2).toUpperCase();
@@ -71,7 +67,7 @@ function cardHtml(c: ActionCard, canConfirm: boolean) {
       ${c.manual ? (a.d20 === 20 ? '<em class="res ok">20 natural</em>' : a.d20 === 1 ? '<em class="res ko">1 natural</em>' : '') : `<em class="res ${a.hit ? 'ok' : 'ko'}">${a.crit ? 'Crítico' : a.hit ? '¡Impacto!' : 'Fallo'}</em>`}` : '';
     const sa = sv ? `<span class="det">${AB[sv.ability]}${sv.dc != null ? ` CD ${sv.dc}` : ''}: <strong class="tot">${sv.total}</strong></span>
       ${c.manual ? '' : `<em class="res ${sv.success ? 'ok' : 'ko'}">${sv.success ? 'Supera' : 'Falla'}</em>`}` : c.awaiting?.includes(t.id) ? '<em class="det">tira su salvación…</em>' : '';
-    const am = t.amount ? `<strong class="amt" style="color:${col}">${c.kind === 'heal' ? '+' : '−'}${t.amount}${c.kind === 'heal' ? '' : ' ' + esc(dmgName(c.damageType))}</strong>` : '';
+    const am = t.amount ? `<strong class="amt" style="color:${col}">${c.kind === 'heal' ? '+' : '−'}${t.amount}${c.kind === 'heal' ? '' : dmgIcon(c.damageType) + ' ' + esc(dmgName(c.damageType))}</strong>` : '';
     const cv = t.cover === 2 || t.cover === 5 ? `<span class="chip cob"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 1l6 2v5c0 3-2.5 5.5-6 7-3.5-1.5-6-4-6-7V3z" fill="currentColor"/></svg>Cobertura ${t.cover === 2 ? '½ (+2)' : '¾ (+5)'}</span>` : '';
     return `<li><span class="obj">${esc(t.name)}</span>${cv}${at}${sa}${am}</li>`;
   }).join('');
@@ -266,10 +262,11 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   mountVoicesToggle($('voces'));
   copilot = mountCopilot($('copiloto'), { state: () => state, send: m => net.send(m), role: w.role, memberId: w.memberId, table, toast: m => say(m, 3500) });
   const voz = mountVoice($('voz'), { me: w.memberId, members: () => state.members, getVolume: () => getVolume('voz'), livekit: () => !!state.livekit });
-  const audio = mountAudio(root, { own: () => mine()[0], send: m => net.send(m) });
+  const audio = mountAudio(root, { own: () => mine()[0], walls: () => state.scene.walls, send: m => net.send(m) });
   const story = mountStory(root, $('mapa'), { isDm: w.role === 'dm', send: m => net.send(m) });
   const scenePanel = staff || w.role === 'trusted' ? mountScenePanel($('p-esc'), { role: w.role, code: w.state.code, send: m => net.send(m) }) : undefined;
   $('t-esc').hidden = !scenePanel;
+  const travel = w.role === 'dm' ? mountTravel($('p-esc'), { ...ctx, route: p => void table.then(t => t.setRoute(p.length > 1 ? p : null)) }) : undefined; // viaje por mapas del mundo
   const c2: C2Ctx = { send: m => net.send(m), state: () => state, role: w.role, memberId: w.memberId, toast: m => say(m, 3500) };
   bindLegendary($('init'), c2);
   bindReorder($('init'), c2);
@@ -293,6 +290,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   const render = (s: ClientState) => {
     voz.onState(s.members); exts?.update(s); copilot?.update(); chat2.update(s); drawApi?.update(s); clock.update(s); extras.update(); lasso?.update();
     co?.update(s); ed?.update(s); jr.update(s); lib?.update(s); enc?.update(s); lv?.update(s); lobby?.update(); cr?.render();
+    const was = new Map(state.scene.walls.filter(w => w.kind === 'door').map(w => [w.id, !!w.open]));
+    for (const d of s.scene.walls) if (d.kind === 'door' && was.has(d.id) && was.get(d.id) !== !!d.open) { sfx(d.open ? 'door' : 'doorclose'); break; } // uno por cambio de estado
     state = s; paintGl();
     $('escena').textContent = s.scene.name;
     $('cod').textContent = `${s.code.slice(0, 3)}-${s.code.slice(3)}`;
@@ -306,7 +305,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     targets = targets.filter(id => tok(id));
     if (armed && !tok(armed.tok)) armed = undefined;
     $('simple').hidden = state.settings.mode === 'full'; $('cbt').hidden = !layerOn('initiative');
-    story.update(s); audio.update(s.audio); scenePanel?.render(s); sheet.render(); settings?.render(s); renderMios(); renderInit(); renderTurn(); renderHud(); renderDm(); renderClaim(); marks(); renderBar();
+    story.update(s); audio.update(s.audio); scenePanel?.render(s); travel?.update(s); sheet.render(); settings?.render(s); renderMios(); renderInit(); renderTurn(); renderHud(); renderDm(); renderClaim(); marks(); renderBar();
   };
 
   const camOn = () => { try { return localStorage.getItem('lantern.camturno') === '1'; } catch { return false; } };
@@ -586,7 +585,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       });
       if (live && (c.applied || c.pending) && !fxDone.has(m.id)) { fxDone.add(m.id); cardFx(c); }
       if (live && c.applied) for (const t of c.targets) if (t.amount && t.amount > 0)
-        table.then(tb => tb.floatText(t.id, `${c.kind === 'heal' ? '+' : '−'}${t.amount}`, c.kind === 'heal' ? HEAL : dmgColor(c.damageType)));
+        table.then(tb => tb.floatText(t.id, `${c.kind === 'heal' ? '+' : '−'}${t.amount}`, c.kind === 'heal' ? HEAL : dmgColor(c.damageType), c.kind === 'heal' ? undefined : dmgSvg(c.damageType, dmgColor(c.damageType))));
     } else if (m.roll) {
       el.className = 'msg tirada';
       el.innerHTML = `<span class="quien">${who}</span><code>${esc(m.roll.expr)}</code>
@@ -600,10 +599,14 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     if (live) relay(m);
     const dice = m.card?.dice ?? m.roll?.dice;
     if (live && show3d && dice?.length && !rolled.has(m.id)) {
-      rolled.add(m.id);
+      rolled.add(m.id); sfx('dice');
       const th = state.members.find(x => x.id === m.from)?.dice ?? 'linterna';
       void trayP.then(t => t.roll(dice, th, m.card ? `${m.card.actorName} · ${m.card.actionName}` : `${name(m.from)} · ${m.roll!.expr}`, m.roll?.total));
     }
+    if (live && /\bsube a nivel \d+/.test(m.text ?? '')) sfx('levelup');
+    else if (live && /descanso (largo|corto)/.test(m.text ?? '') && !/propone/.test(m.text ?? '')) sfx('rest');
+    const d20 = m.roll?.dice?.find(d => d.sides === 20 && d.kept);
+    if (live && !m.card && d20 && (d20.value === 20 || d20.value === 1)) sfx(d20.value === 20 ? 'crit' : 'fumble', show3d ? 1.2 : 0.5); // tras la animación
     if (!el.isConnected) log.append(el);
     log.scrollTop = log.scrollHeight;
   };
@@ -661,6 +664,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     role: w.role, memberId: w.memberId,
     send: (m: C2S) => net.send(m),
     arm: armAction,
+    members: () => state.members,
     openSheet: (tokenId: Id) => { selected = tokenId; sheet.render(); tab('hoja'); $('lado').classList.remove('plegado'); },
     ping: (x: number, y: number) => net.send({ t: 'ping', x, y }),
     lit: (id: Id) => state.scene.lights.some(l => l.id === `luz-${id}`),
@@ -701,6 +705,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   if (import.meta.env.DEV) (window as unknown as { __lantern: unknown }).__lantern = { table, state: () => state, send: (m: C2S) => net.send(m) }; // para pruebas E2E/bench/chaos
   mountA11y($('p-mesa'));
   if (!popout) void import('./extras.ts').then(x => x.mountExtras(root, w, table)); // fase 11: Compendio, Herramientas del DM, emotes, dados 2D…
+  else if (isPopout() === 'comp' || isPopout() === 'dmx') void import('./extras.ts').then(x => x.mountPopoutExtras(root, w, isPopout() as 'comp' | 'dmx')); // esos paneles viven en extras.ts
   mountScreenReaderMirror(root, () => state);
 
   $('plegar').onclick = () => {
@@ -723,7 +728,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       if (m.t === 'welcome') { state = m.state; $('log').replaceChildren(); m.chat.forEach(x => addMsg(x)); render(m.state); }
       else if (m.t === 'state') render(m.state);
       else if (m.t === 'chat') addMsg(m.msg, true);
-      else if (m.t === 'ping') table.then(t => t.ping(m.x, m.y, colorOf(m.from)));
+      else if (m.t === 'ping') { sfx('ping'); table.then(t => t.ping(m.x, m.y, colorOf(m.from))); }
       else if (m.t === 'npcSay') { story.npcSay(m); speakNpc(m.name, m.text); }
       else if (m.t === 'copilot') copilot?.handle(m);
       else if (m.t === 'draw' || m.t === 'cursor' || m.t === 'focus') drawApi?.handle(m);
@@ -735,12 +740,13 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       else if (m.t === 'handout') showHandout(m.entry);
       else if (m.t === 'regionMsg') showRegionMsg(m.text);
       else if (m.t === 'transition') story.transition(m);
+      else if (m.t === 'prepare') preload(m.urls);
       else if (m.t === 'sfx') sfx(m.name);
       else if (m.t === 'clock') audio.clock(m.now);
       else if (m.t === 'safety') handleSafety(m);
       else if (m.t === 'checkRequest') handleCheckRequest(m, { send: x => net.send(x), state: () => state, me: w.memberId });
-      else if (m.t === 'sessionSummary') showSummary(m.summary);
-      else if (m.t === 'error') { const t = $('toast'); t.textContent = m.msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3000); }
+      else if (m.t === 'sessionSummary') showSummary(m.summary, m2 => net.send(m2));
+      else if (m.t === 'error') { if (/llave/.test(m.msg)) sfx('locked'); const t = $('toast'); t.textContent = m.msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3000); }
     },
   };
 }

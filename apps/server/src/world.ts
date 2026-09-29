@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ChatMsg, Drawing, Id, Point, Scene, Token } from '@lantern/protocol';
 import type { Effect, MemberRec, Room, RollFn } from './room.ts';
+import { canReadDoc } from './perms.ts';
 import { inScene, inr, obj, parseLevel, str, urlOk } from './validate.ts';
 
 type Base = (room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now: number) => Effect;
@@ -211,7 +212,7 @@ const HANDLERS: Record<string, H> = {
 
   rollTable(room, m, msg, rollFn, now) {
     const e = str(msg.entryId, 64) ? room.journal.find((x) => x.id === msg.entryId) : undefined;
-    if (!e || !(isDM(m) || e.visibleTo === 'all' || (Array.isArray(e.visibleTo) && e.visibleTo.includes(m.id)))) return { error: 'no existe' };
+    if (!e || !canReadDoc(e, m)) return { error: 'no existe' };
     if (!e.table) return { error: 'no es una tabla' };
     if (msg.secret !== undefined && typeof msg.secret !== 'boolean') return BAD;
     let r;

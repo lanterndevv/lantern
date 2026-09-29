@@ -18,7 +18,7 @@ function avatar(v: unknown): string | undefined {
 }
 
 function parseAction(v: unknown, maxHit = 30): Action | null {
-  if (!obj(v) || !keysIn(v, ['id', 'name', 'cost', 'kind', 'range', 'toHit', 'save', 'damage', 'damageType', 'area', 'slot'])) return null;
+  if (!obj(v) || !keysIn(v, ['id', 'name', 'cost', 'kind', 'range', 'toHit', 'save', 'damage', 'damageType', 'area', 'slot', 'school', 'multi'])) return null;
   if (!str(v.id, 40) || !str(v.name, 60) || !['action', 'bonus', 'reaction'].includes(v.cost as string) || !['attack', 'save', 'heal'].includes(v.kind as string) || !int(v.range, 0, 1000)) return null;
   const a: Action = { id: v.id, name: v.name, cost: v.cost as Action['cost'], kind: v.kind as Action['kind'], range: v.range };
   if (v.toHit !== undefined) { if (!int(v.toHit, -10, maxHit)) return null; a.toHit = v.toHit; }
@@ -40,6 +40,11 @@ function parseAction(v: unknown, maxHit = 30): Action | null {
     a.area = { shape: r.shape as 'sphere', size: r.size };
   }
   if (v.slot !== undefined) { if (!int(v.slot, 0, 9)) return null; a.slot = v.slot; }
+  if (v.school !== undefined) { if (typeof v.school !== 'string' || !/^[a-z]{1,20}$/.test(v.school)) return null; a.school = v.school; }
+  if (v.multi !== undefined) {
+    if (!Array.isArray(v.multi) || !v.multi.length || v.multi.length > 6 || !v.multi.every((e) => obj(e) && str(e.id, 40) && int(e.n, 1, 6))) return null;
+    a.multi = v.multi.map((e) => ({ id: e.id as string, n: e.n as number }));
+  }
   return a;
 }
 

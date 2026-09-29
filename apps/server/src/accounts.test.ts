@@ -51,7 +51,7 @@ test('cuentas: registro, sesión, login, logout, CSRF y error genérico', async 
     const r = await call('POST', '/register', creds);
     assert.equal(r.status, 200); assert.equal(r.body.ok, true);
     assert.match(r.sc!, /lantern_session=[\w-]+; HttpOnly; SameSite=Lax; Path=\/;/);
-    assert.deepEqual((await call('GET', '/me')).body, { email: 'ana@example.com', name: 'Ana', has2fa: false });
+    assert.deepEqual((await call('GET', '/me')).body, { email: 'ana@example.com', name: 'Ana', has2fa: false, passkeys: 0 });
     assert.equal((await call('POST', '/register', creds)).status, 409);
     await call('POST', '/logout', {});
     assert.equal((await call('GET', '/me')).status, 401);

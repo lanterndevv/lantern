@@ -36,7 +36,7 @@ export function mountSheet(el: HTMLElement, cx: Ctx) {
   el.innerHTML = `<div id="sh-vacio" class="det" hidden>No controlas ningún personaje. Selecciona un token.</div>
     <div id="sh-hp" class="sr" role="status" aria-live="polite"></div>
     <div id="sh-img"></div>
-    <div id="sh-dyn"></div>
+    <div id="sh-dyn" class="sb"></div>
     <div id="sh-x"></div>
     <div id="sh-forms" hidden>
       <form id="sh-cond" class="fila"><label>Condición<select id="sh-cid">${Object.entries(CONDITIONS).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</select></label>
@@ -88,7 +88,7 @@ export function mountSheet(el: HTMLElement, cx: Ctx) {
         <button type="button" class="x" data-rc="${esc(c)}" aria-label="Quitar ${esc(CONDITIONS[c] ?? c)}">×</button></li>`;
     }).join('')}</ul>` : '<p class="det">Sin condiciones.</p>';
     const ds = t.deathSaves && hp?.cur === 0 ? deathSavesHtml(t) : '';
-    q('sh-dyn').innerHTML = head + abl + svs + sks + exh + '<h3>Condiciones</h3>' + conds + ds;
+    q('sh-dyn').innerHTML = head + (abl && '<hr class="sb-taper">') + abl + svs + sks + '<hr class="sb-taper">' + exh + '<h3>Condiciones</h3>' + conds + ds;
     sx.render();
   };
   el.addEventListener('click', e => {

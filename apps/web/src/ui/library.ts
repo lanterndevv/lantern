@@ -1,4 +1,6 @@
 import type { C2S, ClientState, LibraryItem, Role } from '@lantern/protocol';
+import { pickMembers } from './perms.ts';
+import { transitionPicker } from './transiciones.ts';
 
 /**
  * Contexto común de los módulos de UI (library, encounter, tutorial).
@@ -35,9 +37,12 @@ export function mountLibrary(el: HTMLElement, ctx: UiCtx) {
       </details>
       <button type="button" id="bib-exp">Exportar campaña</button>
     </div>
+    <div id="bib-tx"></div>
     <p class="det" id="bib-msg" role="status"></p>
     <div id="bib-lista"></div>`;
   const q = <T extends HTMLElement>(id: string) => el.querySelector<T>('#' + id)!;
+  const tx = transitionPicker();
+  q('bib-tx').append(tx.el);
   const msg = (h: string) => { q('bib-msg').innerHTML = h; };
 
   const hdr = (extra: Record<string, string> = {}) => ({ 'x-lantern-code': ctx.code, 'x-lantern-key': ctx.key() ?? '', ...extra });
@@ -63,10 +68,11 @@ export function mountLibrary(el: HTMLElement, ctx: UiCtx) {
           <div class="bib-cab"><strong>${esc(it.name)}</strong>${it.active ? '<span class="chip en-juego">EN JUEGO</span>' : ''}</div>
           <div class="det">${it.tokens} tokens · ${it.walls} muros</div>
           <div class="bib-acc">
-            ${it.active ? '' : `<button type="button" class="primary" data-a="act" aria-label="Activar ${esc(it.name)}">Activar</button>`}
+            ${it.active ? '' : `<button type="button" class="primary" data-a="act" aria-label="Activar ${esc(it.name)}">Activar</button><button type="button" data-a="prep" aria-label="Preparar ${esc(it.name)}" title="Descarga el mapa en todos los clientes para que el cambio sea instantáneo">Preparar</button>`}
             <button type="button" data-a="dup" aria-label="Duplicar ${esc(it.name)}">Duplicar</button>
             <button type="button" data-a="ren" aria-label="Renombrar ${esc(it.name)}">Renombrar</button>
             <button type="button" data-a="mov" aria-label="Mover ${esc(it.name)} a carpeta">Mover a carpeta</button>
+            <button type="button" data-a="vis" aria-label="Quién ve ${esc(it.name)}">Visible: ${it.visibleTo ? `${it.visibleTo.length} jugador(es)` : 'todos'}</button>
             ${it.active ? '' : `<button type="button" class="secondary" data-a="del" aria-label="Borrar ${esc(it.name)}">Borrar</button>`}
           </div></li>`).join('')}</ul></section>`).join('') || '<p class="det">No hay escenas.</p>';
   }
@@ -77,10 +83,12 @@ export function mountLibrary(el: HTMLElement, ctx: UiCtx) {
     const it = items.find(i => i.id === b?.closest('li')?.getAttribute('data-id'));
     if (!b || !it) return;
     const a = b.dataset.a;
-    if (a === 'act') ctx.send({ t: 'sceneActivate', id: it.id });
+    if (a === 'act') { const transition = tx.get(); ctx.send({ t: 'sceneActivate', id: it.id, ...(transition && { transition }) }); }
+    else if (a === 'prep') { ctx.send({ t: 'scenePrepare', id: it.id }); ctx.toast('Precargando la escena en todos los clientes'); }
     else if (a === 'dup') ctx.send({ t: 'sceneNew', name: `${it.name} (copia)`, from: it.id });
     else if (a === 'ren') { const n = prompt('Nuevo nombre', it.name)?.trim(); if (n) ctx.send({ t: 'sceneUpdate', id: it.id, name: n }); }
     else if (a === 'mov') { const n = prompt('Carpeta (vacía = sin carpeta)', it.folder ?? ''); if (n !== null) ctx.send({ t: 'sceneUpdate', id: it.id, folder: n.trim() }); }
+    else if (a === 'vis') pickMembers(`Quién ve «${it.name}»`, 'Sin marcar a nadie la ven todos. Los demás verán un mapa en blanco cuando esté activa.', ctx.state().members, it.visibleTo ?? [], ids => ctx.send({ t: 'sceneUpdate', id: it.id, visibleTo: ids.length ? ids : null }));
     else if (a === 'del' && confirm(`¿Borrar la escena «${it.name}»? No se puede deshacer.`)) ctx.send({ t: 'sceneDelete', id: it.id });
   });
   q('bib-nueva').addEventListener('click', () => {

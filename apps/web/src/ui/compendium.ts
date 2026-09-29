@@ -1,12 +1,12 @@
 // Compendio: conjuros (SPELL_INDEX) y monstruos del SRD con búsqueda, pestaña de Assets (Openverse + iconos game-icons.net) y nombres.
 // Contenido del SRD 5.2.1 © Wizards of the Coast, CC-BY-4.0.
 import type { C2S, ClientState, Point } from '@lantern/protocol';
-import { MONSTERS, SPELL_INDEX } from '@lantern/srd';
+import { CONDITIONS } from '@lantern/rules';
+import { DAMAGE_ES, MONSTERS, SCHOOL_ES as SCHOOL, SPELL_INDEX } from '@lantern/srd';
 import type { Table } from '../render/api.ts';
 import { NAME_TABLES, genName } from './names.ts';
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
-const SCHOOL: Record<string, string> = { abjuration: 'abjuración', conjuration: 'conjuración', divination: 'adivinación', enchantment: 'encantamiento', evocation: 'evocación', illusion: 'ilusión', necromancy: 'nigromancia', transmutation: 'transmutación' };
 const CLASS: Record<string, string> = { bard: 'bardo', cleric: 'clérigo', druid: 'druida', paladin: 'paladín', ranger: 'explorador', sorcerer: 'hechicero', warlock: 'brujo', wizard: 'mago' };
 const crNum = (cr: string) => cr.includes('/') ? Number(cr.split('/')[0]) / Number(cr.split('/')[1]) : Number(cr);
 const debounce = (f: () => void) => { let t = 0; return () => { clearTimeout(t); t = window.setTimeout(f, 120); }; };
@@ -34,6 +34,29 @@ export function spellSearch(el: HTMLElement) {
   draw();
 }
 
+const dmg = (l?: string[]) => (l ?? []).map(d => DAMAGE_ES[d] ?? d).join(', ');
+/** Filas extra de la ficha: tamaño/alineamiento, defensas, inmunidades a condiciones, rasgos y legendarias (los textos del SRD siguen en inglés). */
+const AB6 = [['str', 'FUE'], ['dex', 'DES'], ['con', 'CON'], ['int', 'INT'], ['wis', 'SAB'], ['cha', 'CAR']] as const;
+const sg = (n: number) => (n >= 0 ? '+' : '−') + Math.abs(n);
+/** Bloque de estadísticas clásico (barras, nombre en versalitas, separadores en triángulo, FUE…CAR, Acciones). Estilos: .sb en styles.css. */
+function statBlock(m: (typeof MONSTERS)[string]) {
+  const row = (k: string, v?: string) => v ? `<p><b>${k}</b> ${esc(v)}</p>` : '';
+  const text = (k: string, l?: { name: string; text: string }[]) => l?.length ? `${k ? `<h5 class="sb-sec">${k}</h5>` : ''}${l.map(x => `<p><b><i>${esc(x.name)}.</i></b> ${esc(x.text)}</p>`).join('')}` : '';
+  const ab = m.abilities, sv = m.saves;
+  const car = ab || sv ? `<table class="sb-car"><caption class="sr">${ab ? 'Características' : 'Tiradas de salvación'}</caption><tr>${AB6.map(([, n]) => `<th scope="col">${n}</th>`).join('')}</tr>
+    <tr>${AB6.map(([k]) => `<td>${ab ? `${ab[k]} (${sg(Math.floor((ab[k] - 10) / 2))})` : sg(sv?.[k] ?? 0)}</td>`).join('')}</tr></table><hr class="sb-taper">` : '';
+  const line = (a: NonNullable<typeof m.actions>[number]) => `<p><b><i>${esc(a.name)}.</i></b> ${a.save ? `<i>Salvación de ${AB6.find(([k]) => k === a.save!.ability)?.[1] ?? a.save.ability}:</i> CD ${a.save.dc}.` : a.toHit != null ? `<i>Ataque:</i> ${sg(a.toHit)}, alcance ${a.range ?? 5} pies.` : ''}${a.damage ? ` <i>Impacto:</i> ${esc(a.damage)} ${esc(DAMAGE_ES[a.damageType ?? ''] ?? a.damageType ?? '')}` : ''}</p>`;
+  const acc = ([['action', 'Acciones'], ['bonus', 'Acciones adicionales'], ['reaction', 'Reacciones']] as const).map(([c, t]) => {
+    const l = (m.actions ?? []).filter(a => (a.cost === 'bonus' || a.cost === 'reaction' ? a.cost : 'action') === c);
+    return l.length ? `<h5 class="sb-sec">${t}</h5>${l.map(line).join('')}` : '';
+  }).join('');
+  return `<article class="sb" aria-label="Bloque de estadísticas: ${esc(m.name)}"><p class="sb-nombre">${esc(m.name)}</p>
+    <p class="sb-tipo">${esc([m.sizeName, m.type].filter(Boolean).join(' '))}${m.align ? `, ${esc(m.align)}` : ''}</p><hr class="sb-taper">
+    <p><b>CA</b> ${m.ac ?? '—'} &#160; <b>Iniciativa</b> ${sg(m.initMod ?? 0)}</p><p><b>PG</b> ${m.hp?.max ?? '—'} &#160; <b>Velocidad</b> ${m.speed ?? 30} pies</p><hr class="sb-taper">${car}
+    ${row('Resistencias', dmg(m.defenses?.resist))}${row('Inmunidades', dmg(m.defenses?.immune))}${row('Vulnerabilidades', dmg(m.defenses?.vuln))}${row('Inmune a condiciones', (m.condImm ?? []).map(c => CONDITIONS[c] ?? c).join(', '))}
+    <p><b>Desafío</b> ${esc(m.cr)}</p>${text('', m.traits)}${acc}${text('Acciones legendarias', m.legend)}</article>`;
+}
+
 /** Búsqueda de monstruos del SRD; con `onAdd` cada resultado tiene botón para añadirlo a la escena. */
 export function monsterSearch(el: HTMLElement, onAdd?: (id: string, hidden: boolean) => void) {
   el.innerHTML = `<div class="fila"><label>Monstruo<input type="search" data-q autocomplete="off" placeholder="Trasgo, dragon…"></label>
@@ -46,8 +69,7 @@ export function monsterSearch(el: HTMLElement, onAdd?: (id: string, hidden: bool
       .sort((a, b) => crNum(a[1].cr) - crNum(b[1].cr) || a[1].name.localeCompare(b[1].name));
     n.textContent = `${all.length} monstruos${all.length > 40 ? ' (se muestran 40: afina la búsqueda)' : ''}`;
     out.innerHTML = all.slice(0, 40).map(([id, m]) => `<li><details><summary>${esc(m.name)} <small class="det">VD ${esc(m.cr)} · ${esc(m.type)}</small></summary>
-      <dl><dt>PG / CA</dt><dd>${m.hp?.max ?? '—'} / ${m.ac ?? '—'}</dd><dt>Velocidad</dt><dd>${m.speed ?? 30} pies</dd>
-      <dt>Acciones</dt><dd>${esc((m.actions ?? []).map(a => `${a.name}${a.toHit != null ? ' +' + a.toHit : ''}${a.damage ? ' (' + a.damage + ')' : ''}`).join(' · ') || '—')}</dd></dl>
+      ${statBlock(m)}
       ${onAdd ? `<button type="button" data-add="${esc(id)}">Añadir a la escena</button>` : ''}</details></li>`).join('');
   };
   el.addEventListener('input', debounce(draw)); el.addEventListener('change', draw);

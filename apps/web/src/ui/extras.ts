@@ -13,11 +13,36 @@ import { PENDING_CHAR } from './join.ts';
 import { showHandout, syncDoc } from './journal.ts';
 import { openRest } from './sheetx.ts';
 import { selectTab } from './dock.ts';
+import { sfx } from './sfx.ts';
 
 type Welcome = Extract<S2C, { t: 'welcome' }>;
 const esc = (s: string) => s.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 const typing = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.('input,textarea,select,dialog');
 const DDB_POLL = 30_000;
+
+/** Crea la pestaña `#t-<id>` y su panel `#p-<id>`; la zona donde esté la gestiona dock.ts. */
+function addTabTo(root: HTMLElement, id: string, label: string) {
+  const tab = Object.assign(document.createElement('button'), { id: 't-' + id, textContent: label }), panel = Object.assign(document.createElement('div'), { id: 'p-' + id, className: 'ajustes' });
+  tab.setAttribute('role', 'tab'); tab.setAttribute('aria-selected', 'false'); tab.setAttribute('aria-controls', panel.id);
+  panel.setAttribute('role', 'tabpanel'); panel.setAttribute('aria-labelledby', tab.id); panel.hidden = true;
+  root.querySelector('[role=tablist]')!.append(tab); root.querySelector('#cuerpo')!.append(panel);
+  tab.onclick = () => selectTab(id);
+  return panel;
+}
+
+/** Ventana aparte (?popout=comp|dmx): solo el Compendio o las Herramientas del DM, sin mapa ni dados (table.ts no monta el resto). */
+export function mountPopoutExtras(root: HTMLElement, w: Welcome, id: 'comp' | 'dmx') {
+  let state: ClientState = w.state;
+  const send = (m: C2S) => net.send(m), key = () => localStorage.getItem(`lantern:key:${w.state.code}`);
+  const toast = (m: string) => { const t = root.querySelector<HTMLElement>('#toast'); if (t) { t.textContent = m; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3500); } };
+  let tools: ReturnType<typeof mountDmTools> | undefined;
+  if (id === 'comp') mountCompendium(addTabTo(root, id, 'Compendio'), { send, state: () => state, role: w.role, code: w.state.code, key, toast, table: new Promise(() => {}), mapEl: root.querySelector<HTMLElement>('#mapa')! });
+  else if (w.role === 'dm') tools = mountDmTools(addTabTo(root, id, 'Herramientas'), { send, state: () => state, code: w.state.code, key, toast, viewAs: () => toast('«Ver como jugador» solo funciona en la ventana principal'), viewing: () => null });
+  else return;
+  net.on(m => { if (m.t === 'welcome' || m.t === 'state') { state = m.state; tools?.update(); } });
+  document.title = `${id === 'comp' ? 'Compendio' : 'Herramientas'} · Lantern`;
+  selectTab(id);
+}
 
 export function mountExtras(root: HTMLElement, w: Welcome, table: Promise<Table>) {
   const me = w.memberId, staff = w.role === 'dm' || w.role === 'assistant', send = (m: C2S) => net.send(m);
@@ -29,15 +54,7 @@ export function mountExtras(root: HTMLElement, w: Welcome, table: Promise<Table>
   const mine = () => state.scene.tokens.filter(t => t.owners.includes(me));
 
   // ---- pestañas ----
-  const tablist = $('[role=tablist]'), body = $('#cuerpo');
-  const addTab = (id: string, label: string) => {
-    const tab = Object.assign(document.createElement('button'), { id: 't-' + id, textContent: label }), panel = Object.assign(document.createElement('div'), { id: 'p-' + id, className: 'ajustes' });
-    tab.setAttribute('role', 'tab'); tab.setAttribute('aria-selected', 'false'); tab.setAttribute('aria-controls', panel.id);
-    panel.setAttribute('role', 'tabpanel'); panel.setAttribute('aria-labelledby', tab.id); panel.hidden = true;
-    tablist.append(tab); body.append(panel);
-    tab.onclick = () => selectTab(id); // la zona (izq/der/abajo) donde esté la pestaña la gestiona dock.ts
-    return panel;
-  };
+  const addTab = (id: string, label: string) => addTabTo(root, id, label);
   mountCompendium(addTab('comp', 'Compendio'), { send, state: () => state, role: w.role, code: w.state.code, key, toast, table, mapEl: mapa });
   const tools = staff && w.role === 'dm' ? mountDmTools(addTab('dmx', 'Herramientas'), { send, state: () => state, code: w.state.code, key, toast, viewAs: id => viewAs(id), viewing: () => viewing }) : undefined;
 
@@ -57,6 +74,7 @@ export function mountExtras(root: HTMLElement, w: Welcome, table: Promise<Table>
   modeSel.onchange = () => { mode = modeSel.value as Mode; applyMode(); };
   applyMode();
   const dice2d = (dice: Die[], total?: number) => {
+    sfx('dice');
     const tray = Object.assign(document.createElement('div'), { className: 'xd-tray panel', role: 'status' });
     tray.innerHTML = dice.slice(0, 12).map(d => `<span class="xd${d.kept ? '' : ' xd-off'}" data-v="${d.value}" data-s="${d.sides}"><b>${d.sides}</b></span>`).join('') + (total !== undefined ? `<strong class="xd-tot">${total}</strong>` : '');
     root.append(tray);

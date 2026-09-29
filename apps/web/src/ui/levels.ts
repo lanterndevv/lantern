@@ -4,7 +4,8 @@
 //   import { mountLevels } from './levels.ts';
 //   const lv = mountLevels($('levels'), { state: () => state, send: m => net.send(m), role: w.role, setLevel: (id, o) => table.setLevel(id, o), ownLevel: () => state.scene.tokens.find(t => t.owners.includes(w.memberId))?.level });
 //   // en cada estado recibido, después de table.setState(state):   lv.update(state);
-import type { C2S, ClientState, Role } from '@lantern/protocol';
+import type { C2S, ClientState, Role, Weather } from '@lantern/protocol';
+import { WEATHER } from './story.ts';
 
 export type LevelsCtx = {
   state(): ClientState; send(m: C2S): void; role: Role;
@@ -36,7 +37,11 @@ export function mountLevels(el: HTMLElement, ctx: LevelsCtx) {
       ctx.send({ t: 'remove', kind: 'level', id: ls[i].id }); apply(ls[i - 1].id);
     }
   });
-  el.addEventListener('change', e => { if ((e.target as HTMLElement).id === 'lv-ghost') { ghost = (e.target as HTMLInputElement).checked; apply(cur); } });
+  el.addEventListener('change', e => {
+    const t = e.target as HTMLInputElement, s = ctx.state(), l = list(s).find(x => x.id === cur) ?? list(s)[0];
+    if (t.id === 'lv-ghost') { ghost = t.checked; apply(cur); }
+    else if (t.id === 'lv-w' && l) ctx.send({ t: 'upsert', kind: 'level', item: { id: l.id, name: l.name, weather: t.value ? { kind: t.value as Weather['kind'], intensity: l.weather?.intensity ?? 0.6, wind: l.weather?.wind ?? 0 } : null } }); // clima propio de la planta (vacío = el de la escena)
+  });
 
   return {
     update(s: ClientState) {
@@ -58,7 +63,8 @@ export function mountLevels(el: HTMLElement, ctx: LevelsCtx) {
       el.innerHTML = `<div role="group" aria-label="Plantas">${Array.from({ length: n }, (_, j) => `<button type="button" data-lv="${j}" aria-pressed="${j === i}">${esc(nameAt(s, j))}</button>`).join('')}
         <button type="button" data-a="add" title="Añadir planta">+ Planta</button>
         ${ls.length ? `<button type="button" data-a="ren" title="Renombrar">Renombrar</button>` : ''}${i > 0 ? '<button type="button" data-a="del" title="Borrar planta">Borrar</button>' : ''}</div>
-        <label class="chk"><input type="checkbox" id="lv-ghost"${ghost ? ' checked' : ''}> Ver planta inferior</label>`;
+        <label class="chk"><input type="checkbox" id="lv-ghost"${ghost ? ' checked' : ''}> Ver planta inferior</label>
+        ${ls.length ? `<label>Clima de la planta<select id="lv-w"><option value="">Como la escena</option>${WEATHER.map(([k, n]) => `<option value="${k}"${ls[i]?.weather?.kind === k ? ' selected' : ''}>${n}</option>`).join('')}</select></label>` : ''}`;
     },
   };
 }

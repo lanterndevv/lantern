@@ -1,0 +1,23 @@
+/* Transiciones de escena del DM: fundido, barrido de tinta, pergamino y corte a título. Duración en --tx-ms. */
+.tx { position: fixed; inset: 0; z-index: 60; pointer-events: none; display: grid; place-items: center; overflow: hidden; }
+.tx[hidden] { display: none; }
+.tx-fondo { position: absolute; inset: 0; animation: tx-fade var(--tx-ms) both; }
+.tx-fade .tx-fondo { background: var(--noche); }
+.tx-ink .tx-fondo { background: radial-gradient(ellipse at center, #1c1410, var(--noche)); animation-name: tx-ink; }
+.tx-scroll .tx-fondo { background: linear-gradient(90deg, var(--relieve), var(--pagina)); border-inline: 6px double var(--borde); animation-name: tx-scroll; }
+.tx-title .tx-fondo { background: var(--noche); animation: none; }
+.tx-txt { position: relative; text-align: center; padding: 0 24px; color: var(--sobre-mapa); animation: tx-txt var(--tx-ms) both; }
+.tx-scroll .tx-txt { color: var(--txt); }
+.tx-title .tx-txt { animation: none; }
+.tx-txt h2 { margin: 8px 0; font: 700 clamp(2.4rem, 8vw, 5.5rem)/1.05 var(--serif); }
+.tx-txt p { margin: 0; font: italic clamp(1.1rem, 2.5vw, 1.6rem) var(--serif); }
+@keyframes tx-fade { 0% { opacity: 0; } 40%, 60% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tx-ink { 0% { clip-path: inset(0 100% 0 0); } 45%, 55% { clip-path: inset(0); } 100% { clip-path: inset(0 0 0 100%); } }
+@keyframes tx-scroll { 0% { transform: translateX(100%); } 45%, 55% { transform: none; } 100% { transform: translateX(-100%); } }
+@keyframes tx-txt { 0%, 30% { opacity: 0; } 45%, 55% { opacity: 1; } 70%, 100% { opacity: 0; } }
+/* movimiento reducido: todo se resuelve con un fundido */
+@media (prefers-reduced-motion: reduce) { .tx-fondo { animation-name: tx-fade !important; } }
+.reduce-motion .tx-fondo { animation-name: tx-fade !important; }
+.tx-pick { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; }
+.tx-pick select, .tx-pick input { min-height: 44px; background: var(--sombra); border: 1px solid var(--borde); border-radius: var(--r-btn); color: inherit; padding: 0 8px; }
+.tx-pick input { width: 5em; }

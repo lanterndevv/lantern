@@ -7,21 +7,24 @@ import { sightSegments, visibility } from '@lantern/vision';
 import type { ClientState, Drawing, Id, Light, Point, Scene, Token, Wall } from '@lantern/protocol';
 import type { CreateTable, Marks } from './api.ts';
 import { createVfx, LITE } from './vfx.ts';
+import { MAX_FPS_PORTATIL, PORTATIL } from './portatil.ts';
 import { createEdit, dashed, REGION_COLOR, segDist, strokePath } from './edit.ts';
 import { clipCone, gridCells, gridType, hexCenter, hexToPx, hueShift } from './geom.ts';
 import { createPost } from './post.ts';
 import { createMinimap } from './minimap.ts';
 
-const FACTION = { ally: '#5B9BE0', enemy: '#E0643A', neutral: '#BFAE86' };
-const HP = { ok: '#7cc47f', bad: '#d9503a' }; // PG alto / PG bajo
-// Daltonismo: --aliado, --enemigo, --exito y --peligro del documento (con fallback a los actuales). Muta FACTION y HP.
+// Tintas del mapa (A4/A2): lapislázuli aliados, bermellón enemigos, verdín vida. Iguales en día y noche: el mapa siempre es oscuro.
+const FACTION = { ally: '#6A9BEA', enemy: '#EE6448', neutral: '#BFAE86' };
+const HP = { ok: '#86C28C', bad: '#EE6448' }; // PG alto / PG bajo
+// Daltonismo: --mapa-aliado, --mapa-enemigo, --mapa-exito y --mapa-peligro del documento (a11y.css). Muta FACTION y HP.
 function readPalette() {
   const cs = getComputedStyle(document.documentElement), v = (n: string, d: string) => cs.getPropertyValue(n).trim() || d;
-  FACTION.ally = v('--aliado', '#5B9BE0'); FACTION.enemy = v('--enemigo', '#E0643A');
-  HP.ok = v('--exito', '#7cc47f'); HP.bad = v('--peligro', '#d9503a');
+  FACTION.ally = v('--mapa-aliado', '#6A9BEA'); FACTION.enemy = v('--mapa-enemigo', '#EE6448');
+  HP.ok = v('--mapa-exito', '#86C28C'); HP.bad = v('--mapa-peligro', '#EE6448');
 }
 const paletteKey = () => FACTION.ally + FACTION.enemy + HP.ok + HP.bad;
-const MINE = '#F5C877', AMBER = '#E8A33D', TEXT = '#F2E8DA', SERIF = 'Georgia, "Times New Roman", serif';
+// oro solo para lo activo: tu token, el turno, la regla de movimiento
+const MINE = '#E8C766', AMBER = '#D4AD4A', TEXT = '#F0E2C0', SERIF = '"EB Garamond", Georgia, "Times New Roman", serif';
 // Condición -> [letra(s), color]: el color nunca es la única pista, cada una lleva su letra.
 const COND: Record<string, [string, string]> = {
   poisoned: ['Ev', '#6FCB7C'], prone: ['D', '#B8AEA2'], frightened: ['As', '#C29CF5'], stunned: ['At', '#F2E45A'],
@@ -72,7 +75,8 @@ export const createTable: CreateTable = async (el, opts) => {
   readPalette();
   const app = new Application();
   if (import.meta.env.DEV) (globalThis as unknown as { __pixi: unknown }).__pixi = app; // pruebas E2E
-  await app.init({ background: '#070504', resizeTo: el, antialias: true, resolution: devicePixelRatio, autoDensity: true });
+  await app.init({ background: '#0C0A08', resizeTo: el, antialias: true, resolution: devicePixelRatio, autoDensity: true });
+  if (PORTATIL) app.ticker.maxFPS = MAX_FPS_PORTATIL; // modo portátil: 30 fps
   el.appendChild(app.canvas);
   const stage = app.stage;
   stage.eventMode = 'static';
@@ -155,7 +159,7 @@ export const createTable: CreateTable = async (el, opts) => {
   };
   const focus = (x: number, y: number, zoom?: number) => {
     pan = undefined; // interrumpe el pan del usuario
-    ping(x, y, '#F5C877'); // anillo en el destino
+    ping(x, y, MINE); // anillo en el destino
     const k = clampK(zoom ?? world.scale.x);
     camTo(k, app.screen.width / 2 - x * k, app.screen.height / 2 - y * k);
   };
@@ -226,7 +230,7 @@ export const createTable: CreateTable = async (el, opts) => {
     pings.push({ g, t0: performance.now() });
     g.tint = color; // el anillo se dibuja en blanco y se tiñe
   };
-  const ruler = new Graphics(), rulerTxt = new Text({ text: '', style: { fontFamily: SERIF, fontSize: 16, fill: AMBER, stroke: { color: '#000', width: 4 } } });
+  const ruler = new Graphics(), rulerTxt = new Text({ text: '', style: { fontFamily: SERIF, fontSize: 17, fontWeight: '600', fill: MINE, stroke: { color: '#0C0A08', width: 4 } } });
   rulerTxt.anchor.set(0.5, 1); ruler.visible = rulerTxt.visible = false;
   uiL.addChild(ruler, rulerTxt);
 
@@ -235,7 +239,7 @@ export const createTable: CreateTable = async (el, opts) => {
   const setMarks = (m: Marks) => { marks = m; };
   const tokR = (t: Token) => (t.size * (cur?.scene.grid.size ?? 70) * 0.84) / 2;
   const floats: { id: Id; t: Text; t0: number; y0: number }[] = [];
-  function floatText(id: Id, text: string, color: string) {
+  function floatText(id: Id, text: string, color: string, iconSvg?: string) {
     const o = tokens.get(id);
     if (!o) return;
     const n = floats.filter((f) => f.id === id).length; // apila con desplazamiento
@@ -243,6 +247,7 @@ export const createTable: CreateTable = async (el, opts) => {
     t.anchor.set(0.5, 1);
     const y0 = o.c.y - tokR(o.t) - n * 30;
     t.position.set(o.c.x + (n % 2 ? 14 : 0), y0);
+    if (iconSvg) try { const ic = new Graphics().svg(iconSvg); ic.scale.set(1.2); ic.position.set(-t.width / 2 - 34, -t.height + 4); t.addChild(ic); } catch { /* sin icono: solo el número */ } // icono del tipo de daño a la izquierda
     uiL.addChild(t); floats.push({ id, t, t0: performance.now(), y0 });
   }
   // plantilla animada: origen, ángulo y tamaño se acercan al objetivo (salto directo con movimiento reducido)
@@ -277,7 +282,7 @@ export const createTable: CreateTable = async (el, opts) => {
       }
     }
     const sel = at(m.selected);
-    if (sel) g.circle(sel.x, sel.y, sel.r + 4).stroke({ width: 2, color: 0xffd27a });
+    if (sel) g.circle(sel.x, sel.y, sel.r + 4).stroke({ width: 2, color: MINE });
     for (const id of m.targets) {
       const q = at(id); if (!q) continue;
       const R = q.r + 14, a0 = reduced ? 0 : s * 0.6; // cuatro arcos que giran despacio
@@ -327,12 +332,12 @@ export const createTable: CreateTable = async (el, opts) => {
         for (let i = 0; i < 6; i++) { const a = (Math.PI / 3) * i - Math.PI / 6, x = c.x + R * Math.cos(a), y = c.y + R * Math.sin(a); if (i) gridG.lineTo(x, y); else gridG.moveTo(x, y); }
         gridG.closePath();
       }
-      gridG.stroke({ width: 1, color: 0x000000, alpha: 0.3 });
+      gridG.stroke({ width: 1, color: 0x1e140a, alpha: 0.38 }); // tinta sepia
       return;
     }
     for (let x = offsetX % size; x <= s.width; x += size) gridG.moveTo(x, 0).lineTo(x, s.height);
     for (let y = offsetY % size; y <= s.height; y += size) gridG.moveTo(0, y).lineTo(s.width, y);
-    gridG.stroke({ width: 1, color: 0x000000, alpha: 0.3 });
+    gridG.stroke({ width: 1, color: 0x1e140a, alpha: 0.38 }); // tinta sepia
   }
 
   // ---- muros / puertas ----
@@ -394,6 +399,7 @@ export const createTable: CreateTable = async (el, opts) => {
     fogRegG.visible = false;
     for (const r of rs) {
       const col = REGION_COLOR[r.kind], pf = flat(r.points), c = new Container();
+      if (!dm && r.kind === 'weather') continue; // la zona de clima no se dibuja a los jugadores
       if (!dm && r.kind === 'fog') { fogRegG.poly(pf).fill(0x000000); fogRegG.visible = true; continue; }
       const border = new Graphics();
       r.points.forEach((p, i) => dashed(border, p, r.points[(i + 1) % r.points.length], 10, 6));
@@ -811,7 +817,7 @@ export const createTable: CreateTable = async (el, opts) => {
     if (path.length > 1) fades.push({ pts: path, t0: performance.now(), life: 1500, color: o ? FACTION[o.t.faction] : AMBER, wp: true }); // con puntos de paso
   }
   // ruta propia con puntos de paso: tramos en terreno difícil de otro color y, pasados los pies restantes, en rojo
-  const routeTxt = new Text({ text: '', style: { fontFamily: SERIF, fontSize: 16, fill: AMBER, stroke: { color: '#000', width: 4 } } });
+  const routeTxt = new Text({ text: '', style: { fontFamily: SERIF, fontSize: 17, fontWeight: '600', fill: MINE, stroke: { color: '#0C0A08', width: 4 } } });
   routeTxt.anchor.set(0.5, 1); routeTxt.visible = false; routeTxt.eventMode = 'none'; uiL.addChild(routeTxt);
   function setRoute(pts: Point[] | null, o?: { difficult?: Point[][]; remaining?: number }) {
     routeG.clear(); routeTxt.visible = false;
@@ -900,7 +906,7 @@ export const createTable: CreateTable = async (el, opts) => {
       if (vk !== visKey || changed) { visKey = vk; renderFog(s, st.visible); lmDirty = true; }
     }
     if (lmDirty && lit) renderLightmap();
-    vfx.sync(st.settings.layers.effects !== false && st.settings.mode !== 'simple', s.weather);
+    vfx.sync(st.settings.layers.effects !== false && st.settings.mode !== 'simple', os.levels?.find((l) => l.id === here)?.weather ?? s.weather, (s.regions ?? []).filter((r) => r.kind === 'weather')); // clima: región > planta > escena
   }
 
   // ---- ticker: solo animaciones ----
@@ -913,6 +919,7 @@ export const createTable: CreateTable = async (el, opts) => {
   });
   app.ticker.add(() => {
     const now = performance.now(), dt = Math.min(50, app.ticker.deltaMS);
+    vfx.zonePick(); // clima por zona: sigue a la cámara
     mm?.frame();
     if (cam) {
       const k = Math.min(1, (now - cam.t0) / 450), e = 1 - (1 - k) ** 3, m = (a: number, b: number) => a + (b - a) * e;
@@ -946,7 +953,7 @@ export const createTable: CreateTable = async (el, opts) => {
     }
     for (let i = floats.length - 1; i >= 0; i--) {
       const f = floats[i], k = (now - f.t0) / 1200;
-      if (k >= 1) { f.t.destroy(); floats.splice(i, 1); continue; }
+      if (k >= 1) { f.t.destroy({ children: true }); floats.splice(i, 1); continue; }
       f.t.y = f.y0 - (reduced ? 0 : 40 * k); f.t.alpha = k < 0.6 ? 1 : (1 - k) / 0.4;
     }
     drawMarks(now); edit.draw();
@@ -1030,7 +1037,7 @@ export const createTable: CreateTable = async (el, opts) => {
   function previewWalls(ws: Wall[] | null) {
     previewG.clear();
     for (const w of ws ?? []) previewG.moveTo(w.a.x, w.a.y).lineTo(w.b.x, w.b.y);
-    previewG.stroke({ width: 5, color: 0xe8a33d, alpha: 0.85, cap: 'round' });
+    previewG.stroke({ width: 5, color: AMBER, alpha: 0.85, cap: 'round' });
   }
 
   function destroy() {

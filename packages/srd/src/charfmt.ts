@@ -3,11 +3,11 @@ import type { Action, ImportedCharacter, Token } from '@lantern/protocol';
 import { CLASSES } from './classes.ts';
 import type { SrdPregen } from './pregens.ts';
 
-const KEYS = ['id', 'name', 'cost', 'kind', 'range', 'toHit', 'save', 'damage', 'damageType', 'area', 'slot'] as const;
+const KEYS = ['id', 'name', 'cost', 'kind', 'range', 'toHit', 'save', 'damage', 'damageType', 'area', 'slot', 'school', 'multi'] as const;
 /** Deja solo lo que valida el servidor (parseCharacter); el cilindro pasa a esfera. */
 export function cleanActions(as: Action[] | undefined): Action[] | undefined {
   return as?.map((a) => {
-    const o = Object.fromEntries(KEYS.filter((k) => a[k] !== undefined).map((k) => [k, a[k]])) as Action;
+    const o = Object.fromEntries(KEYS.filter((k) => a[k] !== undefined).map((k) => [k, a[k]])) as unknown as Action;
     if (o.area?.shape === 'cylinder') o.area = { ...o.area, shape: 'sphere' };
     return o;
   });

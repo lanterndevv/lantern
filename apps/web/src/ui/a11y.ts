@@ -1,6 +1,7 @@
 import './a11y.css';
 import type { ClientState, ChatMsg } from '@lantern/protocol';
 import { net } from '../net.ts';
+import { PORTATIL, setPortatil } from '../render/portatil.ts';
 
 // ---------- preferencias ----------
 type Prefs = { paleta: string; escala: number; contraste: boolean; dislexia: boolean; movimiento: boolean; atajos: Record<string, string> };
@@ -14,19 +15,26 @@ const load = (): Prefs => { try { return { ...DEF, ...JSON.parse(localStorage.ge
 let P = load();
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(P)); } catch { /* sin storage */ } };
 
-// [aliado, enemigo, éxito, peligro]: azul/naranja con luminosidad distinta
-const PALETAS: Record<string, string[]> = {
-  deuteranopia: ['#3B82F6', '#F5A524', '#5EA8FF', '#FFC266'],
-  protanopia: ['#4C8DFF', '#FFB454', '#7DB4FF', '#FFD08A'],
-  tritanopia: ['#2EC4B6', '#E0457B', '#6EE0D2', '#FF7AA6'],
-};
-const VARS = ['--aliado', '--enemigo', '--exito', '--peligro'];
+// Paletas de daltonismo: los colores de cada tema (texto) y del mapa están en a11y.css bajo html[data-paleta=…].
 const FONT_ID = 'lexend-font';
+
+// ---------- tema: Día («Libro de horas») / Noche («Grimorio») / Automático (prefers-color-scheme). index.html lo fija antes de pintar. ----------
+const TEMA = 'lantern:tema';
+type Tema = 'auto' | 'dia' | 'noche';
+const oscuro = matchMedia('(prefers-color-scheme: dark)');
+let temaMem: Tema = 'auto'; // si no hay storage, vale para esta sesión
+const getTema = (): Tema => { try { const t = localStorage.getItem(TEMA); return t === 'dia' || t === 'noche' ? t : 'auto'; } catch { return temaMem; } };
+function applyTema() {
+  const t = getTema();
+  document.documentElement.dataset.theme = t === 'auto' ? (oscuro.matches ? 'noche' : 'dia') : t;
+}
+oscuro.addEventListener('change', applyTema);
+applyTema();
 
 function apply() {
   queueMicrotask(() => dispatchEvent(new Event('lantern:a11y'))); // el renderer relee los colores de facción/estado
-  const h = document.documentElement, pal = PALETAS[P.paleta];
-  VARS.forEach((v, i) => pal ? h.style.setProperty(v, pal[i]) : h.style.removeProperty(v));
+  const h = document.documentElement;
+  if (P.paleta === 'ninguna') delete h.dataset.paleta; else h.dataset.paleta = P.paleta;
   h.style.fontSize = P.escala === 100 ? '' : `${16 * P.escala / 100}px`;
   h.classList.toggle('alto-contraste', P.contraste);
   h.classList.toggle('dislexia', P.dislexia);
@@ -60,6 +68,8 @@ export function mountA11y(panelEl: HTMLElement, _ctx?: unknown) {
   const opt = (v: string, t: string) => `<option value="${v}"${P.paleta === v ? ' selected' : ''}>${t}</option>`;
   sec.innerHTML = `
     <h2 id="a11y-t">Accesibilidad</h2>
+    <label>Tema
+      <select data-tema>${(['auto', 'dia', 'noche'] as const).map(v => `<option value="${v}"${getTema() === v ? ' selected' : ''}>${{ auto: 'Automático (según el sistema)', dia: 'Día · Libro de horas', noche: 'Noche · Grimorio' }[v]}</option>`).join('')}</select></label>
     <label>Paleta para daltonismo
       <select data-k="paleta">${opt('ninguna', 'Ninguna')}${opt('deuteranopia', 'Deuteranopía')}${opt('protanopia', 'Protanopía')}${opt('tritanopia', 'Tritanopía')}</select></label>
     <label>Escala de la interfaz <output>${P.escala}%</output>
@@ -67,6 +77,7 @@ export function mountA11y(panelEl: HTMLElement, _ctx?: unknown) {
     <label>Alto contraste <input type="checkbox" data-k="contraste"${P.contraste ? ' checked' : ''}></label>
     <label>Tipografía para dislexia <input type="checkbox" data-k="dislexia"${P.dislexia ? ' checked' : ''}></label>
     <label>Movimiento reducido <input type="checkbox" data-k="movimiento"${P.movimiento ? ' checked' : ''}></label>
+    <label>Modo portátil (ahorra batería: 30 fps, sin postproceso ni efectos extra; recarga la página) <input type="checkbox" data-portatil${PORTATIL ? ' checked' : ''}></label>
     <h3>Atajos de teclado</h3>
     <ul class="atajos"></ul>
     <button type="button" data-reset>Restablecer atajos</button>`;
@@ -94,6 +105,8 @@ export function mountA11y(panelEl: HTMLElement, _ctx?: unknown) {
   draw();
   sec.addEventListener('input', e => {
     const t = e.target as HTMLInputElement, k = t.dataset.k as keyof Prefs | undefined;
+    if (t.dataset.portatil != null) return setPortatil(t.checked);
+    if (t.dataset.tema != null) { temaMem = t.value as Tema; try { localStorage.setItem(TEMA, t.value); } catch { /* sin storage */ } applyTema(); return; }
     if (!k) return;
     (P as Record<string, unknown>)[k] = t.type === 'checkbox' ? t.checked : k === 'escala' ? +t.value : t.value;
     if (k === 'escala') sec.querySelector('output')!.textContent = `${P.escala}%`;

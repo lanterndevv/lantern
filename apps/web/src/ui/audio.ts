@@ -1,15 +1,25 @@
 // Audio compartido: música sincronizada con el reloj del servidor, capas de ambiente y mezclador local.
-import type { AudioState, C2S, Point } from '@lantern/protocol';
+import type { AudioState, C2S, Point, Wall } from '@lantern/protocol';
+import { cover, sightSegments } from '@lantern/vision';
 
 export type Chan = 'musica' | 'ambiente' | 'efectos' | 'voz';
 export const CHANNELS: [Chan, string][] = [['musica', 'Música'], ['ambiente', 'Ambiente'], ['efectos', 'Efectos'], ['voz', 'Voz']];
 
-const mem: Partial<Record<Chan, number>> = {}; // por si localStorage no está disponible
-export function getVolume(k: Chan): number {
+const mem: Partial<Record<Chan, number>> = {}, muteMem: Partial<Record<Chan, boolean>> = {}; // por si localStorage no está disponible
+export function isMuted(k: Chan): boolean {
+  if (muteMem[k] != null) return muteMem[k]!;
+  try { return localStorage.getItem('lantern:mute:' + k) === '1'; } catch { return false; }
+}
+export function setMuted(k: Chan, m: boolean) {
+  muteMem[k] = m;
+  try { localStorage.setItem('lantern:mute:' + k, m ? '1' : '0'); } catch { /* sin almacenamiento */ }
+}
+const rawVolume = (k: Chan): number => {
   if (mem[k] != null) return mem[k]!;
   try { const v = parseFloat(localStorage.getItem('lantern:vol:' + k) ?? ''); if (v >= 0 && v <= 1) return v; } catch { /* sin almacenamiento */ }
   return 0.8;
-}
+};
+export const getVolume = (k: Chan): number => isMuted(k) ? 0 : rawVolume(k); // silenciado = 0 para todos los consumidores
 export function setVolume(k: Chan, v: number) {
   mem[k] = v;
   try { localStorage.setItem('lantern:vol:' + k, String(v)); } catch { /* sin almacenamiento */ }
@@ -17,21 +27,22 @@ export function setVolume(k: Chan, v: number) {
 
 export function mountMixer(el: HTMLElement) {
   el.innerHTML = '<h2>Mezclador</h2>' + CHANNELS.map(([k, n]) =>
-    `<label>${n} <output id="mx-o-${k}"></output><input type="range" min="0" max="100" step="1" data-k="${k}" value="${Math.round(getVolume(k) * 100)}"></label>`).join('');
+    `<label>${n} <output id="mx-o-${k}"></output><input type="range" min="0" max="100" step="1" data-k="${k}" value="${Math.round(rawVolume(k) * 100)}"><input type="checkbox" data-m="${k}" aria-label="Silenciar ${n}"${isMuted(k) ? ' checked' : ''}> Silencio</label>`).join('');
   const out = (k: string, v: number) => { el.querySelector('#mx-o-' + k)!.textContent = v + ' %'; };
-  el.querySelectorAll<HTMLInputElement>('input').forEach(i => out(i.dataset.k!, +i.value));
+  el.querySelectorAll<HTMLInputElement>('input[data-k]').forEach(i => out(i.dataset.k!, +i.value));
   el.addEventListener('input', e => {
     const i = e.target as HTMLInputElement;
+    if (i.dataset.m) return setMuted(i.dataset.m as Chan, i.checked);
     setVolume(i.dataset.k as Chan, +i.value / 100); out(i.dataset.k!, +i.value);
   });
 }
 
-type Entry = { el: HTMLAudioElement; f: number; want: 0 | 1; url: string };
+type Entry = { el: HTMLAudioElement; f: number; want: 0 | 1; url: string; lp?: BiquadFilterNode };
 type Track = NonNullable<AudioState['track']>;
 const FADE_MS = 1500, TICK_MS = 100;
 const clamp = (v: number) => Math.max(0, Math.min(1, v));
 
-export function mountAudio(root: HTMLElement, o: { own(): Point | undefined; send(m: C2S): void }) {
+export function mountAudio(root: HTMLElement, o: { own(): Point | undefined; walls(): Wall[]; send(m: C2S): void }) {
   let offset = 0, blocked = false, track: Track | undefined;
   const now = () => Date.now() + offset;
   let music: Entry[] = []; // la última es la actual; las anteriores se apagan
@@ -43,6 +54,20 @@ export function mountAudio(root: HTMLElement, o: { own(): Point | undefined; sen
   const setBlocked = (b: boolean) => { blocked = b; btn.hidden = !b; };
   btn.onclick = () => setBlocked(false);
   document.addEventListener('pointerdown', () => { if (blocked) setBlocked(false); }, { capture: true });
+
+  // Oclusión: el filtro paso bajo solo se monta con audio del mismo origen (con otro origen createMediaElementSource enmudece).
+  let ctx: AudioContext | undefined;
+  const lowpass = (e: Entry) => {
+    if (e.lp) return e.lp;
+    try {
+      if (new URL(e.url, location.href).origin !== location.origin) return;
+      ctx ??= new AudioContext();
+      if (ctx.state !== 'running') { void ctx.resume(); return; }
+      const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 20000;
+      ctx.createMediaElementSource(e.el).connect(f).connect(ctx.destination);
+      return e.lp = f;
+    } catch { /* sin WebAudio */ }
+  };
 
   const play = (el: HTMLAudioElement) => {
     el.play().catch((e: Error) => { if (e.name === 'NotAllowedError') setBlocked(true); });
@@ -76,10 +101,15 @@ export function mountAudio(root: HTMLElement, o: { own(): Point | undefined; sen
     music.filter(e => !e.want && e.f === 0).forEach(drop);
     music = music.filter(e => e.want || e.f > 0);
     const own = o.own(), va = getVolume('ambiente');
-    for (const { el, l } of layers.values()) {
-      // ponytail: atenuación lineal por distancia, sin oclusión por muros
-      const att = l.x != null && l.y != null && l.radius && own ? Math.max(0, 1 - Math.hypot(own.x - l.x, own.y - l.y) / l.radius) : 1;
-      el.volume = clamp(l.volume * va * att);
+    for (const e of layers.values()) {
+      const { el, l } = e;
+      // ponytail: atenuación lineal por distancia; oclusión = algún muro que bloquea la vista entre fuente y token (sin distinguir plantas)
+      const pos = l.x != null && l.y != null && l.radius && own;
+      const att = pos ? Math.max(0, 1 - Math.hypot(own.x - l.x!, own.y - l.y!) / l.radius!) : 1;
+      const occ = pos && cover(own, { x: l.x!, y: l.y! }, 0, sightSegments(o.walls())) !== 0;
+      const lp = occ || e.lp ? lowpass(e) : undefined;
+      if (lp) lp.frequency.setTargetAtTime(occ ? 500 : 20000, lp.context.currentTime, 0.15);
+      el.volume = clamp(l.volume * va * att * (occ && lp ? 0.6 : occ ? 0.35 : 1)); // sin filtro se compensa atenuando más
       if (el.paused && !blocked) play(el);
     }
   }

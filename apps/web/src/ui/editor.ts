@@ -6,10 +6,11 @@
 //   // en cada estado recibido:            ed.update(state);
 //   // en TableOptions.onMapClick(x, y):   if (ed.mapClick(x, y)) return;   // «Elegir destino» de teletransporte
 // Solo hay que llamar a ed.mapClick: es la vía más simple (el renderer ya emite onMapClick con el clic en el suelo).
-import type { Ability, C2S, ClientState, Light, Region, Role, Token, Wall } from '@lantern/protocol';
+import type { Ability, C2S, ClientState, Light, Region, Role, Token, Wall, Weather } from '@lantern/protocol';
 import { CONDITIONS } from '@lantern/rules';
 import type { EditOp, EditTool } from '../render/api.ts';
 import { SFX_LIST } from './sfx.ts';
+import { WEATHER } from './story.ts';
 import { detectWalls } from '../render/walls-detect.ts';
 
 export type EdCtx = {
@@ -22,7 +23,7 @@ type Kind = 'wall' | 'light' | 'region' | 'token';
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const typing = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.('input,textarea,select,dialog');
 
-const REGION_KINDS: [Region['kind'], string][] = [['trap', 'Trampa'], ['difficult', 'Terreno difícil'], ['teleport', 'Teletransporte'], ['fog', 'Niebla'], ['darkness', 'Oscuridad'], ['sound', 'Sonido'], ['message', 'Mensaje']];
+const REGION_KINDS: [Region['kind'], string][] = [['trap', 'Trampa'], ['difficult', 'Terreno difícil'], ['teleport', 'Teletransporte'], ['fog', 'Niebla'], ['darkness', 'Oscuridad'], ['sound', 'Sonido'], ['message', 'Mensaje'], ['weather', 'Clima']];
 const WALL_KINDS: [Wall['kind'], string][] = [['wall', 'Muro'], ['door', 'Puerta'], ['window', 'Ventana'], ['terrain', 'Terreno'], ['invisible', 'Invisible (bloquea la vista, no el paso)'], ['ethereal', 'Etéreo (bloquea el paso, no la vista)']];
 const TRIGGERS: [string, string][] = [['enter', 'Al entrar'], ['exit', 'Al salir'], ['interact', 'Al interactuar (tecla E)'], ['turnStart', 'Al empezar turno'], ['turnEnd', 'Al acabar turno']];
 const ACTIONS: [string, string][] = [['', '—'], ['silence', 'Silencio (sin conjuros verbales)'], ['doc', 'Mostrar documento'], ['scene', 'Cambiar de escena'], ['encounter', 'Activar encuentro']];
@@ -189,6 +190,7 @@ export function mountEditor(toolbarEl: HTMLElement, inspectorEl: HTMLElement, ct
         ${txt('dmg', 'Daño (dados)', r.damage ?? '', 'placeholder="2d10"')}<label>Tipo de daño<select id="ed-dt">${opts(DMG as [string, string][], r.damageType ?? '')}</select></label>
         <label>Condición al fallar<select id="ed-cond">${opts([['', '—'], ...Object.entries(CONDITIONS)], r.condition ?? '')}</select></label>`;
       if (k === 'teleport') h += `<label>Planta de destino<select id="ed-tolevel">${opts([['', '—'], ...(s.scene.levels ?? []).map((l, i) => [l.id, l.name || (i ? `Planta ${i}` : 'Base')] as [string, string])], r.toLevel ?? '')}</select></label><p class="det" role="status">${r.to ? `Destino: ${Math.round(r.to.x)}, ${Math.round(r.to.y)}` : 'Sin destino'}${picking ? ' — haz clic en el mapa (Esc cancela)' : ''}</p><button type="button" data-a="pick"${picking ? ' aria-pressed="true"' : ''}>Elegir destino</button>`;
+      if (k === 'weather') { const w = r.weather ?? { kind: 'rain' as const, intensity: 0.6, wind: 0 }; h += `<label>Clima de la zona<select id="ed-wk">${opts(WEATHER, w.kind)}</select></label>${txt('wi', 'Intensidad (0-100)', Math.round(w.intensity * 100), 'type="number" min="0" max="100"')}${txt('ww', 'Viento (-100 a 100)', Math.round(w.wind * 100), 'type="number" min="-100" max="100"')}<p class="det">El clima se dibuja solo dentro de la región. «Despejado» crea una zona sin clima.</p>`; }
       if (k === 'message') h += `<label>Texto<textarea id="ed-text" rows="3" maxlength="500">${esc(r.text)}</textarea></label>`;
       if (k === 'trap' || k === 'sound') h += `<label>Sonido<select id="ed-sfx">${opts([['', '—'], ...SFX_LIST.map(([n, l]) => [n, l] as [string, string]), ...(SFX_LIST.some(x => x[0] === 'bell') ? [] : [['bell', 'Campana'] as [string, string]])], r.sfx ?? '')}</select></label>`;
       h += actions(true);
@@ -212,6 +214,8 @@ export function mountEditor(toolbarEl: HTMLElement, inspectorEl: HTMLElement, ct
     const g = (id: string) => form.querySelector<HTMLInputElement>('#ed-' + id);
     const r: Region = { ...base, name: g('name')!.value.trim() || base.name, kind: g('kind')!.value as Region['kind'], hidden: g('hidden')!.checked, once: g('once')!.checked, onlyAllies: g('onlyAllies')!.checked };
     if (g('sab')) { r.save = { ability: g('sab')!.value as Ability, dc: +g('dc')!.value || 10 }; r.damage = g('dmg')!.value.trim() || undefined; r.damageType = g('dt')!.value || undefined; r.condition = g('cond')!.value || undefined; }
+    if (g('wk')) r.weather = { kind: g('wk')!.value as Weather['kind'], intensity: Math.min(1, Math.max(0, (+g('wi')!.value || 0) / 100)), wind: Math.min(1, Math.max(-1, (+g('ww')!.value || 0) / 100)) };
+    if (r.kind !== 'weather') delete r.weather;
     if (g('tolevel')) r.toLevel = g('tolevel')!.value || undefined;
     if (g('text')) r.text = g('text')!.value;
     if (g('sfx')) r.sfx = g('sfx')!.value || undefined;

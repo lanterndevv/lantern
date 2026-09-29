@@ -6,6 +6,7 @@
     ".": "./src/index.ts",
     "./demo": "./src/demo.ts",
     "./move": "./src/move.ts",
-    "./link": "./src/link.ts"
+    "./link": "./src/link.ts",
+    "./travel": "./src/travel.ts"
   }
 }

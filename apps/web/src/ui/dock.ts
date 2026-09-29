@@ -1,7 +1,7 @@
 // Paneles acoplables (plan §4.9): zonas izquierda / derecha / abajo con pestañas movibles, plegado, redimensión,
 // distribución guardada por usuario y ventana aparte. Cada pestaña es #t-<id> y su panel #p-<id> (los crean table.ts y extras.ts).
 const KEY = 'lantern:dock2';
-const POP = ['reg', 'hoja', 'mesa', 'esc', 'aj', 'dia', 'biblioteca', 'encuentros', 'pantalla', 'cuenta']; // los de extras.ts no existen en la ventana aparte
+const POP = ['reg', 'hoja', 'mesa', 'esc', 'aj', 'dia', 'biblioteca', 'encuentros', 'pantalla', 'cuenta', 'comp', 'dmx']; // comp/dmx los crea mountPopoutExtras (extras.ts)
 type Zona = 'izq' | 'der' | 'aba';
 const ZONAS: Zona[] = ['izq', 'der', 'aba'];
 const NOM: Record<Zona, string> = { izq: 'Izquierda', der: 'Derecha', aba: 'Abajo' };
@@ -104,7 +104,7 @@ export function mountDock(root: HTMLElement) {
     for (const z of Object.values(Zs)) {
       const tabs = [...z.list.querySelectorAll<HTMLElement>('[role=tab]')], vis = tabs.filter(t => !t.hidden);
       if (vis.length && !cur(z)) selectTab(vis[0].id.slice(2));
-      tabs.forEach(t => { t.draggable = true; t.tabIndex = t.getAttribute('aria-selected') === 'true' ? 0 : -1; });
+      tabs.forEach(t => { t.style.touchAction = 'none'; t.tabIndex = t.getAttribute('aria-selected') === 'true' ? 0 : -1; });
       z.el.classList.toggle('vacia', !vis.length);
       const k = cur(z);
       z.pop.disabled = !k || !POP.includes(k);
@@ -170,24 +170,27 @@ export function mountDock(root: HTMLElement) {
     });
   }
 
-  // ---- arrastrar pestañas entre zonas o sobre otra pestaña ----
+  // ---- arrastrar pestañas entre zonas o sobre otra pestaña (pointer events: sirve con ratón y con el dedo) ----
   let drag: string | null = null;
-  root.addEventListener('dragstart', e => {
-    const t = (e.target as HTMLElement).closest<HTMLElement>('[role=tab]'); if (!t) return;
-    if (narrowQ.matches) { e.preventDefault(); return; }
-    drag = t.id.slice(2); e.dataTransfer?.setData('text/plain', 'lantern-tab:' + drag); root.classList.add('dock-drag');
-  });
-  root.addEventListener('dragend', () => { drag = null; root.classList.remove('dock-drag'); });
-  for (const z of Object.values(Zs)) {
-    z.el.addEventListener('dragover', e => { if (drag) e.preventDefault(); });
-    z.el.addEventListener('drop', e => {
-      if (!drag) return; e.preventDefault();
-      const over = (e.target as HTMLElement).closest<HTMLElement>('[role=tab]'), id = drag;
+  root.addEventListener('pointerdown', e => {
+    const t = (e.target as HTMLElement).closest<HTMLElement>('[role=tab]');
+    if (!t || narrowQ.matches || e.button !== 0) return;
+    const id = t.id.slice(2), x0 = e.clientX, y0 = e.clientY;
+    const move = (ev: PointerEvent) => { if (!drag && Math.hypot(ev.clientX - x0, ev.clientY - y0) > 8) { drag = id; root.classList.add('dock-drag'); } };
+    const end = (ev: PointerEvent) => {
+      for (const [n, f] of [['pointermove', move], ['pointerup', end], ['pointercancel', end]] as const) document.removeEventListener(n, f as EventListener);
+      if (!drag) return;
       drag = null; root.classList.remove('dock-drag');
-      if (over?.id === 't-' + id) return;
+      const mute = (c: Event) => c.stopPropagation(); // el arrastre no cuenta como clic
+      document.addEventListener('click', mute, true); setTimeout(() => document.removeEventListener('click', mute, true), 50);
+      if (ev.type === 'pointercancel') return;
+      const under = document.elementFromPoint(ev.clientX, ev.clientY), zEl = under?.closest<HTMLElement>('[data-z]'), z = zEl && Zs[zEl.dataset.z as Zona];
+      const over = under?.closest<HTMLElement>('[role=tab]');
+      if (!z || over?.id === 't-' + id) return;
       place(id, z.z, over && z.list.contains(over) ? over : null); selectTab(id); commit();
-    });
-  }
+    };
+    document.addEventListener('pointermove', move); document.addEventListener('pointerup', end); document.addEventListener('pointercancel', end);
+  });
 
   // ---- redimensionar: arrastrar el borde (o flechas con el foco en él) ----
   const setS = (z: Z, px: number) => {

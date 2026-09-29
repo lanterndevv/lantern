@@ -26,6 +26,7 @@ export const MIGRATIONS: ((db: DatabaseSync) => void)[] = [
     CREATE TABLE IF NOT EXISTS account_tables (account_id INTEGER NOT NULL, code TEXT NOT NULL, member_id TEXT NOT NULL, PRIMARY KEY (account_id, code));
   `), // cuentas opcionales (accounts.ts)
   (db) => addCol(db, 'rooms', 'extra', "TEXT NOT NULL DEFAULT '{}'"), // safety, sessionStart, maxRound
+  (db) => db.exec(`CREATE TABLE IF NOT EXISTS account_passkeys (cred_id TEXT PRIMARY KEY, account_id INTEGER NOT NULL, jwk TEXT NOT NULL, alg INTEGER NOT NULL, counter INTEGER NOT NULL, name TEXT NOT NULL, created INTEGER NOT NULL)`), // passkeys WebAuthn (webauthn.ts)
 ];
 
 export function migrate(db: DatabaseSync) {
@@ -60,7 +61,7 @@ export function openDb(path = process.env.LANTERN_DB ?? 'lantern.db') {
       db.exec('BEGIN');
       try {
         upRoom.run(r.code, 'null', // la columna scene es solo de migración: la biblioteca vive en scenes
-           JSON.stringify(r.chat), r.automation, JSON.stringify(r.combat ?? null), JSON.stringify(r.pending), JSON.stringify(r.settings), r.view, JSON.stringify(r.audio), JSON.stringify(r.scenes), r.activeId, JSON.stringify(r.journal), JSON.stringify(r.extensions), JSON.stringify({ safety: r.safety, sessionStart: r.sessionStart, maxRound: r.maxRound, clock: r.clock ?? 480 }));
+           JSON.stringify(r.chat), r.automation, JSON.stringify(r.combat ?? null), JSON.stringify(r.pending), JSON.stringify(r.settings), r.view, JSON.stringify(r.audio), JSON.stringify(r.scenes), r.activeId, JSON.stringify(r.journal), JSON.stringify(r.extensions), JSON.stringify({ safety: r.safety, sessionStart: r.sessionStart, maxRound: r.maxRound, clock: r.clock ?? 480, holds: r.holds }));
         delMembers.run(r.code); // ponytail: reescribe todos los miembros; incremental si crecen las mesas
         for (const m of r.members.values()) insMember.run(r.code, m.id, m.name, m.role, JSON.stringify(m.keyHashes), m.dice);
         db.exec('COMMIT');
@@ -86,7 +87,7 @@ export function openDb(path = process.env.LANTERN_DB ?? 'lantern.db') {
       const ex2 = parse(row.extra) as any, sl = (v: unknown) => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length >= 1 && x.length <= 60).slice(0, 30) : [];
       return mkRoom({
         safety: { lines: sl(ex2?.safety?.lines), veils: sl(ex2?.safety?.veils) },
-        sessionStart: Number.isFinite(ex2?.sessionStart) ? ex2.sessionStart : Date.now(), maxRound: Number.isInteger(ex2?.maxRound) ? ex2.maxRound : 0, ...(Number.isFinite(ex2?.clock) && { clock: ex2.clock }),
+        sessionStart: Number.isFinite(ex2?.sessionStart) ? ex2.sessionStart : Date.now(), maxRound: Number.isInteger(ex2?.maxRound) ? ex2.maxRound : 0, ...(Number.isFinite(ex2?.clock) && { clock: ex2.clock }), ...(ex2?.holds && typeof ex2.holds === 'object' && !Array.isArray(ex2.holds) && { holds: ex2.holds }),
         scenes, activeId: Object.hasOwn(scenes, row.active) ? row.active : Object.keys(scenes)[0],
         journal: Array.isArray(j) ? (j as JournalEntry[]).filter((e) => e && typeof e.id === 'string') : [],
         extensions: Array.isArray(ex) ? ex.flatMap((e) => { const m = parseManifest(e); return typeof m === 'string' ? [] : [m]; }).slice(0, MAX_EXTENSIONS) : [], // migración tolerante

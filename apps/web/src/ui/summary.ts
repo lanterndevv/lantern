@@ -14,7 +14,7 @@ const markdown = (s: SessionSummary) => [
   ...s.perToken.map(t => `| ${t.name} | ${t.damageDealt} | ${t.damageTaken} | ${t.healed} | ${t.crits} |`), '',
 ].join('\n');
 
-export function showSummary(s: SessionSummary) {
+export function showSummary(s: SessionSummary, send?: (m: C2S) => void) {
   const d = document.createElement('dialog');
   d.className = 'resumen'; d.setAttribute('aria-labelledby', 'rs-t');
   d.innerHTML = `<h2 id="rs-t">Fin de la sesión</h2>
@@ -24,11 +24,13 @@ export function showSummary(s: SessionSummary) {
     <table class="rs-tabla"><caption class="sr">Estadísticas por personaje</caption>
       <thead><tr><th scope="col">Personaje</th><th scope="col">Daño hecho</th><th scope="col">Daño recibido</th><th scope="col">Curación</th><th scope="col">Críticos</th></tr></thead>
       <tbody>${s.perToken.map(t => `<tr><th scope="row">${esc(t.name)}</th><td>${t.damageDealt}</td><td>${t.damageTaken}</td><td>${t.healed}</td><td>${t.crits}</td></tr>`).join('')}</tbody></table>
+    ${s.tips?.length && send ? `<h3>Sugerencias</h3><ul class="rs-tips">${s.tips.map((t, i) => `<li>${esc(t.text)} <button type="button" data-tip="${i}">Activar</button></li>`).join('')}</ul>` : ''}
     <div class="rs-btns"><button type="button" data-md>Exportar a Markdown</button><button type="button" class="primary" data-x>Cerrar</button></div>`;
   d.querySelector<HTMLElement>('[data-md]')!.onclick = () => {
     const a = document.createElement('a'), u = URL.createObjectURL(new Blob([markdown(s)], { type: 'text/markdown' }));
     a.href = u; a.download = `sesion-${new Date(s.ended).toISOString().slice(0, 10)}.md`; a.click(); URL.revokeObjectURL(u);
   };
+  d.querySelectorAll<HTMLButtonElement>('[data-tip]').forEach(b => { b.onclick = () => { send?.({ t: 'settings', patch: s.tips![+b.dataset.tip!].patch }); b.disabled = true; b.textContent = 'Activado'; }; });
   d.querySelector<HTMLElement>('[data-x]')!.onclick = () => d.close();
   d.addEventListener('close', () => d.remove());
   document.body.append(d); d.showModal();

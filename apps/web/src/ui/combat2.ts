@@ -219,7 +219,7 @@ export function templateTargeting(a: Action, c: TemplateCtx) {
       && cover(origin, t, t.size * g.size / 2, segs) !== 'total');
   };
   const paint = () => {
-    const m = c.baseMarks(), col = '#E8A33D', g = c.state().scene.grid;
+    const m = c.baseMarks(), col = '#D4AD4A', g = c.state().scene.grid;
     if (!at) return c.table.setMarks(m);
     const { vec, from } = geom(at), radius = area.size / g.feet * g.size, targets = inside(at).map(t => t.id);
     c.table.setMarks(area.shape === 'sphere'

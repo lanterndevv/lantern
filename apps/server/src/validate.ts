@@ -1,5 +1,5 @@
 // Validación de todo lo que entra al servidor (mensajes de cliente e importaciones): nada es de fiar.
-import type { ExtensionManifest, ExtensionPermission, Ability, AudioState, Grid, Id, JournalEntry, Light, Point, Region, Scene, Token, TurnEffect, Wall } from '@lantern/protocol';
+import type { ExtensionManifest, ExtensionPermission, Ability, AudioState, Grid, Id, JournalEntry, Light, Point, Region, Scene, Token, TurnEffect, Wall, Weather } from '@lantern/protocol';
 import { CONDITIONS, roll } from '@lantern/rules';
 import { parseCharacter } from './import.ts';
 
@@ -24,7 +24,12 @@ export const WEATHER = ['none', 'rain', 'snow', 'fog', 'ash', 'storm', 'leaves',
 export const SFX = ['door', 'thunder', 'roar', 'collapse', 'bell', 'scream', 'magic', 'coins', 'trap', 'hit', 'crit', 'heal', 'miss'];
 export const MAX_ITEMS = 500, MAX_WALLS = 5000, MAX_REGIONS = 100, MAX_LAYERS = 12, MAX_SCENES = 100, MAX_JOURNAL = 500;
 const ABILITIES = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
-const REGION_KINDS = ['difficult', 'trap', 'teleport', 'fog', 'darkness', 'sound', 'message'];
+const REGION_KINDS = ['difficult', 'trap', 'teleport', 'fog', 'darkness', 'sound', 'message', 'weather'];
+
+export function parseWeather(w: unknown): Weather | null {
+  if (!obj(w) || !WEATHER.includes(w.kind as string) || !inr(w.intensity, 0, 1) || !inr(w.wind, -1, 1)) return null;
+  return { kind: w.kind as Weather['kind'], intensity: w.intensity, wind: w.wind };
+}
 
 // Efecto de turno (recordatorio de inicio/fin): validado igual venga del DM o de un token guardado.
 export function parseEffect(v: unknown): TurnEffect | null {
@@ -183,6 +188,8 @@ export function parseRegion(s: Scene, v: unknown): Region | null {
   if (v.untilRound !== undefined) { if (!int(v.untilRound, 1, 9999)) return null; r.untilRound = v.untilRound; }
   if (v.sourceId !== undefined) { if (!str(v.sourceId, 80)) return null; r.sourceId = v.sourceId; }
   if (v.toLevel !== undefined) { const l = parseLevel(s, v.toLevel); if (!l) return null; r.toLevel = l; }
+  if (v.weather !== undefined) { const w = parseWeather(v.weather); if (!w) return null; r.weather = w; }
+  if (r.kind === 'weather' && !r.weather) return null;
   if (r.kind === 'teleport' && !r.to && !r.toLevel) return null;
   if (r.kind === 'message' && !r.text && !r.action) return null;
   return r;
@@ -235,7 +242,7 @@ export function parseJournal(v: unknown, members: ReadonlyMap<Id, unknown>): Jou
   return e;
 }
 
-const PATCH_KEYS = ['name', 'background', 'globalLight', 'weather', 'story', 'grid', 'width', 'height', 'outdoor'];
+const PATCH_KEYS = ['name', 'background', 'globalLight', 'weather', 'story', 'grid', 'width', 'height', 'outdoor', 'miles'];
 
 // Valida un patch de escena y lo mezcla sobre `s`. Devuelve false (sin tocar nada) si algo es inválido.
 export function patchScene(s: Scene, patch: unknown): boolean {
@@ -245,13 +252,14 @@ export function patchScene(s: Scene, patch: unknown): boolean {
   if ('name' in p) { if (!str(p.name, 60)) return false; n.name = p.name; }
   if ('background' in p) { if (!urlOk(p.background)) return false; n.background = p.background; }
   if ('globalLight' in p) { if (!inr(p.globalLight, 0, 1)) return false; n.globalLight = p.globalLight; }
+  if ('miles' in p) { if (!inr(p.miles, 0.1, 1000)) return false; n.miles = p.miles; }
   if ('outdoor' in p) { if (typeof p.outdoor !== 'boolean') return false; n.outdoor = p.outdoor; }
   if ('width' in p) { if (!inr(p.width, 100, 20000)) return false; n.width = p.width; }
   if ('height' in p) { if (!inr(p.height, 100, 20000)) return false; n.height = p.height; }
   if ('weather' in p) {
-    const w = p.weather;
-    if (!obj(w) || !WEATHER.includes(w.kind as string) || !inr(w.intensity, 0, 1) || !inr(w.wind, -1, 1)) return false;
-    n.weather = { kind: w.kind as NonNullable<Scene['weather']>['kind'], intensity: w.intensity, wind: w.wind };
+    const w = parseWeather(p.weather);
+    if (!w) return false;
+    n.weather = w;
   }
   if ('story' in p) {
     const t = p.story;
@@ -282,7 +290,7 @@ export function parseScene(v: unknown): Scene | null {
   if (v.levels !== undefined) {
     const lv = v.levels;
     if (!Array.isArray(lv) || lv.length > MAX_LEVELS || !lv.every((l) => obj(l) && str(l.id, 40) && str(l.name, 40)) || new Set(lv.map((l) => l.id)).size !== lv.length) return null;
-    s.levels = lv.map((l) => ({ id: l.id as string, name: l.name as string }));
+    s.levels = lv.map((l) => ({ id: l.id as string, name: l.name as string, ...(parseWeather(l.weather) && { weather: parseWeather(l.weather)! }) }));
   }
   const list = <T extends { id: Id }>(raw: unknown, max: number, f: (x: unknown) => T | null): T[] | null => {
     if (raw === undefined) return [];

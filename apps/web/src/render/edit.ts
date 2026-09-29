@@ -2,9 +2,10 @@
 import type { Container, FederatedPointerEvent, Graphics } from 'pixi.js';
 import type { Drawing, Id, Light, Point, Region, Scene, Wall } from '@lantern/protocol';
 import type { EditOp, EditTool } from './api.ts';
+import { calibrate, gridType, hexCorners, hexToPx, snapPoint } from './geom.ts';
 
 export const REGION_COLOR: Record<Region['kind'], string> = {
-  trap: '#F08A64', difficult: '#D3C3A6', teleport: '#C29CF5', fog: '#3a3129', darkness: '#000000', sound: '#8FD3F5', message: '#F5C877',
+  trap: '#F08A64', difficult: '#D3C3A6', teleport: '#C29CF5', fog: '#3a3129', darkness: '#000000', sound: '#8FD3F5', message: '#F5C877', weather: '#8FB4D9',
 };
 const WALL_COLOR: Record<Wall['kind'], string> = { wall: '#F5C877', door: '#5B9BE0', window: '#8FD3F5', terrain: '#7FCB8A', invisible: '#B08AF0', ethereal: '#E88AC0' };
 
@@ -51,8 +52,7 @@ export function createEdit(world: Container, g: Graphics, scene: () => Scene | u
   const k = () => world.scale.x;
   const snap = (p: Point, on: boolean): Point => {
     const s = scene(); if (!on || !s) return p;
-    const { size, offsetX, offsetY } = s.grid;
-    return { x: offsetX + Math.round((p.x - offsetX) / size) * size, y: offsetY + Math.round((p.y - offsetY) / size) * size };
+    return snapPoint(s.grid, p); // cuadrada o hex según la escena
   };
   const select = (kind: Kind | null, id?: string) => {
     sel = kind && id ? { kind, id } : undefined;
@@ -134,8 +134,8 @@ export function createEdit(world: Container, g: Graphics, scene: () => Scene | u
       const drew = d.r >= 8;
       cb({ op: 'upsert', kind: 'light', item: { id: crypto.randomUUID(), x: d.at.x, y: d.at.y, bright: drew ? d.r / 2 : tool.bright, dim: drew ? d.r : tool.dim, color: tool.color, level: level() } });
     } else if (d.k === 'grid') {
-      const size = (Math.abs(d.b.x - d.a.x) + Math.abs(d.b.y - d.a.y)) / 4;
-      if (size >= 8) cb({ op: 'grid', size, offsetX: mod(Math.min(d.a.x, d.b.x), size), offsetY: mod(Math.min(d.a.y, d.b.y), size) });
+      const s = scene(), c = s && calibrate(s.grid, d.a, d.b);
+      if (c && c.size >= 8) cb({ op: 'grid', ...c });
     }
   }
   function key(e: KeyboardEvent) {
@@ -191,10 +191,17 @@ export function createEdit(world: Container, g: Graphics, scene: () => Scene | u
       g.circle(drag.at.x, drag.at.y, drag.r).stroke({ width: 2 * u, color: tool.color });
       g.circle(drag.at.x, drag.at.y, drag.r / 2).stroke({ width: 2 * u, color: tool.color, alpha: 0.7 });
     } else if (drag?.k === 'grid') {
-      const size = (Math.abs(drag.b.x - drag.a.x) + Math.abs(drag.b.y - drag.a.y)) / 4;
+      const c = calibrate(s.grid, drag.a, drag.b), size = c.size;
       g.rect(Math.min(drag.a.x, drag.b.x), Math.min(drag.a.y, drag.b.y), Math.abs(drag.b.x - drag.a.x), Math.abs(drag.b.y - drag.a.y)).stroke({ width: 2 * u, color: '#E8A33D' });
-      if (size >= 8) {
-        const ox = mod(Math.min(drag.a.x, drag.b.x), size), oy = mod(Math.min(drag.a.y, drag.b.y), size);
+      if (size >= 8 && gridType(s.grid) === 'hex') { // vista previa hex: contorno de cada casilla (solo mientras se arrastra)
+        const hg = { ...s.grid, ...c }, rows = Math.ceil(s.height / (size * 0.866)) + 1, cols = Math.ceil(s.width / size) + 2;
+        for (let r = 0; r < rows; r++) for (let q = -Math.ceil(r / 2); q < cols - Math.floor(r / 2); q++) {
+          const v = hexCorners(hg, hexToPx(hg, q, r));
+          g.moveTo(v[5].x, v[5].y); for (const p of v) g.lineTo(p.x, p.y);
+        }
+        g.stroke({ width: u, color: '#E8A33D', alpha: 0.6 });
+      } else if (size >= 8) {
+        const ox = c.offsetX, oy = c.offsetY;
         for (let x = ox; x <= s.width; x += size) g.moveTo(x, 0).lineTo(x, s.height);
         for (let y = oy; y <= s.height; y += size) g.moveTo(0, y).lineTo(s.width, y);
         g.stroke({ width: u, color: '#E8A33D', alpha: 0.6 });
