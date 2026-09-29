@@ -1,5 +1,6 @@
 // Capa de edición (fase 5): herramientas del DM. Dibuja en `layer` y emite EditOp; no toca el estado del servidor.
 import type { Container, FederatedPointerEvent, Graphics } from 'pixi.js';
+import { t } from '../i18n.ts';
 import type { Drawing, Id, Light, Point, Region, Scene, Wall } from '@lantern/protocol';
 import type { EditOp, EditTool } from './api.ts';
 import { calibrate, gridType, hexCorners, hexToPx, snapPoint } from './geom.ts';
@@ -60,7 +61,7 @@ export function createEdit(world: Container, g: Graphics, scene: () => Scene | u
   };
   const closeRegion = () => {
     if (tool.tool === 'region' && pts.length >= 3)
-      cb({ op: 'upsert', kind: 'region', item: { id: crypto.randomUUID(), name: 'Región', points: pts, kind: tool.kind, hidden: tool.kind === 'trap', level: level() } });
+      cb({ op: 'upsert', kind: 'region', item: { id: crypto.randomUUID(), name: t('Región'), points: pts, kind: tool.kind, hidden: tool.kind === 'trap', level: level() } });
     pts = [];
   };
 

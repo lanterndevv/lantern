@@ -2,6 +2,8 @@ import { encounterDifficulty, encounterXP } from '@lantern/rules';
 import type { ClientState } from '@lantern/protocol';
 import { MONSTERS } from '@lantern/srd';
 import type { UiCtx } from './library.ts';
+import { t } from '../i18n.ts';
+import { monName } from './palette.ts';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 const xpOf = (cr: string) => { try { return encounterXP([cr]); } catch { return 0; } };
@@ -21,41 +23,41 @@ export function mountEncounter(el: HTMLElement, ctx: UiCtx) {
   let levels: number[] | null = null; // null = automático
   let hidden = false, placing = false;
   const auto = (s: ClientState) => {
-    const l = s.scene.tokens.filter(t => t.faction === 'ally' && t.owners.length).map(t => t.ddb?.level ?? 5);
+    const l = s.scene.tokens.filter(k => k.faction === 'ally' && k.owners.length).map(k => k.ddb?.level ?? 5);
     return l.length ? l : [5];
   };
 
   el.classList.add('enc');
   el.innerHTML = `
-    <label>Niveles del grupo (separados por comas)<input id="en-niv" inputmode="numeric" autocomplete="off"></label>
-    <label>Buscar monstruo<input id="en-q" type="search" autocomplete="off"></label>
-    <ul class="enc-res" id="en-res" aria-label="Resultados"></ul>
-    <h3>Encuentro</h3>
-    <ul class="enc-sel" id="en-sel" aria-label="Monstruos del encuentro"></ul>
+    <label>${t('Niveles del grupo (separados por comas)')}<input id="en-niv" inputmode="numeric" autocomplete="off"></label>
+    <label>${t('Buscar monstruo')}<input id="en-q" type="search" autocomplete="off"></label>
+    <ul class="enc-res" id="en-res" aria-label="${t('Resultados')}"></ul>
+    <h3>${t('Encuentro')}</h3>
+    <ul class="enc-sel" id="en-sel" aria-label="${t('Monstruos del encuentro')}"></ul>
     <div id="en-dif" class="enc-dif" role="status" aria-live="polite"></div>
-    <label class="enc-ck"><input type="checkbox" id="en-hid"> Ocultos</label>
-    <div class="bib-acc"><button type="button" class="primary" id="en-col"></button><button type="button" class="secondary" id="en-lim">Vaciar</button></div>`;
+    <label class="enc-ck"><input type="checkbox" id="en-hid"> ${t('Ocultos')}</label>
+    <div class="bib-acc"><button type="button" class="primary" id="en-col"></button><button type="button" class="secondary" id="en-lim">${t('Vaciar')}</button></div>`;
   const q = <T extends HTMLElement>(id: string) => el.querySelector<T>('#' + id)!;
   const cur = () => levels ?? auto(ctx.state());
 
   function renderRes() {
     const f = q<HTMLInputElement>('en-q').value.trim().toLowerCase();
     q('en-res').innerHTML = list.filter(m => !f || m.name.toLowerCase().includes(f)).map(m =>
-      `<li><span>${esc(m.name)} <span class="det">VD ${m.cr} · ${xpOf(m.cr)} PX</span></span><button type="button" data-add="${m.id}" aria-label="Añadir ${esc(m.name)}">Añadir</button></li>`).join('');
+      `<li><span>${esc(monName(m.id, m.name))} <span class="det">${t('VD')} ${m.cr} · ${xpOf(m.cr)} ${t('PX')}</span></span><button type="button" data-add="${m.id}" aria-label="${esc(t('Añadir {name}', { name: monName(m.id, m.name) }))}">${t('Añadir')}</button></li>`).join('');
   }
   function renderSel() {
     const rows = [...qty].filter(([, n]) => n > 0);
     q('en-sel').innerHTML = rows.map(([id, n]) => { const m = MONSTERS[id];
-      return `<li><span>${esc(m.name)} <span class="det">VD ${m.cr} · ${xpOf(m.cr) * n} PX</span></span>
-        <span class="enc-n"><button type="button" data-d="-1" data-id="${id}" aria-label="Quitar un ${esc(m.name)}">−</button><output aria-label="Cantidad de ${esc(m.name)}">${n}</output><button type="button" data-d="1" data-id="${id}" aria-label="Añadir otro ${esc(m.name)}">+</button></span></li>`; }).join('') || '<li class="det">Añade monstruos de la lista.</li>';
+      return `<li><span>${esc(monName(id, m.name))} <span class="det">${t('VD')} ${m.cr} · ${xpOf(m.cr) * n} ${t('PX')}</span></span>
+        <span class="enc-n"><button type="button" data-d="-1" data-id="${id}" aria-label="${esc(t('Quitar un {name}', { name: monName(id, m.name) }))}">−</button><output aria-label="${esc(t('Cantidad de {name}', { name: monName(id, m.name) }))}">${n}</output><button type="button" data-d="1" data-id="${id}" aria-label="${esc(t('Añadir otro {name}', { name: monName(id, m.name) }))}">+</button></span></li>`; }).join('') || `<li class="det">${t('Añade monstruos de la lista.')}</li>`;
     const crs = rows.flatMap(([id, n]) => Array<string>(n).fill(MONSTERS[id].cr));
     const d = difficulty(cur(), crs, ctx.state().settings.edition);
     const [icon, color] = STYLE[d.rating] ?? STYLE.Media;
     const pct = (RATINGS.indexOf(d.rating) + 1) * 20;
     q('en-dif').innerHTML = crs.length ? `<div class="enc-barra" aria-hidden="true"><i style="width:${pct}%;background:${color}"></i></div>
-      <strong style="color:${color}"><span aria-hidden="true">${icon}</span> ${d.rating}</strong>
-      <span class="det">${d.xp} PX${d.adjusted != null && d.adjusted !== d.xp ? ` (ajustados ${Math.round(d.adjusted)})` : ''}</span>` : '<span class="det">Sin monstruos.</span>';
-    q('en-col').textContent = placing ? 'Cancelar colocación' : 'Colocar en el mapa';
+      <strong style="color:${color}"><span aria-hidden="true">${icon}</span> ${t(d.rating)}</strong>
+      <span class="det">${d.xp} ${t('PX')}${d.adjusted != null && d.adjusted !== d.xp ? ` (${t('ajustados {n}', { n: Math.round(d.adjusted) })})` : ''}</span>` : `<span class="det">${t('Sin monstruos.')}</span>`;
+    q('en-col').textContent = placing ? t('Cancelar colocación') : t('Colocar en el mapa');
     q<HTMLButtonElement>('en-col').disabled = !crs.length && !placing;
   }
   const stop = () => { placing = false; ctx.onMapClick(null); renderSel(); };
@@ -78,7 +80,7 @@ export function mountEncounter(el: HTMLElement, ctx: UiCtx) {
   q('en-col').addEventListener('click', () => {
     if (placing) return stop();
     placing = true; renderSel();
-    ctx.toast('Haz clic en el mapa para colocar el grupo');
+    ctx.toast(t('Haz clic en el mapa para colocar el grupo'));
     ctx.onMapClick((x, y) => {
       const ids = [...qty].flatMap(([id, n]) => Array<string>(n).fill(id)).sort((a, b) => (MONSTERS[b].size ?? 1) - (MONSTERS[a].size ?? 1));
       if (ids.length) {
@@ -87,7 +89,7 @@ export function mountEncounter(el: HTMLElement, ctx: UiCtx) {
         const cols = Math.ceil(Math.sqrt(ids.length)), rows = Math.ceil(ids.length / cols);
         ctx.send({ t: 'spawnMany', hidden, items: ids.map((srd, i) => ({
           srd, x: Math.round(x + ((i % cols) - (cols - 1) / 2) * step), y: Math.round(y + (Math.floor(i / cols) - (rows - 1) / 2) * step) })) });
-        ctx.toast(`${ids.length} criaturas colocadas${hidden ? ' (ocultas)' : ''}`);
+        ctx.toast(hidden ? t('{n} criaturas colocadas (ocultas)', { n: ids.length }) : t('{n} criatura colocada|{n} criaturas colocadas', { n: ids.length }));
       }
       stop();
     });

@@ -1,3 +1,4 @@
+import { t } from './i18n.ts';
 // Puente Beyond20 → Lantern. Beyond20 (extensión) emite en el `document` de los «custom domains» el evento
 // `Beyond20_RenderedRoll` con detail = [request]. No hay que anunciar nada: al cargar en un dominio
 // registrado, Beyond20 ya emite `Beyond20_Loaded` y reenvía las tiradas de la hoja de DDB.
@@ -33,7 +34,7 @@ export function parseBeyond20All(req: unknown): B20Roll[] {
   if (!q || typeof q !== 'object' || q.action !== 'rendered-roll') return [];
   // whisper 1/3 = el jugador la quiere en secreto; externalRoll no tiene destinatario, así que no se envía.
   if ((q.request?.whisper ?? q.whisper) === 1 || (q.request?.whisper ?? q.whisper) === 3) return [];
-  const title = String(q.title ?? '').trim() || 'Tirada';
+  const title = String(q.title ?? '').trim() || t('Tirada');
   const who = q.character?.name ? ` (${q.character.name})` : '';
   const out: B20Roll[] = [];
 
@@ -48,7 +49,7 @@ export function parseBeyond20All(req: unknown): B20Roll[] {
   // damage_rolls = [tipo, Roll, flags]; flags 0 = solo texto, 32 = condicional (fuera del total).
   const dmg = (q.damage_rolls ?? []).filter(d => Array.isArray(d) && d[2] !== 0 && !((d[2] ?? 0) & 32) && d[1] && num(d[1].total));
   if (dmg.length) out.push({
-    name: `${title} · daño${who}`,
+    name: t('{title} · daño{who}', { title, who }),
     expr: dmg.map(([t, r]) => `${r.formula ?? r.total} ${t}`.trim()).join(' + '),
     total: dmg.reduce((s, d) => s + d[1].total!, 0),
     dice: dmg.flatMap(d => diceOf(d[1])), kind: 'damage',

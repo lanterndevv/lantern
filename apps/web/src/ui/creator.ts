@@ -1,6 +1,8 @@
 // Asistente de creación de personaje. Contenido: SRD 5.2.1 (CC-BY-4.0), Wizards of the Coast LLC.
 import type { Ability, Action, ImportedCharacter } from '@lantern/protocol';
 import { CLASSES, SPECIES, SPELLS } from '@lantern/srd';
+import { t } from '../i18n.ts';
+import { dmgName } from './dmgtypes.ts';
 
 const AB: Ability[] = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
 const AB_ES: Record<Ability, string> = { str: 'Fuerza', dex: 'Destreza', con: 'Constitución', int: 'Inteligencia', wis: 'Sabiduría', cha: 'Carisma' };
@@ -15,11 +17,11 @@ const SKILLS: Record<string, [string, Ability]> = {
 };
 const STD = [15, 14, 13, 12, 10, 8];
 const COST: Record<number, number> = { 8: 0, 9: 1, 10: 2, 11: 3, 12: 4, 13: 5, 14: 7, 15: 9 };
-const STEPS = ['Nombre y especie', 'Clase y nivel', 'Características', 'Competencias', 'Resumen'];
+const STEPS = [t('Nombre y especie'), t('Clase y nivel'), t('Características'), t('Competencias'), t('Resumen')];
 const mod = (n: number) => Math.floor((n - 10) / 2);
 const sg = (n: number) => (n >= 0 ? '+' : '') + n;
 const esc = (s: string) => s.replace(/[&<>"]/g, ch => `&#${ch.charCodeAt(0)};`);
-const opts = (o: [string, string][], sel: string) => o.map(([v, t]) => `<option value="${v}"${v === sel ? ' selected' : ''}>${esc(t)}</option>`).join('');
+const opts = (o: [string, string][], sel: string) => o.map(([v, n]) => `<option value="${v}"${v === sel ? ' selected' : ''}>${esc(t(n))}</option>`).join('');
 
 type St = {
   name: string; species: string; cls: string; level: number; method: 'std' | 'buy';
@@ -47,7 +49,7 @@ export function openCreator(onDone: (c: ImportedCharacter) => void): void {
     .creador .err { color: var(--peligro); margin: 0; }
   </style><form novalidate><h2 id="cr-t" tabindex="-1"></h2><progress max="5" aria-hidden="true"></progress><div id="cr-b" class="cuerpo" style="display:grid;gap:12px"></div>
     <p class="err" role="alert" id="cr-e"></p>
-    <div class="pie"><button type="button" class="secondary" id="cr-a">Anterior</button><button type="submit" class="primary" id="cr-s"></button></div></form>`;
+    <div class="pie"><button type="button" class="secondary" id="cr-a">${t('Anterior')}</button><button type="submit" class="primary" id="cr-s"></button></div></form>`;
   document.body.append(dlg);
   const $ = <T extends HTMLElement>(id: string) => dlg.querySelector<T>('#' + id)!;
   dlg.addEventListener('close', () => dlg.remove());
@@ -61,20 +63,20 @@ export function openCreator(onDone: (c: ImportedCharacter) => void): void {
 
   const body: ((b: HTMLElement) => void)[] = [
     b => { // 1
-      b.innerHTML = `<label>Nombre<input id="f-name" maxlength="40" autocomplete="off" value="${esc(st.name)}" required></label>
-        <label>Especie<select id="f-sp">${opts(Object.entries(SPECIES).map(([k, v]) => [k, v.name]), st.species)}</select></label>`;
+      b.innerHTML = `<label>${t('Nombre')}<input id="f-name" maxlength="40" autocomplete="off" value="${esc(st.name)}" required></label>
+        <label>${t('Especie')}<select id="f-sp">${opts(Object.entries(SPECIES).map(([k, v]) => [k, v.name]), st.species)}</select></label>`;
       b.insertAdjacentHTML('beforeend', `<p id="f-info" class="sub" aria-live="polite"></p>`);
-      const info = () => { const s = SPECIES[st.species]; $('f-info').textContent = `Velocidad ${s.speed} pies · Visión en la oscuridad ${s.darkvision} pies · Resistencias: ${s.resist.join(', ') || 'ninguna'}`; };
+      const info = () => { const s = SPECIES[st.species]; $('f-info').textContent = t('Velocidad {sp} pies · Visión en la oscuridad {dv} pies · Resistencias: {r}', { sp: s.speed, dv: s.darkvision, r: s.resist.map(dmgName).join(', ') || t('ninguna') }); };
       info();
       $<HTMLInputElement>('f-name').oninput = e => { st.name = (e.target as HTMLInputElement).value; };
       $<HTMLSelectElement>('f-sp').onchange = e => { st.species = (e.target as HTMLSelectElement).value; info(); };
       $('f-name').focus();
     },
     b => { // 2
-      b.innerHTML = `<div class="fila"><label>Clase<select id="f-cl">${opts(Object.entries(CLASSES).map(([k, v]) => [k, v.name]), st.cls)}</select></label>
-        <label>Nivel (1–20)<input id="f-lv" type="number" min="1" max="20" inputmode="numeric" value="${st.level}"></label></div>
+      b.innerHTML = `<div class="fila"><label>${t('Clase')}<select id="f-cl">${opts(Object.entries(CLASSES).map(([k, v]) => [k, v.name]), st.cls)}</select></label>
+        <label>${t('Nivel (1–20)')}<input id="f-lv" type="number" min="1" max="20" inputmode="numeric" value="${st.level}"></label></div>
         <p id="f-info" class="sub" aria-live="polite"></p>`;
-      const info = () => { const k = CLASSES[st.cls]; $('f-info').textContent = `Dado de golpe d${k.hitDie} · Salvaciones: ${k.saves.map(a => AB_ES[a]).join(', ')} · ${k.cast ? 'Lanzamiento: ' + AB_ES[k.cast] : 'No lanza conjuros'}`; };
+      const info = () => { const k = CLASSES[st.cls]; $('f-info').textContent = `${t('Dado de golpe d{n}', { n: k.hitDie })} · ${t('Salvaciones:')} ${k.saves.map(a => t(AB_ES[a])).join(', ')} · ${k.cast ? t('Lanzamiento:') + ' ' + t(AB_ES[k.cast]) : t('No lanza conjuros')}`; };
       info();
       $<HTMLSelectElement>('f-cl').onchange = e => { st.cls = (e.target as HTMLSelectElement).value; info(); };
       $<HTMLInputElement>('f-lv').oninput = e => { st.level = Math.max(1, Math.min(20, Math.round(+(e.target as HTMLInputElement).value) || 1)); };
@@ -84,19 +86,19 @@ export function openCreator(onDone: (c: ImportedCharacter) => void): void {
       const draw = (focus?: string) => {
         const std = st.method === 'std';
         const rows = AB.map((a, i) => std
-          ? `<label>${AB_ES[a]}<select id="a-${a}"><option value="">—</option>${STD.filter(v => v === st.std[i] || !st.std.includes(v)).map(v => `<option${v === st.std[i] ? ' selected' : ''}>${v}</option>`).join('')}</select></label>`
-          : `<div class="pt" role="group" aria-label="${AB_ES[a]}"><span style="flex:1">${AB_ES[a]}</span>
-              <button type="button" id="m-${a}" aria-label="Bajar ${AB_ES[a]}"${st.buy[i] <= 8 ? ' disabled' : ''}>−</button><output id="o-${a}" aria-live="polite">${st.buy[i]}</output>
-              <button type="button" id="p-${a}" aria-label="Subir ${AB_ES[a]}"${st.buy[i] >= 15 || spent() - COST[st.buy[i]] + COST[st.buy[i] + 1] > 27 ? ' disabled' : ''}>+</button></div>`).join('');
-        const ab = (id: string, sel: string, other: string) => `<select id="${id}"><option value="">—</option>${AB.filter(a => a !== other).map(a => `<option value="${a}"${a === sel ? ' selected' : ''}>${AB_ES[a]}</option>`).join('')}</select>`;
-        b.innerHTML = `<fieldset><legend>Método</legend>
-            <label class="chk"><input type="radio" name="mt" value="std"${std ? ' checked' : ''}>Array estándar (15, 14, 13, 12, 10, 8)</label>
-            <label class="chk"><input type="radio" name="mt" value="buy"${std ? '' : ' checked'}>Compra por puntos (27)</label></fieldset>
-          ${std ? '' : `<p aria-live="polite">Puntos restantes: <strong>${27 - spent()}</strong></p>`}
+          ? `<label>${t(AB_ES[a])}<select id="a-${a}"><option value="">—</option>${STD.filter(v => v === st.std[i] || !st.std.includes(v)).map(v => `<option${v === st.std[i] ? ' selected' : ''}>${v}</option>`).join('')}</select></label>`
+          : `<div class="pt" role="group" aria-label="${t(AB_ES[a])}"><span style="flex:1">${t(AB_ES[a])}</span>
+              <button type="button" id="m-${a}" aria-label="${esc(t('Bajar {name}', { name: t(AB_ES[a]) }))}"${st.buy[i] <= 8 ? ' disabled' : ''}>−</button><output id="o-${a}" aria-live="polite">${st.buy[i]}</output>
+              <button type="button" id="p-${a}" aria-label="${esc(t('Subir {name}', { name: t(AB_ES[a]) }))}"${st.buy[i] >= 15 || spent() - COST[st.buy[i]] + COST[st.buy[i] + 1] > 27 ? ' disabled' : ''}>+</button></div>`).join('');
+        const ab = (id: string, sel: string, other: string) => `<select id="${id}"><option value="">—</option>${AB.filter(a => a !== other).map(a => `<option value="${a}"${a === sel ? ' selected' : ''}>${t(AB_ES[a])}</option>`).join('')}</select>`;
+        b.innerHTML = `<fieldset><legend>${t('Método')}</legend>
+            <label class="chk"><input type="radio" name="mt" value="std"${std ? ' checked' : ''}>${t('Array estándar (15, 14, 13, 12, 10, 8)')}</label>
+            <label class="chk"><input type="radio" name="mt" value="buy"${std ? '' : ' checked'}>${t('Compra por puntos (27)')}</label></fieldset>
+          ${std ? '' : `<p aria-live="polite">${t('Puntos restantes:')} <strong>${27 - spent()}</strong></p>`}
           <div class="fila">${rows}</div>
-          <fieldset><legend>Aumentos del trasfondo (+2 / +1)</legend><div class="fila">
-            <label>+2 a<span style="display:contents">${ab('f-p2', st.plus2, st.plus1)}</span></label>
-            <label>+1 a<span style="display:contents">${ab('f-p1', st.plus1, st.plus2)}</span></label></div></fieldset>`;
+          <fieldset><legend>${t('Aumentos del trasfondo (+2 / +1)')}</legend><div class="fila">
+            <label>${t('+2 a')}<span style="display:contents">${ab('f-p2', st.plus2, st.plus1)}</span></label>
+            <label>${t('+1 a')}<span style="display:contents">${ab('f-p1', st.plus1, st.plus2)}</span></label></div></fieldset>`;
         b.querySelectorAll<HTMLInputElement>('[name=mt]').forEach(r => r.onchange = () => { st.method = r.value as St['method']; draw('mt-' + r.value); });
         b.querySelectorAll<HTMLInputElement>('[name=mt]').forEach(r => r.id = 'mt-' + r.value);
         AB.forEach((a, i) => {
@@ -115,9 +117,9 @@ export function openCreator(onDone: (c: ImportedCharacter) => void): void {
     b => { // 4
       const k = CLASSES[st.cls];
       if (st.skillsFor !== st.cls) { st.skills = k.skills.slice(0, 2); st.skillsFor = st.cls; }
-      b.innerHTML = `<p class="sub" id="f-h">Elige de 2 a 4 habilidades. Las de ${k.name} van marcadas como sugeridas.</p>
-        <fieldset aria-describedby="f-h"><legend>Habilidades competentes</legend><div class="fila">${Object.entries(SKILLS).map(([id, [n, a]]) =>
-          `<label class="chk"><input type="checkbox" value="${id}"${st.skills.includes(id) ? ' checked' : ''}>${n} (${AB_ES[a].slice(0, 3)})${k.skills.includes(id) ? ' · sugerida' : ''}</label>`).join('')}</div></fieldset>`;
+      b.innerHTML = `<p class="sub" id="f-h">${t('Elige de 2 a 4 habilidades. Las de {cls} van marcadas como sugeridas.', { cls: t(k.name) })}</p>
+        <fieldset aria-describedby="f-h"><legend>${t('Habilidades competentes')}</legend><div class="fila">${Object.entries(SKILLS).map(([id, [n, a]]) =>
+          `<label class="chk"><input type="checkbox" value="${id}"${st.skills.includes(id) ? ' checked' : ''}>${t(n)} (${t(AB_ES[a]).slice(0, 3)})${k.skills.includes(id) ? ' · ' + t('sugerida') : ''}</label>`).join('')}</div></fieldset>`;
       b.querySelectorAll<HTMLInputElement>('input[type=checkbox]').forEach(i => i.onchange = () => {
         st.skills = [...b.querySelectorAll<HTMLInputElement>('input:checked')].map(x => x.value);
       });
@@ -125,15 +127,15 @@ export function openCreator(onDone: (c: ImportedCharacter) => void): void {
     },
     b => { // 5
       const c = build();
-      b.innerHTML = `<dl><dt>Personaje</dt><dd>${esc(c.name)} — ${esc(SPECIES[st.species].name)} ${esc(c.classes)}</dd>
-        <dt>PG / CA</dt><dd>${c.hp!.max} / ${c.ac}</dd><dt>Competencia</dt><dd>${sg(c.prof)}</dd>
-        <dt>Iniciativa</dt><dd>${sg(c.initMod!)}</dd><dt>Velocidad</dt><dd>${c.speed} pies</dd>
-        <dt>Visión en la oscuridad</dt><dd>${c.darkvision ? `${c.darkvision / 12} pies (${c.darkvision} px)` : 'no'}</dd>
-        <dt>Características</dt><dd>${AB.map(a => `${AB_ES[a].slice(0, 3)} ${c.abilities[a]} (${sg(mod(c.abilities[a]))})`).join(' · ')}</dd>
-        <dt>Salvaciones</dt><dd>${AB.map(a => `${AB_ES[a].slice(0, 3)} ${sg(c.saves![a]!)}`).join(' · ')}</dd>
-        <dt>Habilidades</dt><dd>${st.skills.map(k => `${SKILLS[k][0]} ${sg(c.skills[camel(k)])}`).join(' · ')}</dd>
-        <dt>Acciones</dt><dd>${c.actions!.map(a => `${esc(a.name)} (${a.save ? 'CD ' + a.save.dc : sg(a.toHit!)}, ${a.damage})`).join(' · ')}</dd>
-        <dt>Espacios</dt><dd>${Object.entries(c.slots!).map(([l, x]) => `nv.${l}: ${x.max}`).join(' · ') || 'ninguno'}</dd></dl>`;
+      b.innerHTML = `<dl><dt>${t('Personaje')}</dt><dd>${esc(c.name)} — ${esc(t(SPECIES[st.species].name))} ${esc(t(CLASSES[st.cls].name))} ${st.level}</dd>
+        <dt>${t('PG / CA')}</dt><dd>${c.hp!.max} / ${c.ac}</dd><dt>${t('Competencia')}</dt><dd>${sg(c.prof)}</dd>
+        <dt>${t('Iniciativa')}</dt><dd>${sg(c.initMod!)}</dd><dt>${t('Velocidad')}</dt><dd>${c.speed} ${t('pies')}</dd>
+        <dt>${t('Visión en la oscuridad')}</dt><dd>${c.darkvision ? `${c.darkvision / 12} ${t('pies')} (${c.darkvision} px)` : t('no')}</dd>
+        <dt>${t('Características')}</dt><dd>${AB.map(a => `${t(AB_ES[a]).slice(0, 3)} ${c.abilities[a]} (${sg(mod(c.abilities[a]))})`).join(' · ')}</dd>
+        <dt>${t('Salvaciones')}</dt><dd>${AB.map(a => `${t(AB_ES[a]).slice(0, 3)} ${sg(c.saves![a]!)}`).join(' · ')}</dd>
+        <dt>${t('Habilidades')}</dt><dd>${st.skills.map(k => `${t(SKILLS[k][0])} ${sg(c.skills[camel(k)])}`).join(' · ')}</dd>
+        <dt>${t('Acciones')}</dt><dd>${c.actions!.map(a => `${esc(t(a.name))} (${a.save ? t('CD') + ' ' + a.save.dc : sg(a.toHit!)}, ${a.damage})`).join(' · ')}</dd>
+        <dt>${t('Espacios')}</dt><dd>${Object.entries(c.slots!).map(([l, x]) => `${t('nv.')}${l}: ${x.max}`).join(' · ') || t('ninguno')}</dd></dl>`;
     },
   ];
 
@@ -168,12 +170,12 @@ export function openCreator(onDone: (c: ImportedCharacter) => void): void {
   }
 
   function validate(): string {
-    if (step === 0 && !st.name.trim()) return 'Escribe un nombre.';
+    if (step === 0 && !st.name.trim()) return t('Escribe un nombre.');
     if (step === 2) {
-      if ((st.method === 'std' ? st.std : st.buy).some(v => v === null)) return 'Asigna un valor a cada característica.';
-      if (!st.plus2 || !st.plus1) return 'Elige a qué característica va el +2 y a cuál el +1.';
+      if ((st.method === 'std' ? st.std : st.buy).some(v => v === null)) return t('Asigna un valor a cada característica.');
+      if (!st.plus2 || !st.plus1) return t('Elige a qué característica va el +2 y a cuál el +1.');
     }
-    if (step === 3 && (st.skills.length < 2 || st.skills.length > 4)) return 'Elige entre 2 y 4 habilidades.';
+    if (step === 3 && (st.skills.length < 2 || st.skills.length > 4)) return t('Elige entre 2 y 4 habilidades.');
     return '';
   }
 
@@ -181,7 +183,7 @@ export function openCreator(onDone: (c: ImportedCharacter) => void): void {
     $('cr-t').textContent = `${step + 1}/5 · ${STEPS[step]}`;
     dlg.querySelector('progress')!.value = step + 1;
     $('cr-a').hidden = step === 0;
-    $('cr-s').textContent = step === 4 ? 'Crear' : 'Siguiente';
+    $('cr-s').textContent = step === 4 ? t('Crear') : t('Siguiente');
     $('cr-e').textContent = err;
     body[step]($('cr-b'));
     if (step === 4) $('cr-t').focus(); // el foco inicial del resumen es el título; el cuerpo se lee tras él

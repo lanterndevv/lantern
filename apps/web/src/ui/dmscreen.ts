@@ -1,3 +1,4 @@
+import { t } from '../i18n.ts';
 import { monsterSearch, spellSearch } from './compendium.ts';
 
 // Pantalla del DM: referencia rápida (resúmenes propios). Contenido basado en el SRD 5.2.1, © Wizards of the Coast LLC, CC-BY-4.0.
@@ -57,20 +58,23 @@ const esc = (s: string) => s.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 /** Monta la pantalla en `el` (pestaña «Pantalla» o panel acoplable). */
 export function mountDmScreen(el: HTMLElement) {
   el.classList.add('dms');
-  el.innerHTML = `<label>Buscar en la pantalla<input type="search" id="dms-q" autocomplete="off" aria-controls="dms-out"></label>
+  el.innerHTML = `<label>${t('Buscar en la pantalla')}<input type="search" id="dms-q" autocomplete="off" aria-controls="dms-out"></label>
     <p class="sr" id="dms-n" role="status" aria-live="polite"></p><div id="dms-out"></div>
-    <p class="det">Referencia resumida basada en el SRD 5.2.1 de Wizards of the Coast, bajo licencia
+    <p class="det">${t('Referencia resumida basada en el SRD 5.2.1 de Wizards of the Coast, bajo licencia')}
     <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC-BY-4.0</a>.</p>`;
   const out = el.querySelector<HTMLElement>('#dms-out')!, n = el.querySelector('#dms-n')!;
   const draw = (f: string) => {
     const k = f.trim().toLowerCase();
-    const secs = SECS.map(s => ({ s, rows: !k || s.title.toLowerCase().includes(k) ? s.rows : s.rows.filter(r => (r[0] + ' ' + r[1]).toLowerCase().includes(k)) })).filter(x => x.rows.length);
-    out.innerHTML = secs.map(({ s, rows }) => `<section aria-labelledby="dms-${s.id}"><h3 id="dms-${s.id}">${esc(s.title)}</h3><dl>${rows.map(([a, b]) => `<dt>${esc(a)}</dt><dd>${esc(b)}</dd>`).join('')}</dl></section>`).join('') || '<p class="det">Sin resultados.</p>';
-    n.textContent = `${secs.reduce((a, x) => a + x.rows.length, 0)} entradas en ${secs.length} secciones`;
+    const secs = SECS.map(s => {
+      const tr = t(s.title), all = s.rows.map(([a, b]) => [t(a), t(b)] as [string, string]); // se busca sobre el texto mostrado
+      return { s: { ...s, title: tr }, rows: !k || tr.toLowerCase().includes(k) ? all : all.filter(r => (r[0] + ' ' + r[1]).toLowerCase().includes(k)) };
+    }).filter(x => x.rows.length);
+    out.innerHTML = secs.map(({ s, rows }) => `<section aria-labelledby="dms-${s.id}"><h3 id="dms-${s.id}">${esc(s.title)}</h3><dl>${rows.map(([a, b]) => `<dt>${esc(a)}</dt><dd>${esc(b)}</dd>`).join('')}</dl></section>`).join('') || `<p class="det">${t('Sin resultados.')}</p>`;
+    n.textContent = t('{n} entradas en {s} secciones', { n: secs.reduce((a, x) => a + x.rows.length, 0), s: secs.length });
   };
   for (const [title, fill] of [['Buscador de conjuros', spellSearch], ['Buscador de monstruos', (b: HTMLElement) => monsterSearch(b)]] as const) { // perezosos: se rellenan al abrir
     const d = document.createElement('details'), box = document.createElement('div');
-    d.innerHTML = `<summary>${title}</summary>`; d.append(box);
+    d.innerHTML = `<summary>${t(title)}</summary>`; d.append(box);
     d.addEventListener('toggle', () => { if (d.open && !box.hasChildNodes()) fill(box); });
     el.querySelector('#dms-out')!.before(d);
   }

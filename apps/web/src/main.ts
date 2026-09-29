@@ -5,6 +5,9 @@ import { mountJoin } from './ui/join.ts';
 import { mountTable } from './ui/table.ts';
 import { displayModeFromUrl } from './ui/display.ts';
 import './ui/a11y.ts'; // aplica las preferencias de accesibilidad al cargar
+import { t } from './i18n.ts';
+
+document.title = t('Lantern · Mesa de D&D');
 
 const app = document.getElementById('app')!;
 let screen: { handle(m: S2C): void } = mountJoin(app);
@@ -23,7 +26,7 @@ if (code && savedKey(code) && savedName() && displayModeFromUrl() === 'normal') 
 
 // ?vista=mesa|espectador: entra solo como espectador, sin formulario.
 const vista = displayModeFromUrl();
-if (vista !== 'normal' && code) net.send({ t: 'join', code, name: vista === 'mesa' ? 'Mesa' : 'Espectador', as: 'spectator', key: savedKey(code, 'spectator') ?? undefined });
+if (vista !== 'normal' && code) net.send({ t: 'join', code, name: vista === 'mesa' ? t('Mesa') : t('Espectador'), as: 'spectator', key: savedKey(code, 'spectator') ?? undefined });
 
 // PWA: solo en producción
 if (import.meta.env.PROD && 'serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));

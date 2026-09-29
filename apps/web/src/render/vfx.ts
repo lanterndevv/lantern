@@ -1,6 +1,7 @@
 // VFX procedurales (Graphics + partículas propias) y clima de pantalla. Sin texturas externas.
 // El ticker propio solo corre mientras haya efectos vivos, clima o sacudida.
 import { PORTATIL } from './portatil.ts';
+import { t as tr } from '../i18n.ts';
 import { Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import type { Application } from 'pixi.js';
 import { pointInPolygon } from '@lantern/vision';
@@ -29,14 +30,14 @@ let playFn: ((id: string, from: { x: number; y: number }, to: { x: number; y: nu
 export const playRecipe = (id: string, from: { x: number; y: number }, to: { x: number; y: number }) => playFn?.(id, from, to);
 
 [
-  { id: 'arcoiris-feerico', name: 'Arcoíris feérico',
+  { id: 'arcoiris-feerico', name: tr('Arcoíris feérico'),
     projectile: { color: [0xff5d5d, 0xffb84d, 0xfff35c, 0x6fdc6f, 0x5cb8ff, 0xb06cff], size: 6, trail: 3, speed: 1.1 },
     impact: { color: [0xff8ad8, 0xfff35c, 0x8fd3f5, 0x9dffb0], particles: 26, radius: 40, ring: true } },
-  { id: 'rayo-sombrio', name: 'Rayo sombrío',
+  { id: 'rayo-sombrio', name: tr('Rayo sombrío'),
     projectile: { color: [0x6a2a9a, 0x2a1040], size: 5, trail: 4, speed: 1.6 },
     impact: { color: [0x8a3cc8, 0x1a0a28], particles: 20, radius: 44, ring: true },
     burst: { color: [0x2a1040, 0x6a2a9a], particles: 30, radius: 70 } },
-  { id: 'enjambre', name: 'Enjambre de insectos',
+  { id: 'enjambre', name: tr('Enjambre de insectos'),
     projectile: { color: [0x3a2a14, 0x5a4a22, 0x1c1a0e], size: 2, trail: 6, speed: 0.5 },
     impact: { color: [0x3a2a14, 0x6b5b2a], particles: 36, radius: 50, ring: false },
     burst: { color: [0x3a2a14, 0x1c1a0e], particles: 60, radius: 90, ring: false } },
@@ -219,7 +220,7 @@ export function createVfx(app: Application, world: Container, fxL: Container, re
 
   function miss(at: { x: number; y: number }) {
     if (reduced) return flash(at.x, at.y, 24, 0x9a9a9a, 150);
-    const t = new Text({ text: '¡Falla!', style: { fontFamily: 'Georgia, serif', fontSize: 22, fontStyle: 'italic', fill: '#cfc6b8', stroke: { color: '#1a0f08', width: 4 } } });
+    const t = new Text({ text: tr('¡Falla!'), style: { fontFamily: 'Georgia, serif', fontSize: 22, fontStyle: 'italic', fill: '#cfc6b8', stroke: { color: '#1a0f08', width: 4 } } });
     t.anchor.set(0.5); fxL.addChild(t);
     radial(at.x, at.y, 8, 0x8a8580, 70, 600, 5, { add: false, a: 0.4 });
     let n = 0;
@@ -233,7 +234,7 @@ export function createVfx(app: Application, world: Container, fxL: Container, re
 
   function fumble(at: { x: number; y: number }) {
     if (reduced) return flash(at.x, at.y, 24, 0x9a9a9a, 150);
-    const t = new Text({ text: '¡Tropiezo!', style: { fontFamily: 'Georgia, serif', fontSize: 22, fontStyle: 'italic', fill: '#e6c48a', stroke: { color: '#1a0f08', width: 4 } } });
+    const t = new Text({ text: tr('¡Tropiezo!'), style: { fontFamily: 'Georgia, serif', fontSize: 22, fontStyle: 'italic', fill: '#e6c48a', stroke: { color: '#1a0f08', width: 4 } } });
     t.anchor.set(0.5); fxL.addChild(t);
     for (let i = 0; i < 10; i++) emit({ x: at.x + rnd(-14, 14), y: at.y + 14, vx: rnd(-90, 90), vy: -rnd(10, 50), g: 60, life: rnd(400, 700), c: 0x8a7a64, r: rnd(3, 6), add: false, a: 0.5, d: 1 });
     let n = 0;

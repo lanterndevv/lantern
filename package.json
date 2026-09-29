@@ -7,7 +7,7 @@
     "apps/*"
   ],
   "scripts": {
-    "test": "node --test 'packages/*/src/**/*.test.ts' 'apps/server/src/**/*.test.ts' apps/web/src/render/walls-detect.test.ts apps/web/src/render/geom.test.ts apps/web/src/ui/dmgtypes.test.ts 'apps/web/src/beyond20.test.ts'",
+    "test": "node --test 'packages/*/src/**/*.test.ts' 'apps/server/src/**/*.test.ts' apps/web/src/render/walls-detect.test.ts apps/web/src/render/geom.test.ts apps/web/src/ui/dmgtypes.test.ts apps/web/src/i18n.test.ts 'apps/web/src/beyond20.test.ts'",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "server": "node apps/server/src/main.ts",
     "web": "npm run dev -w @lantern/web",

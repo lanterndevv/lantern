@@ -37,12 +37,13 @@ import { showSummary, sessionEndButton } from './summary.ts';
 import { preload } from './transiciones.ts';
 import { mountTravel } from './viaje.ts';
 import { linkCurrentTable } from './account.ts';
-import { mountPalette, defaultCommands } from './palette.ts';
+import { mountPalette, defaultCommands, monName } from './palette.ts';
 import { applyDisplayMode, displayModeFromUrl } from './display.ts';
 import { dmgColor, dmgIcon, dmgName, dmgSvg } from './dmgtypes.ts';
+import { t, tsrv } from '../i18n.ts';
 import { mountA11y, mountScreenReaderMirror, matchesShortcut } from './a11y.ts';
 
-const ROLES: Record<Role, string> = { dm: 'DM', assistant: 'Asistente', trusted: 'De confianza', player: 'Jugador', spectator: 'Espectador' };
+const ROLES: Record<Role, string> = { dm: 'DM', assistant: t('Asistente'), trusted: t('De confianza'), player: t('Jugador'), spectator: t('Espectador') };
 const PALETTE = ['#F5C877', '#5B9BE0', '#7FCB8A', '#E0643A', '#C79BF0', '#6FD3D3', '#F08AB4', '#E8E27A'];
 const colorOf = (id: string) => {
   let h = 0;
@@ -51,7 +52,7 @@ const colorOf = (id: string) => {
 };
 const esc = (s: string) => s.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 const HEAL = '#7FCB8A';
-const AB: Record<Ability, string> = { str: 'FUE', dex: 'DES', con: 'CON', int: 'INT', wis: 'SAB', cha: 'CAR' };
+const AB: Record<Ability, string> = { str: t('FUE'), dex: t('DES'), con: t('CON'), int: t('INT'), wis: t('SAB'), cha: t('CAR') };
 const initials = (n: string) => n.split(/\s+/).map(x => x[0] ?? '').join('').slice(0, 2).toUpperCase();
 let me = ''; // memberId propio, para pintar en dorado los tokens que controlas
 const portrait = (t: Token, cls = '') =>
@@ -60,23 +61,23 @@ const hpBar = (t: Token) => t.hp ? `<span class="hpbar" aria-hidden="true"><i st
 
 function cardHtml(c: ActionCard, canConfirm: boolean) {
   const col = c.kind === 'heal' ? HEAL : dmgColor(c.damageType);
-  const rows = c.targets.map(t => {
-    const a = t.attack, sv = t.save;
-    const at = a ? `<span class="d20" title="d20 ${a.d20}${a.mode === 'normal' ? '' : a.mode === 'adv' ? ' (ventaja)' : ' (desventaja)'}">${a.d20}</span>
+  const rows = c.targets.map(g => {
+    const a = g.attack, sv = g.save;
+    const at = a ? `<span class="d20" title="d20 ${a.d20}${a.mode === 'normal' ? '' : ` (${t(a.mode === 'adv' ? 'ventaja' : 'desventaja')})`}">${a.d20}</span>
       <strong class="tot">${a.total}</strong>
-      ${c.manual ? (a.d20 === 20 ? '<em class="res ok">20 natural</em>' : a.d20 === 1 ? '<em class="res ko">1 natural</em>' : '') : `<em class="res ${a.hit ? 'ok' : 'ko'}">${a.crit ? 'Crítico' : a.hit ? '¡Impacto!' : 'Fallo'}</em>`}` : '';
-    const sa = sv ? `<span class="det">${AB[sv.ability]}${sv.dc != null ? ` CD ${sv.dc}` : ''}: <strong class="tot">${sv.total}</strong></span>
-      ${c.manual ? '' : `<em class="res ${sv.success ? 'ok' : 'ko'}">${sv.success ? 'Supera' : 'Falla'}</em>`}` : c.awaiting?.includes(t.id) ? '<em class="det">tira su salvación…</em>' : '';
-    const am = t.amount ? `<strong class="amt" style="color:${col}">${c.kind === 'heal' ? '+' : '−'}${t.amount}${c.kind === 'heal' ? '' : dmgIcon(c.damageType) + ' ' + esc(dmgName(c.damageType))}</strong>` : '';
-    const cv = t.cover === 2 || t.cover === 5 ? `<span class="chip cob"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 1l6 2v5c0 3-2.5 5.5-6 7-3.5-1.5-6-4-6-7V3z" fill="currentColor"/></svg>Cobertura ${t.cover === 2 ? '½ (+2)' : '¾ (+5)'}</span>` : '';
-    return `<li><span class="obj">${esc(t.name)}</span>${cv}${at}${sa}${am}</li>`;
+      ${c.manual ? (a.d20 === 20 ? `<em class="res ok">${t('20 natural')}</em>` : a.d20 === 1 ? `<em class="res ko">${t('1 natural')}</em>` : '') : `<em class="res ${a.hit ? 'ok' : 'ko'}">${t(a.crit ? 'Crítico' : a.hit ? '¡Impacto!' : 'Fallo')}</em>`}` : '';
+    const sa = sv ? `<span class="det">${AB[sv.ability]}${sv.dc != null ? ` ${t('CD {dc}', { dc: sv.dc })}` : ''}: <strong class="tot">${sv.total}</strong></span>
+      ${c.manual ? '' : `<em class="res ${sv.success ? 'ok' : 'ko'}">${t(sv.success ? 'Supera' : 'Falla')}</em>`}` : c.awaiting?.includes(g.id) ? `<em class="det">${t('tira su salvación…')}</em>` : '';
+    const am = g.amount ? `<strong class="amt" style="color:${col}">${c.kind === 'heal' ? '+' : '−'}${g.amount}${c.kind === 'heal' ? '' : dmgIcon(c.damageType) + ' ' + esc(dmgName(c.damageType))}</strong>` : '';
+    const cv = g.cover === 2 || g.cover === 5 ? `<span class="chip cob"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 1l6 2v5c0 3-2.5 5.5-6 7-3.5-1.5-6-4-6-7V3z" fill="currentColor"/></svg>${t('Cobertura {c}', { c: g.cover === 2 ? '½ (+2)' : '¾ (+5)' })}</span>` : '';
+    return `<li><span class="obj">${esc(g.name)}</span>${cv}${at}${sa}${am}</li>`;
   }).join('');
   const btns = c.pending && !c.applied && canConfirm
-    ? `<div class="conf" data-p="${esc(c.pending)}"><button class="primary" data-m="full" type="button">Aplicar</button>
-       <button data-m="half" type="button">Mitad</button>${c.manual ? '<button data-m="heal" type="button">Curar</button>' : ''}<button class="secondary" data-m="none" type="button">Nada</button></div>` : '';
-  const st = c.applied ? '' : c.awaiting?.length ? '<em class="det">Esperando salvaciones de los jugadores</em>' : c.pending ? '<em class="det">Pendiente de confirmar</em>' : '';
+    ? `<div class="conf" data-p="${esc(c.pending)}"><button class="primary" data-m="full" type="button">${t('Aplicar')}</button>
+       <button data-m="half" type="button">${t('Mitad')}</button>${c.manual ? `<button data-m="heal" type="button">${t('Curar')}</button>` : ''}<button class="secondary" data-m="none" type="button">${t('Nada')}</button></div>` : '';
+  const st = c.applied ? '' : c.awaiting?.length ? `<em class="det">${t('Esperando salvaciones de los jugadores')}</em>` : c.pending ? `<em class="det">${t('Pendiente de confirmar')}</em>` : '';
   return `<div class="cab"><span class="quien">${esc(c.actorName)}</span> ${esc(c.actionName)}</div>
-    <ul class="filas">${rows}</ul>${c.detail ? `<div class="det">${esc(c.detail)}</div>` : ''}${st}${btns}`;
+    <ul class="filas">${rows}</ul>${c.detail ? `<div class="det">${esc(tsrv(c.detail))}</div>` : ''}${st}${btns}`;
 }
 
 export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) {
@@ -90,39 +91,39 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     <div id="init" class="init panel" hidden></div>
     <div id="aviso" class="aviso" role="alert" aria-live="assertive"></div>
     <div id="hud" class="hud panel" hidden></div>
-    <nav id="ed-bar" class="ed-bar panel" aria-label="Herramientas de edición" hidden></nav>
-    <section id="ed-insp" class="ed-insp panel" aria-label="Inspector" hidden></section>
-    <dialog id="elegir" aria-labelledby="elegir-t"><h2 id="elegir-t">Elige tu personaje</h2><ul id="libres" class="libres"></ul><button type="button" id="ddbc">Traer mi personaje de D&amp;D Beyond</button></dialog>
+    <nav id="ed-bar" class="ed-bar panel" aria-label="${t('Herramientas de edición')}" hidden></nav>
+    <section id="ed-insp" class="ed-insp panel" aria-label="${t('Inspector')}" hidden></section>
+    <dialog id="elegir" aria-labelledby="elegir-t"><h2 id="elegir-t">${t('Elige tu personaje')}</h2><ul id="libres" class="libres"></ul><button type="button" id="ddbc">${t('Traer mi personaje de D&D Beyond')}</button></dialog>
     <div id="lv" class="lv"></div>
     <div id="dr-bar" class="dr-bar"></div>
     <div class="panel tl">
-      <h1 id="escena"></h1><span id="reloj"></span><span class="chip simple" id="simple" hidden>Modo Sencillo</span>
-      <button class="chip" id="cod" type="button" title="Copiar enlace"></button>
+      <h1 id="escena"></h1><span id="reloj"></span><span class="chip simple" id="simple" hidden>${t('Modo Sencillo')}</span>
+      <button class="chip" id="cod" type="button" title="${t('Copiar enlace')}"></button>
       <span class="conn" id="conn"></span>
     </div>
     <aside class="panel lado" id="lado">
       <header>
-        <div role="tablist" aria-label="Panel">
-          <button role="tab" id="t-reg" aria-selected="true" aria-controls="p-reg">Registro</button>
-          <button role="tab" id="t-hoja" aria-selected="false" aria-controls="p-hoja">Hoja</button>
-          <button role="tab" id="t-mesa" aria-selected="false" aria-controls="p-mesa">Mesa</button>
-          <button role="tab" id="t-esc" aria-selected="false" aria-controls="p-esc" hidden>Escena</button>
-          <button role="tab" id="t-aj" aria-selected="false" aria-controls="p-aj" hidden>Ajustes</button>
-          <button role="tab" id="t-dia" aria-selected="false" aria-controls="p-dia">Diario</button>
-          <button role="tab" id="t-biblioteca" aria-selected="false" aria-controls="p-biblioteca" hidden>Biblioteca</button>
-          <button role="tab" id="t-encuentros" aria-selected="false" aria-controls="p-encuentros" hidden>Encuentros</button>
-          <button role="tab" id="t-pantalla" aria-selected="false" aria-controls="p-pantalla" hidden>Pantalla</button>
-          <button role="tab" id="t-cuenta" aria-selected="false" aria-controls="p-cuenta" hidden>Tu cuenta</button>
+        <div role="tablist" aria-label="${t('Panel')}">
+          <button role="tab" id="t-reg" aria-selected="true" aria-controls="p-reg">${t('Registro')}</button>
+          <button role="tab" id="t-hoja" aria-selected="false" aria-controls="p-hoja">${t('Hoja')}</button>
+          <button role="tab" id="t-mesa" aria-selected="false" aria-controls="p-mesa">${t('Mesa')}</button>
+          <button role="tab" id="t-esc" aria-selected="false" aria-controls="p-esc" hidden>${t('Escena')}</button>
+          <button role="tab" id="t-aj" aria-selected="false" aria-controls="p-aj" hidden>${t('Ajustes')}</button>
+          <button role="tab" id="t-dia" aria-selected="false" aria-controls="p-dia">${t('Diario')}</button>
+          <button role="tab" id="t-biblioteca" aria-selected="false" aria-controls="p-biblioteca" hidden>${t('Biblioteca')}</button>
+          <button role="tab" id="t-encuentros" aria-selected="false" aria-controls="p-encuentros" hidden>${t('Encuentros')}</button>
+          <button role="tab" id="t-pantalla" aria-selected="false" aria-controls="p-pantalla" hidden>${t('Pantalla')}</button>
+          <button role="tab" id="t-cuenta" aria-selected="false" aria-controls="p-cuenta" hidden>${t('Tu cuenta')}</button>
         </div>
-        <button id="plegar" type="button" aria-expanded="true" aria-controls="cuerpo" aria-label="Plegar panel">▾</button>
+        <button id="plegar" type="button" aria-expanded="true" aria-controls="cuerpo" aria-label="${t('Plegar panel')}">▾</button>
       </header>
       <div id="cuerpo">
         <div id="p-reg" role="tabpanel" aria-labelledby="t-reg">
-          <div id="log" class="log" aria-live="polite" aria-label="Registro" tabindex="0"></div>
+          <div id="log" class="log" aria-live="polite" aria-label="${t('Registro')}" tabindex="0"></div>
           <form id="chat">
-            <label class="sr" for="txt">Mensaje o tirada</label>
-            <input id="txt" autocomplete="off" placeholder="Mensaje, /r 1d20, /w nombre, /me, /ic" maxlength="500">
-            <button class="primary" type="submit">Enviar</button>
+            <label class="sr" for="txt">${t('Mensaje o tirada')}</label>
+            <input id="txt" autocomplete="off" placeholder="${t('Mensaje, /r 1d20, /w nombre, /me, /ic')}" maxlength="500">
+            <button class="primary" type="submit">${t('Enviar')}</button>
           </form>
         <div id="exts"></div></div>
         <div id="p-hoja" role="tabpanel" aria-labelledby="t-hoja" class="hoja" hidden></div>
@@ -135,35 +136,35 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
         <div id="p-cuenta" role="tabpanel" aria-labelledby="t-cuenta" class="ajustes" hidden></div>
         <div id="p-mesa" role="tabpanel" aria-labelledby="t-mesa" hidden>
           <ul id="miembros" class="miembros"></ul>
-          <section id="voz" class="voz" aria-label="Voz"></section>
-          <section id="mezcla" class="mezcla" aria-label="Mezclador de sonido"></section>
-          <section id="copiloto" aria-label="Copiloto"></section><section id="voces" aria-label="Voces de PNJ"></section>
-          <section id="mios" aria-label="Tu personaje"></section>
-          <section class="dados" aria-label="Dados">
-            <h2 id="sets-t">Tus dados</h2>
+          <section id="voz" class="voz" aria-label="${t('Voz')}"></section>
+          <section id="mezcla" class="mezcla" aria-label="${t('Mezclador de sonido')}"></section>
+          <section id="copiloto" aria-label="${t('Copiloto')}"></section><section id="voces" aria-label="${t('Voces de PNJ')}"></section>
+          <section id="mios" aria-label="${t('Tu personaje')}"></section>
+          <section class="dados" aria-label="${t('Dados')}">
+            <h2 id="sets-t">${t('Tus dados')}</h2>
             <ul id="sets" class="sets" role="radiogroup" aria-labelledby="sets-t"></ul>
-            <button id="d3d" type="button" role="switch" aria-checked="true">Ver dados 3D</button>
-            <label id="glw" hidden><input id="gl" type="checkbox"> Enviar mis tiradas al Game Log de D&amp;D Beyond</label>
+            <button id="d3d" type="button" role="switch" aria-checked="true">${t('Ver dados 3D')}</button>
+            <label id="glw" hidden><input id="gl" type="checkbox"> ${t('Enviar mis tiradas al Game Log de D&D Beyond')}</label>
           </section>
-          <section id="dm" class="dm" aria-label="Controles del DM" hidden>
+          <section id="dm" class="dm" aria-label="${t('Controles del DM')}" hidden>
             <div class="dmbtns" id="cbt">
-              <button type="button" data-op="start">Empezar combate</button><button type="button" data-op="next">Siguiente turno</button>
-              <button type="button" data-op="prev">Turno anterior</button><button type="button" data-op="undoTurn">Deshacer turno</button><button type="button" data-op="end">Terminar combate</button>
+              <button type="button" data-op="start">${t('Empezar combate')}</button><button type="button" data-op="next">${t('Siguiente turno')}</button>
+              <button type="button" data-op="prev">${t('Turno anterior')}</button><button type="button" data-op="undoTurn">${t('Deshacer turno')}</button><button type="button" data-op="end">${t('Terminar combate')}</button>
             </div>
             <button id="auto" type="button" aria-live="polite"></button>
             <div id="c2opts"></div>
-            <label for="buscar">Buscar monstruo</label>
+            <label for="buscar">${t('Buscar monstruo')}</label>
             <input id="buscar" type="search" autocomplete="off">
-            <label class="chk"><input type="checkbox" id="oculto"> Oculto</label>
+            <label class="chk"><input type="checkbox" id="oculto"> ${t('Oculto')}</label>
             <ul id="monstruos" class="monstruos"></ul>
           </section>
         </div>
       </div>
     </aside>
-    <dialog id="ddb" aria-labelledby="ddb-t"><h2 id="ddb-t">Traer mi personaje de D&amp;D Beyond</h2>
-      <form id="ddbf"><label>Enlace o id del personaje<input id="ddbid" autocomplete="off" placeholder="dndbeyond.com/characters/12345678" required></label>
+    <dialog id="ddb" aria-labelledby="ddb-t"><h2 id="ddb-t">${t('Traer mi personaje de D&D Beyond')}</h2>
+      <form id="ddbf"><label>${t('Enlace o id del personaje')}<input id="ddbid" autocomplete="off" placeholder="dndbeyond.com/characters/12345678" required></label>
         <p id="ddbst" role="status"></p><div id="ddbprev"></div>
-        <div class="dmbtns"><button class="primary" type="submit" id="ddbgo">Traer</button><span id="ddbap"></span><button type="button" class="secondary" id="ddbno">Cancelar</button></div></form></dialog>
+        <div class="dmbtns"><button class="primary" type="submit" id="ddbgo">${t('Traer')}</button><span id="ddbap"></span><button type="button" class="secondary" id="ddbno">${t('Cancelar')}</button></div></form></dialog>
     <div id="toast" class="toast" role="status"></div>`;
   app.append(root);
   let tt = 0;
@@ -277,9 +278,9 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   const chat2 = mountChat2($('chat'), { send: m => net.send(m), state: () => state, me: w.memberId, toast: m => say(m, 3500) });
   const clockCtx = { send: (m: C2S) => net.send(m), state: () => state, role: w.role };
   const clock = mountClock($('reloj'), clockCtx);
-  const torchItem = (t: Token): RadialItem[] => {
-    const b = torchButton(t, clockCtx); // solo DM; el botón se usa como fábrica de la acción
-    return b ? [{ id: 'torch', label: 'Encender antorcha (1 h)', icon: 'light', run: () => b.click() }] : [];
+  const torchItem = (tk: Token): RadialItem[] => {
+    const b = torchButton(tk, clockCtx); // solo DM; el botón se usa como fábrica de la acción
+    return b ? [{ id: 'torch', label: t('Encender antorcha (1 h)'), icon: 'light', run: () => b.click() }] : [];
   };
   bindUndo({ send: m => net.send(m), state: () => state, toast: m => say(m, 3500) });
   drawApi = mountDraw($('dr-bar'), { send: m => net.send(m), state: () => state, me: w.memberId, role: w.role, toast: m => say(m, 3500), table: () => table, onMapClick: cb => { mapCb = cb; } });
@@ -316,13 +317,13 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     const cur = c.order[c.turn], nxt = c.order.length > 1 && cur ? tok(c.order[(c.turn + 1) % c.order.length].tokenId) : undefined;
     const mineTurn = !!tok(cur?.tokenId)?.owners.includes(w.memberId), dm = w.role === 'dm';
     const hpTxt = (t: Token) => t.faction !== 'ally' && hpText(t) ? `<span class="c2-st ${t.hpState ?? ''}">${esc(hpText(t))}</span>` : '';
-    el.innerHTML = `<span class="ronda">Ronda ${c.round}</span>${c.awaiting?.length ? '<span class="c2-sig">Esperando iniciativa…</span>' : ''}<ol>` + c.order.map((o, i) => {
-      const t = tok(o.tokenId); if (!t) return '';
+    el.innerHTML = `<span class="ronda">${t('Ronda {n}', { n: c.round })}</span>${c.awaiting?.length ? `<span class="c2-sig">${t('Esperando iniciativa…')}</span>` : ''}<ol>` + c.order.map((o, i) => {
+      const tk = tok(o.tokenId); if (!tk) return '';
       const on = i === c.turn;
-      return `<li class="${on ? 'act' : ''}" title="${esc(t.name)}" data-tid="${esc(t.id)}" data-i="${i}"${dm ? ' draggable="true"' : ''}${on ? ' aria-current="true"' : ''}>${portrait(t)}${hpBar(t)}${hpTxt(t)}${legendaryPips(t, w.role === 'dm')}<span class="sr">${esc(t.name)}${on ? ', turno activo' : ''}</span></li>`;
+      return `<li class="${on ? 'act' : ''}" title="${esc(tk.name)}" data-tid="${esc(tk.id)}" data-i="${i}"${dm ? ' draggable="true"' : ''}${on ? ' aria-current="true"' : ''}>${portrait(tk)}${hpBar(tk)}${hpTxt(tk)}${legendaryPips(tk, w.role === 'dm')}<span class="sr">${esc(tk.name)}${on ? ', ' + t('turno activo') : ''}</span></li>`;
     }).join('') + '</ol>'
-      + (nxt && !mineTurn ? `<span class="c2-sig">Siguiente: ${esc(nxt.name)}</span>` : '')
-      + `<button type="button" class="chip" data-cam aria-pressed="${camOn()}" title="La cámara va al token cuando empieza tu turno">Cámara al turno</button>`;
+      + (nxt && !mineTurn ? `<span class="c2-sig">${t('Siguiente: {name}', { name: esc(nxt.name) })}</span>` : '')
+      + `<button type="button" class="chip" data-cam aria-pressed="${camOn()}" title="${t('La cámara va al token cuando empieza tu turno')}">${t('Cámara al turno')}</button>`;
   };
   $('init').addEventListener('click', e => {
     if (!(e.target as HTMLElement).closest('[data-cam]')) return;
@@ -334,26 +335,26 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     const id = activeId(), key = state.combat && id ? `${state.combat.round}:${id}` : '';
     if (key === turnKey) return;
     turnKey = key;
-    const t = tok(id);
-    if (!t || !t.owners.includes(w.memberId)) return;
+    const tk = tok(id);
+    if (!tk || !tk.owners.includes(w.memberId)) return;
     sfx('bell');
-    if (camOn()) void table.then(tb => tb.focus(t.x, t.y));
+    if (camOn()) void table.then(tb => tb.focus(tk.x, tk.y));
     const a = $('aviso');
-    a.textContent = `¡Tu turno, ${t.name}!`;
+    a.textContent = t('¡Tu turno, {name}!', { name: tk.name });
     a.classList.remove('show'); void a.offsetWidth; a.classList.add('show'); // reinicia la animación
     setTimeout(() => { a.classList.remove('show'); a.textContent = ''; }, 1600);
   };
 
   const armAction = (tokenId: Id, actionId: Id) => {
-    const t = tok(tokenId), a = t?.actions?.find(x => x.id === actionId);
-    if (!t || !a) return;
+    const tk = tok(tokenId), a = tk?.actions?.find(x => x.id === actionId);
+    if (!tk || !a) return;
     if (armed?.a.id === a.id) return cancel();
     spawn = undefined; renderMonsters();
-    if (!a.area && targets.length) return fire(t.id, a.id, targets);
-    armed = { tok: t.id, a };
-    tpl = a.area ? templateTargeting(a, { caster: t.id, state: () => state, table: { setMarks: m => void table.then(x => x.setMarks(m)) }, baseMarks, fire }) : undefined;
+    if (!a.area && targets.length) return fire(tk.id, a.id, targets);
+    armed = { tok: tk.id, a };
+    tpl = a.area ? templateTargeting(a, { caster: tk.id, state: () => state, table: { setMarks: m => void table.then(x => x.setMarks(m)) }, baseMarks, fire }) : undefined;
     renderHud(); marks();
-    say(a.area ? `${a.name}: haz clic en el mapa` : `${a.name}: elige un objetivo`);
+    say(t(a.area ? '{name}: haz clic en el mapa' : '{name}: elige un objetivo', { name: a.name }));
   };
   const pick = (i: number) => {
     const t = hudTok(), a = t?.actions?.[i];
@@ -361,33 +362,33 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   };
 
   const renderHud = () => {
-    const t = hudTok(), el = $('hud');
-    el.hidden = !t || !state.combat || !layerOn('initiative'); // ponytail: HUD solo en combate; acciones fuera de combate irán por el menú radial
-    if (el.hidden || !t) return;
-    const c = state.combat, u = c?.used[t.id];
-    if (t.hp?.cur === 0 && t.deathSaves && c && activeId() === t.id && t.owners.includes(w.memberId)) {
-      el.innerHTML = `${portrait(t)}<div class="info"><strong>${esc(t.name)}</strong><span>PG 0</span></div>${deathSavesHtml(t)}`;
+    const tk = hudTok(), el = $('hud');
+    el.hidden = !tk || !state.combat || !layerOn('initiative'); // ponytail: HUD solo en combate; acciones fuera de combate irán por el menú radial
+    if (el.hidden || !tk) return;
+    const c = state.combat, u = c?.used[tk.id];
+    if (tk.hp?.cur === 0 && tk.deathSaves && c && activeId() === tk.id && tk.owners.includes(w.memberId)) {
+      el.innerHTML = `${portrait(tk)}<div class="info"><strong>${esc(tk.name)}</strong><span>${t('PG')} 0</span></div>${deathSavesHtml(tk)}`;
       return;
     }
     const pill = (k: 'action' | 'bonus' | 'reaction' | 'object', n: string) =>
-      `<button type="button" class="pill ${k}${u?.[k] ? ' gastada' : ''}" data-b="${k}" aria-pressed="${!!u?.[k]}" title="Clic: marcar como gastada o devolver"><i aria-hidden="true"></i>${n}${u?.[k] ? '<span class="sr"> (gastada)</span>' : ''}</button>`;
-    const acts = (t.actions ?? []).map((a, i) => {
-      const tip = `${a.name} · ${a.range <= 5 ? 'cuerpo a cuerpo' : a.range + ' pies'}${a.damage ? ` · ${a.damage} ${dmgName(a.damageType)}` : ''}${a.area ? ` · área ${a.area.size} pies` : ''}`;
-      return `<button type="button" class="acc c-${a.cost}" data-i="${i}" title="${esc(tip)}" aria-label="${esc(tip)} (tecla ${(i + 1) % 10})"
+      `<button type="button" class="pill ${k}${u?.[k] ? ' gastada' : ''}" data-b="${k}" aria-pressed="${!!u?.[k]}" title="${t('Clic: marcar como gastada o devolver')}"><i aria-hidden="true"></i>${n}${u?.[k] ? `<span class="sr"> (${t('gastada')})</span>` : ''}</button>`;
+    const acts = (tk.actions ?? []).map((a, i) => {
+      const tip = `${a.name} · ${a.range <= 5 ? t('cuerpo a cuerpo') : t('{n} pies', { n: a.range })}${a.damage ? ` · ${a.damage} ${dmgName(a.damageType)}` : ''}${a.area ? ` · ${t('área {n} pies', { n: a.area.size })}` : ''}`;
+      return `<button type="button" class="acc c-${a.cost}" data-i="${i}" title="${esc(tip)}" aria-label="${esc(tip)} (${t('tecla {n}', { n: (i + 1) % 10 })})"
         aria-pressed="${armed?.a.id === a.id}"${u?.[a.cost] ? ' disabled' : ''}><b>${(i + 1) % 10}</b><span>${esc(a.name)}</span></button>`;
     }).join('');
-    const slots = Object.entries(t.slots ?? {}).map(([lv, s]) =>
-      `<span class="slot" role="img" aria-label="Nivel ${lv}: ${s.max - s.used} de ${s.max} espacios">N${lv} ${'◆'.repeat(Math.max(0, s.max - s.used))}${'◇'.repeat(Math.min(s.used, s.max))}</span>`).join('');
+    const slots = Object.entries(tk.slots ?? {}).map(([lv, s]) =>
+      `<span class="slot" role="img" aria-label="${t('Nivel {lv}: {a} de {b} espacios', { lv, a: s.max - s.used, b: s.max })}">${t('N')}${lv} ${'◆'.repeat(Math.max(0, s.max - s.used))}${'◇'.repeat(Math.min(s.used, s.max))}</span>`).join('');
     // ponytail: hoy `combat` es solo del DM; si el servidor rechaza «next» se muestra su error (toast)
-    const end = c && (activeId() === t.id || w.role === 'dm') ? '<button type="button" class="primary" data-end>Fin de turno</button>' : '';
-    const mv = c ? Math.min(u?.moved ?? 0, 9999) : 0, sp = (t.speed ?? 30) + (u?.dash ?? 0);
-    const move = c ? `<div class="mov"><span>Movimiento ${mv}/${sp} pies</span><span class="hpbar" role="progressbar" aria-label="Movimiento" aria-valuemin="0" aria-valuemax="${sp}" aria-valuenow="${Math.min(mv, sp)}"><i style="width:${Math.min(100, mv / sp * 100)}%"></i></span></div>` : '';
-    const ddb = t.ddb ? `<div class="det">Vinculado · nivel ${t.ddb.level} <button type="button" data-sync="${esc(t.id)}">Resincronizar</button></div>` : '';
-    el.innerHTML = `${portrait(t)}<div class="info"><strong>${esc(t.name)}</strong>
-      <span>${t.hp ? `PG ${t.hp.cur}/${t.hp.max}${t.hp.temp ? ` (+${t.hp.temp})` : ''}` : ''}${t.ac != null ? ` · CA ${acOf(t)}${t.shielded ? ' (Escudo)' : ''}` : ''}</span>${move}${ddb}</div>
-      ${c ? `<div class="eco">${pill('action', 'Acción')}${pill('bonus', 'Adicional')}${pill('reaction', 'Reacción')}${pill('object', 'Objeto')}</div>` : ''}
+    const end = c && (activeId() === tk.id || w.role === 'dm') ? `<button type="button" class="primary" data-end>${t('Fin de turno')}</button>` : '';
+    const mv = c ? Math.min(u?.moved ?? 0, 9999) : 0, sp = (tk.speed ?? 30) + (u?.dash ?? 0);
+    const move = c ? `<div class="mov"><span>${t('Movimiento {mv}/{sp} pies', { mv, sp })}</span><span class="hpbar" role="progressbar" aria-label="${t('Movimiento')}" aria-valuemin="0" aria-valuemax="${sp}" aria-valuenow="${Math.min(mv, sp)}"><i style="width:${Math.min(100, mv / sp * 100)}%"></i></span></div>` : '';
+    const ddb = tk.ddb ? `<div class="det">${t('Vinculado · nivel {n}', { n: tk.ddb.level })} <button type="button" data-sync="${esc(tk.id)}">${t('Resincronizar')}</button></div>` : '';
+    el.innerHTML = `${portrait(tk)}<div class="info"><strong>${esc(tk.name)}</strong>
+      <span>${tk.hp ? `${t('PG')} ${tk.hp.cur}/${tk.hp.max}${tk.hp.temp ? ` (+${tk.hp.temp})` : ''}` : ''}${tk.ac != null ? ` · ${t('CA')} ${acOf(tk)}${tk.shielded ? ` (${t('Escudo')})` : ''}` : ''}</span>${move}${ddb}</div>
+      ${c ? `<div class="eco">${pill('action', t('Acción'))}${pill('bonus', t('Adicional'))}${pill('reaction', t('Reacción'))}${pill('object', t('Objeto'))}</div>` : ''}
       <div class="acts">${acts}</div>${slots ? `<div class="slots">${slots}</div>` : ''}${end}`;
-    const hb = t.owners.includes(w.memberId) ? heroButton(t, { send: m => net.send(m), state: () => state }) : null;
+    const hb = tk.owners.includes(w.memberId) ? heroButton(tk, { send: m => net.send(m), state: () => state }) : null;
     if (hb) el.append(hb);
   };
   const renderBar = () => bar?.update();
@@ -417,17 +418,17 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   // DM: combate, automatización, monstruos
   const renderMonsters = () => {
     const q = $<HTMLInputElement>('buscar').value.trim().toLowerCase();
-    const list = Object.entries(MONSTERS).filter(([, m]) => m.name.toLowerCase().includes(q));
+    const list = Object.entries(MONSTERS).filter(([id, m]) => monName(id, m.name).toLowerCase().includes(q));
     $('monstruos').innerHTML = list.length ? list.map(([id, m]) =>
-      `<li><button type="button" data-id="${esc(id)}" aria-pressed="${spawn === id}">${esc(m.name)} <span class="rol">VD ${esc(m.cr)}</span></button></li>`).join('')
-      : '<li class="rol">Sin resultados</li>';
+      `<li><button type="button" data-id="${esc(id)}" aria-pressed="${spawn === id}">${esc(monName(id, m.name))} <span class="rol">${t('VD')} ${esc(m.cr)}</span></button></li>`).join('')
+      : `<li class="rol">${t('Sin resultados')}</li>`;
   };
   const renderDm = () => {
     const c = state.combat;
     $('dm').hidden = w.role !== 'dm';
     root.querySelector<HTMLButtonElement>('[data-op=start]')!.disabled = !!c;
     for (const op of ['next', 'prev', 'end', 'undoTurn']) root.querySelector<HTMLButtonElement>(`[data-op=${op}]`)!.disabled = !c;
-    $('auto').textContent = `Automatización: ${{ assisted: 'Asistida', auto: 'Automática', manual: 'Manual' }[state.automation]}`;
+    $('auto').textContent = t('Automatización: {m}', { m: t({ assisted: 'Asistida', auto: 'Automática', manual: 'Manual' }[state.automation]) });
   };
   $('cbt').addEventListener('click', e => {
     const op = (e.target as HTMLElement).closest('button')?.dataset.op as 'start' | 'next' | 'prev' | 'end' | 'undoTurn' | undefined;
@@ -439,7 +440,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     const id = (e.target as HTMLElement).closest('button')?.dataset.id; if (!id) return;
     armed = undefined; spawn = spawn === id ? undefined : id;
     renderHud(); renderMonsters(); marks();
-    if (spawn) say(`${MONSTERS[id].name}: haz clic en el mapa para colocarlo`);
+    if (spawn) say(t('{name}: haz clic en el mapa para colocarlo', { name: monName(id, MONSTERS[id].name) }));
   };
   renderMonsters();
 
@@ -449,26 +450,26 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   const list = (a: string[]) => a.length ? a.join(', ') : '—';
   const openImport = (ts: Token[], claimFirst = false) => {
     tgt = ts; claim = claimFirst; got = undefined;
-    ddbprev.replaceChildren(); ddbap.replaceChildren(); ddbst.textContent = 'Comprobando la extensión…';
+    ddbprev.replaceChildren(); ddbap.replaceChildren(); ddbst.textContent = t('Comprobando la extensión…');
     if (!ddbd.open) ddbd.showModal();
     void linkAvailable().then(l => {
-      ddbst.textContent = !l.ok ? 'Hace falta la extensión Lantern Link: en tu navegador, carga la carpeta apps/link como extensión sin empaquetar y recarga esta página.'
-        : !l.loggedIn ? 'Inicia sesión en dndbeyond.com en este navegador.' : '';
+      ddbst.textContent = !l.ok ? t('Hace falta la extensión Lantern Link: en tu navegador, carga la carpeta apps/link como extensión sin empaquetar y recarga esta página.')
+        : !l.loggedIn ? t('Inicia sesión en dndbeyond.com en este navegador.') : '';
     });
   };
   $('ddbf').onsubmit = async e => {
     e.preventDefault();
     const id = ddbCharacterId($<HTMLInputElement>('ddbid').value);
-    if (!id) { ddbst.textContent = 'No reconozco ese enlace o id.'; return; }
-    ddbst.textContent = 'Trayendo personaje…'; ddbprev.replaceChildren(); ddbap.replaceChildren();
+    if (!id) { ddbst.textContent = t('No reconozco ese enlace o id.'); return; }
+    ddbst.textContent = t('Trayendo personaje…'); ddbprev.replaceChildren(); ddbap.replaceChildren();
     try {
       const c = got = await getCharacter(id);
       ddbst.textContent = '';
       const sv = Object.entries(c.saves ?? {}).map(([k, v]) => `${AB[k as Ability]} ${v! >= 0 ? '+' : ''}${v}`);
-      ddbprev.innerHTML = `<h3>${esc(c.name)}</h3><p>${esc(c.classes)} · nivel ${c.level}</p>
-        <p>PG ${c.hp?.max ?? '—'} · CA ${c.ac ?? '—'} · Velocidad ${c.speed ?? 30} pies</p>
-        <p>Salvaciones: ${esc(list(sv))}</p><p>Acciones: ${esc(list((c.actions ?? []).map(a => a.name)))}</p>`;
-      ddbap.innerHTML = tgt.map(t => `<button type="button" class="primary" data-t="${esc(t.id)}">Aplicar a ${esc(t.name)}</button>`).join('');
+      ddbprev.innerHTML = `<h3>${esc(c.name)}</h3><p>${esc(c.classes)} · ${t('nivel {n}', { n: c.level })}</p>
+        <p>${t('PG')} ${c.hp?.max ?? '—'} · ${t('CA')} ${c.ac ?? '—'} · ${t('Velocidad')} ${t('{n} pies', { n: c.speed ?? 30 })}</p>
+        <p>${t('Salvaciones')}: ${esc(list(sv))}</p><p>${t('Acciones')}: ${esc(list((c.actions ?? []).map(a => a.name)))}</p>`;
+      ddbap.innerHTML = tgt.map(x => `<button type="button" class="primary" data-t="${esc(x.id)}">${t('Aplicar a {name}', { name: esc(x.name) })}</button>`).join('');
     } catch (err) { ddbst.textContent = (err as Error).message; }
   };
   ddbap.onclick = e => {
@@ -480,15 +481,15 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   };
   $('ddbno').onclick = () => ddbd.close();
   const resync = async (id: Id) => {
-    const t = tok(id); if (!t?.ddb) return;
-    say('Resincronizando…');
-    try { net.send({ t: 'importCharacter', tokenId: id, data: await getCharacter(t.ddb.id) }); say('Personaje resincronizado'); }
+    const tk = tok(id); if (!tk?.ddb) return;
+    say(t('Resincronizando…'));
+    try { net.send({ t: 'importCharacter', tokenId: id, data: await getCharacter(tk.ddb.id) }); say(t('Personaje resincronizado')); }
     catch (err) { say((err as Error).message, 4000); }
   };
   const renderMios = () => {
-    $('mios').innerHTML = mine().map(t => `<div><strong>${esc(t.name)}</strong>
-      ${t.ddb ? `<p class="det">Vinculado · nivel ${t.ddb.level}</p><button type="button" data-sync="${esc(t.id)}">Resincronizar</button>` : ''}
-      <button type="button" data-imp="${esc(t.id)}">Traer mi personaje de D&amp;D Beyond</button></div>`).join('');
+    $('mios').innerHTML = mine().map(k => `<div><strong>${esc(k.name)}</strong>
+      ${k.ddb ? `<p class="det">${t('Vinculado · nivel {n}', { n: k.ddb.level })}</p><button type="button" data-sync="${esc(k.id)}">${t('Resincronizar')}</button>` : ''}
+      <button type="button" data-imp="${esc(k.id)}">${t('Traer mi personaje de D&D Beyond')}</button></div>`).join('');
   };
   $('mios').onclick = e => {
     const b = (e.target as HTMLElement).closest('button'); if (!b) return;
@@ -590,11 +591,11 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       el.className = 'msg tirada';
       el.innerHTML = `<span class="quien">${who}</span><code>${esc(m.roll.expr)}</code>
         ${m.roll.expr === 'iniciativa' ? '' : `<strong class="total">${m.roll.total}</strong>`}<span class="det">${esc(m.roll.detail)}</span>
-        ${m.roll.secret ? '<em class="secreta">secreta</em>' : ''}${rollBadges(m.roll)}`;
+        ${m.roll.secret ? `<em class="secreta">${t('secreta')}</em>` : ''}${rollBadges(m.roll)}`;
     } else {
       const x = renderChatExtras(m, name);
       el.className = x?.cls ?? 'msg';
-      el.innerHTML = x?.html ?? `<span class="quien">${who}</span> ${esc(m.text ?? '')}`;
+      el.innerHTML = x?.html ?? `<span class="quien">${who}</span> ${esc(tsrv(m.text ?? ''))}`;
     }
     if (live) relay(m);
     const dice = m.card?.dice ?? m.roll?.dice;
@@ -618,7 +619,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   net.onConn(c => {
     const el = $('conn');
     el.className = 'conn ' + c;
-    el.textContent = c === 'online' ? 'En línea' : 'Reconectando…';
+    el.textContent = c === 'online' ? t('En línea') : t('Reconectando…');
   });
 
   // Copiar enlace
@@ -633,11 +634,11 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       try { ok = document.execCommand('copy'); } catch { /* sin portapapeles */ }
       ta.remove();
     }
-    const t = $('toast');
-    t.textContent = ok ? `Enlace copiado · código ${state.code}` : `No se pudo copiar. Código: ${state.code} · ${url}`;
-    t.classList.add('show'); t.classList.toggle('sel', !ok);
+    const to = $('toast');
+    to.textContent = ok ? t('Enlace copiado · código {code}', { code: state.code }) : t('No se pudo copiar. Código: {code} · {url}', { code: state.code, url });
+    to.classList.add('show'); to.classList.toggle('sel', !ok);
     clearTimeout(tt);
-    tt = window.setTimeout(() => t.classList.remove('show'), ok ? 2000 : 10000);
+    tt = window.setTimeout(() => to.classList.remove('show'), ok ? 2000 : 10000);
   };
 
   // Pestañas y plegado
@@ -673,7 +674,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   const extCtx = { state: () => state, send: (m: C2S) => net.send(m), role: w.role, memberId: w.memberId };
   exts = mountExtensions($('exts'), extCtx);
   exts.update(state);
-  if (w.role === 'dm') { const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Extensiones…'; b.onclick = () => openInstaller(extCtx); $('p-aj').append(b); }
+  if (w.role === 'dm') { const b = document.createElement('button'); b.type = 'button'; b.textContent = t('Extensiones…'); b.onclick = () => openInstaller(extCtx); $('p-aj').append(b); }
   void linkCurrentTable(w.state.code, w.key); // si hay cuenta con sesión, la mesa queda en «Mis mesas»
   mountPalette({ commands: q => defaultCommands({
     role: w.role, memberId: w.memberId, send: m => net.send(m), state: () => state,
@@ -693,7 +694,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     ownLevel: () => state.scene.tokens.find(t => t.owners.includes(w.memberId))?.level });
   lv.update(state);
   if (w.role === 'dm') {
-    const box = document.createElement('section'); box.className = 'dm-extra'; box.setAttribute('aria-label', 'Pruebas y sesión');
+    const box = document.createElement('section'); box.className = 'dm-extra'; box.setAttribute('aria-label', t('Pruebas y sesión'));
     $('dm').after(box);
     cr = mountCheckRequester(box, { send: m => net.send(m), state: () => state, selected: () => (selected ? [selected] : []) });
     box.append(sessionEndButton({ send: m => net.send(m) }));
@@ -746,7 +747,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       else if (m.t === 'safety') handleSafety(m);
       else if (m.t === 'checkRequest') handleCheckRequest(m, { send: x => net.send(x), state: () => state, me: w.memberId });
       else if (m.t === 'sessionSummary') showSummary(m.summary, m2 => net.send(m2));
-      else if (m.t === 'error') { if (/llave/.test(m.msg)) sfx('locked'); const t = $('toast'); t.textContent = m.msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3000); }
+      else if (m.t === 'error') { if (/llave/.test(m.msg)) sfx('locked'); const to = $('toast'); to.textContent = tsrv(m.msg); to.classList.add('show'); setTimeout(() => to.classList.remove('show'), 3000); }
     },
   };
 }

@@ -2,6 +2,10 @@ import type { C2S, ClientState, Point, Token, Weather } from '@lantern/protocol'
 import { MONSTERS } from '@lantern/srd';
 import { SKILLS } from '@lantern/rules';
 import './mobile.css';
+import { t, lang } from '../i18n.ts';
+
+/** Nombre de monstruo para mostrar: en inglés, el id SRD en Title Case (los nombres del paquete están en español). */
+export const monName = (id: string, es: string) => lang === 'en' ? id.replace(/(^|-)(\w)/g, (_, s, c) => (s && ' ') + c.toUpperCase()) : es;
 
 export type Cmd = { id: string; label: string; hint?: string; group: string; run(arg?: string): void };
 
@@ -22,9 +26,9 @@ export function fuzzy(q: string, text: string): number | null {
 export function mountPalette(c: { commands(q?: string): Cmd[] }) {
   const d = document.createElement('dialog');
   d.className = 'pal';
-  d.setAttribute('aria-label', 'Paleta de comandos');
-  d.innerHTML = `<input type="text" role="combobox" aria-expanded="true" aria-controls="pal-l" aria-autocomplete="list" autocomplete="off" spellcheck="false" placeholder="Escribe un comando…" aria-label="Buscar comando">
-    <ul id="pal-l" role="listbox" aria-label="Comandos"></ul><p class="sr" role="status"></p>`;
+  d.setAttribute('aria-label', t('Paleta de comandos'));
+  d.innerHTML = `<input type="text" role="combobox" aria-expanded="true" aria-controls="pal-l" aria-autocomplete="list" autocomplete="off" spellcheck="false" placeholder="${t('Escribe un comando…')}" aria-label="${t('Buscar comando')}">
+    <ul id="pal-l" role="listbox" aria-label="${t('Comandos')}"></ul><p class="sr" role="status"></p>`;
   const inp = d.querySelector('input')!, ul = d.querySelector('ul')!, st = d.querySelector('p')!;
   let shown: Cmd[] = [], sel = 0;
 
@@ -36,9 +40,9 @@ export function mountPalette(c: { commands(q?: string): Cmd[] }) {
       .sort((x, y) => y[1] - x[1]).map(x => x[0]) : all).slice(0, 50);
     sel = Math.min(sel, Math.max(0, shown.length - 1));
     ul.innerHTML = shown.map((m, i) => `<li role="option" id="pal-${i}" data-i="${i}" aria-selected="${i === sel}"><span>${esc(m.label)}</span><small>${esc(m.hint ?? m.group)}</small></li>`).join('')
-      || '<li class="vacio" role="presentation">Sin resultados</li>';
+      || `<li class="vacio" role="presentation">${t('Sin resultados')}</li>`;
     inp.setAttribute('aria-activedescendant', shown.length ? `pal-${sel}` : '');
-    st.textContent = `${shown.length} comandos`;
+    st.textContent = t('{n} comando|{n} comandos', { n: shown.length });
   };
   const move = (i: number) => {
     if (!shown.length) return;
@@ -78,36 +82,36 @@ export type PaletteCtx = {
 };
 
 const DICE = /^\s*\d*d\d+(\s*[+-]\s*\d+)?(\s*[+-]\s*\d*d\d+)*\s*$/i;
-const CLIMA: [Weather['kind'], string][] = [['none', 'despejado'], ['rain', 'lluvia'], ['storm', 'tormenta'], ['snow', 'nieve'], ['fog', 'niebla'], ['ash', 'ceniza'], ['leaves', 'hojas'], ['embers', 'brasas']];
+const CLIMA: [Weather['kind'], string][] = [['none', t('despejado')], ['rain', t('lluvia')], ['storm', t('tormenta')], ['snow', t('nieve')], ['fog', t('niebla')], ['ash', t('ceniza')], ['leaves', t('hojas')], ['embers', t('brasas')]];
 const TABS: [PaletteCtx['tab'] extends (id: infer I) => void ? I : never, string, 'all' | 'trusted' | 'staff'][] = [
-  ['reg', 'Registro', 'all'], ['hoja', 'Hoja', 'all'], ['mesa', 'Mesa', 'all'], ['dia', 'Diario', 'all'],
-  ['esc', 'Escena', 'trusted'], ['aj', 'Ajustes', 'staff'], ['biblioteca', 'Biblioteca', 'staff'], ['encuentros', 'Encuentros', 'staff'],
+  ['reg', t('Registro'), 'all'], ['hoja', t('Hoja'), 'all'], ['mesa', t('Mesa'), 'all'], ['dia', t('Diario'), 'all'],
+  ['esc', t('Escena'), 'trusted'], ['aj', t('Ajustes'), 'staff'], ['biblioteca', t('Biblioteca'), 'staff'], ['encuentros', t('Encuentros'), 'staff'],
 ];
 
 export function defaultCommands(x: PaletteCtx, q = ''): Cmd[] {
   const dm = x.role === 'dm', staff = dm || x.role === 'assistant', s = x.state(), out: Cmd[] = [];
-  const add = (group: string, label: string, run: Cmd['run'], hint?: string) => out.push({ id: `${group}:${label}`, label, group, hint, run });
+  const add = (group: string, label: string, run: Cmd['run'], hint?: string) => out.push({ id: `${group}:${label}`, label, group: t(group), hint, run });
 
-  if (DICE.test(q)) add('Dados', `Tirar ${q.replace(/\s+/g, '')}`, () => x.send({ t: 'roll', expr: q.replace(/\s+/g, '') }));
-  add('Dados', 'Tirar d20', () => x.send({ t: 'roll', expr: 'd20' }));
+  if (DICE.test(q)) add('Dados', t('Tirar {expr}', { expr: q.replace(/\s+/g, '') }), () => x.send({ t: 'roll', expr: q.replace(/\s+/g, '') }));
+  add('Dados', t('Tirar d20'), () => x.send({ t: 'roll', expr: 'd20' }));
   const me = x.mine();
   if (me) for (const [id, sk] of Object.entries(SKILLS))
-    add('Tiradas', `Tirar ${sk.name}`, () => x.send({ t: 'check', tokenId: me.id, kind: 'skill', key: id }), me.skills?.[id] != null ? `${me.skills[id] >= 0 ? '+' : ''}${me.skills[id]}` : undefined);
-  if (me) add('Mesa', 'Centrar en mi personaje', () => x.focus(me.x, me.y), me.name);
+    add('Tiradas', t('Tirar {name}', { name: t(sk.name) }), () => x.send({ t: 'check', tokenId: me.id, kind: 'skill', key: id }), me.skills?.[id] != null ? `${me.skills[id] >= 0 ? '+' : ''}${me.skills[id]}` : undefined);
+  if (me) add('Mesa', t('Centrar en mi personaje'), () => x.focus(me.x, me.y), me.name);
 
   if (dm) {
     const at = x.center();
-    for (const [id, m] of Object.entries(MONSTERS)) add('Monstruos', `Añadir ${m.name}`, () => x.send({ t: 'spawn', srd: id, x: at.x, y: at.y }), `VD ${m.cr}`);
-    for (const l of s.library ?? []) if (!l.active) add('Escenas', `Ir a escena ${l.name}`, () => x.send({ t: 'sceneActivate', id: l.id }), l.folder);
-    for (const [k, n] of CLIMA) add('Clima', `Clima: ${n}`, () => x.send({ t: 'scene', patch: { weather: { kind: k, intensity: .6, wind: 0 } } }));
-    add('Vista', 'Modo Historia', () => x.send({ t: 'view', value: 'story' }));
-    add('Vista', 'Modo Táctico', () => x.send({ t: 'view', value: 'tactical' }));
+    for (const [id, m] of Object.entries(MONSTERS)) add('Monstruos', t('Añadir {name}', { name: monName(id, m.name) }), () => x.send({ t: 'spawn', srd: id, x: at.x, y: at.y }), `${t('VD')} ${m.cr}`);
+    for (const l of s.library ?? []) if (!l.active) add('Escenas', t('Ir a escena {name}', { name: l.name }), () => x.send({ t: 'sceneActivate', id: l.id }), l.folder);
+    for (const [k, n] of CLIMA) add('Clima', t('Clima: {n}', { n }), () => x.send({ t: 'scene', patch: { weather: { kind: k, intensity: .6, wind: 0 } } }));
+    add('Vista', t('Modo Historia'), () => x.send({ t: 'view', value: 'story' }));
+    add('Vista', t('Modo Táctico'), () => x.send({ t: 'view', value: 'tactical' }));
     if (s.combat) {
-      add('Combate', 'Siguiente turno', () => x.send({ t: 'combat', op: 'next' }));
-      add('Combate', 'Terminar combate', () => x.send({ t: 'combat', op: 'end' }));
-    } else add('Combate', 'Empezar combate', () => x.send({ t: 'combat', op: 'start' }));
+      add('Combate', t('Siguiente turno'), () => x.send({ t: 'combat', op: 'next' }));
+      add('Combate', t('Terminar combate'), () => x.send({ t: 'combat', op: 'end' }));
+    } else add('Combate', t('Empezar combate'), () => x.send({ t: 'combat', op: 'start' }));
   }
   for (const [id, n, who] of TABS)
-    if (who === 'all' || (who === 'trusted' && (staff || x.role === 'trusted')) || staff) add('Panel', `Abrir pestaña ${n}`, () => x.tab(id));
+    if (who === 'all' || (who === 'trusted' && (staff || x.role === 'trusted')) || staff) add('Panel', t('Abrir pestaña {n}', { n }), () => x.tab(id));
   return out;
 }

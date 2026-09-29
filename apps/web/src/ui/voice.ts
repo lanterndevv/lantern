@@ -1,5 +1,6 @@
 import type { Room, RemoteParticipant } from 'livekit-client';
 import { net } from '../net';
+import { t, tsrv } from '../i18n.ts';
 
 type Mem = { id: string; name: string; role: string; online: boolean };
 type Peer = { pc: RTCPeerConnection; audio: HTMLAudioElement; an?: AnalyserNode; vol: number; queue: RTCIceCandidateInit[] };
@@ -33,17 +34,17 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
   const lkVol = new Map<string, number>(); // volumen por participante remoto en modo SFU
   const buf = new Uint8Array(new ArrayBuffer(512));
 
-  el.innerHTML = `<section class="voz" aria-labelledby="voz-h"><h3 id="voz-h">Voz</h3>
+  el.innerHTML = `<section class="voz" aria-labelledby="voz-h"><h3 id="voz-h">${t('Voz')}</h3>
     <p class="voz-st" role="status" aria-live="polite"></p>
-    <div class="voz-bar"><button type="button" class="voz-join"></button><button type="button" class="voz-mute" aria-pressed="false" hidden>Silenciar</button></div>
-    <div class="voz-modo seg" role="radiogroup" aria-label="Modo de micrófono">
-      <button type="button" role="radio" data-m="ptt">Pulsar para hablar</button><button type="button" role="radio" data-m="vad">Detectar voz</button></div>
+    <div class="voz-bar"><button type="button" class="voz-join"></button><button type="button" class="voz-mute" aria-pressed="false" hidden>${t('Silenciar')}</button></div>
+    <div class="voz-modo seg" role="radiogroup" aria-label="${t('Modo de micrófono')}">
+      <button type="button" role="radio" data-m="ptt">${t('Pulsar para hablar')}</button><button type="button" role="radio" data-m="vad">${t('Detectar voz')}</button></div>
     <p class="voz-key det"><button type="button" class="voz-cfg"></button></p>
-    <ul class="voz-list" aria-label="Participantes en voz"></ul></section>`;
+    <ul class="voz-list" aria-label="${t('Participantes en voz')}"></ul></section>`;
   const $ = <T extends HTMLElement>(s: string) => el.querySelector<T>(s)!;
   const st = $('.voz-st'), joinB = $<HTMLButtonElement>('.voz-join'), muteB = $<HTMLButtonElement>('.voz-mute'), list = $('.voz-list'), cfg = $<HTMLButtonElement>('.voz-cfg');
   const say = (t: string) => { st.textContent = t; };
-  const nameOf = (id: string) => mems.find(m => m.id === id)?.name ?? 'Jugador';
+  const nameOf = (id: string) => mems.find(m => m.id === id)?.name ?? t('Jugador');
 
   const lkGain = (id: string) => { (lk?.remoteParticipants.get(id) as RemoteParticipant | undefined)?.setVolume(Math.min(1, (lkVol.get(id) ?? 1) * (opts.getVolume?.() ?? 1))); };
   const gain = (p: Peer) => { p.audio.volume = Math.min(1, p.vol * (opts.getVolume?.() ?? 1)); };
@@ -54,12 +55,12 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
   };
 
   function paint() {
-    joinB.textContent = joined ? 'Salir de la voz' : 'Unirse a la voz';
+    joinB.textContent = joined ? t('Salir de la voz') : t('Unirse a la voz');
     muteB.hidden = !joined; muteB.setAttribute('aria-pressed', String(muted));
-    muteB.textContent = muted ? 'Activar micrófono' : 'Silenciar';
+    muteB.textContent = muted ? t('Activar micrófono') : t('Silenciar');
     el.querySelectorAll<HTMLButtonElement>('[data-m]').forEach(b => b.setAttribute('aria-checked', String(b.dataset.m === mode)));
     $('.voz-key').hidden = mode !== 'ptt';
-    cfg.textContent = capturing ? 'Pulsa la nueva tecla…' : `Tecla para hablar: ${key.toUpperCase()} (cambiar)`;
+    cfg.textContent = capturing ? t('Pulsa la nueva tecla…') : t('Tecla para hablar: {k} (cambiar)', { k: key.toUpperCase() });
     list.replaceChildren();
     const row = (id: string, name: string, p?: { vol: number }) => {
       const li = document.createElement('li'); li.dataset.id = id;
@@ -67,13 +68,13 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
       li.querySelector('.voz-n')!.textContent = name;
       if (p) {
         const r = document.createElement('input'); r.type = 'range'; r.min = '0'; r.max = '1'; r.step = '0.05'; r.value = String(p.vol);
-        r.setAttribute('aria-label', `Volumen de ${name}`);
+        r.setAttribute('aria-label', t('Volumen de {n}', { n: name }));
         r.oninput = () => { p.vol = +r.value; if ('audio' in p) gain(p as Peer); else { lkVol.set(id, p.vol); lkGain(id); } };
         li.append(r);
       }
       list.append(li);
     };
-    if (joined) row(me, 'Tú');
+    if (joined) row(me, t('Tú'));
     peers.forEach((p, id) => row(id, nameOf(id), p));
     lk?.remoteParticipants.forEach((_, id) => { if (!lkVol.has(id)) lkVol.set(id, 1); row(id, nameOf(id), { get vol() { return lkVol.get(id)!; }, set vol(v) { lkVol.set(id, v); } }); });
   }
@@ -99,7 +100,7 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
       ctx!.createMediaStreamSource(e.streams[0]).connect(p.an); // solo análisis; la salida va por <audio>
     };
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed') { say(`No se pudo conectar la voz con ${nameOf(id)}.`); drop(id); paint(); }
+      if (pc.connectionState === 'failed') { say(t('No se pudo conectar la voz con {n}.', { n: nameOf(id) })); drop(id); paint(); }
     };
     paint();
     return p;
@@ -130,7 +131,7 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
         const p = peers.get(from); if (!p) return;
         if (p.pc.remoteDescription) await p.pc.addIceCandidate(d.ice); else p.queue.push(d.ice);
       } else if (d.type === 'bye') { drop(from); paint(); }
-    } catch { say(`Error de conexión de voz con ${nameOf(from)}.`); }
+    } catch { say(t('Error de conexión de voz con {n}.', { n: nameOf(from) })); }
   });
 
   async function join() {
@@ -139,8 +140,8 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     } catch (e) {
       const denied = e instanceof DOMException && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
-      say(denied ? 'No hay permiso para usar el micrófono. Actívalo en los ajustes del navegador y vuelve a intentarlo.'
-        : 'No se encontró ningún micrófono disponible.');
+      say(denied ? t('No hay permiso para usar el micrófono. Actívalo en los ajustes del navegador y vuelve a intentarlo.')
+        : t('No se encontró ningún micrófono disponible.'));
       joinB.disabled = false; return;
     }
     ctx = new AudioContext();
@@ -148,7 +149,7 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
     meAn = ctx.createAnalyser(); meAn.fftSize = 512;
     ctx.createMediaStreamSource(probe).connect(meAn);
     joined = true; joinB.disabled = false; gate();
-    say(mode === 'ptt' ? `Conectado a la voz. Mantén ${key.toUpperCase()} para hablar.` : 'Conectado a la voz. Detección de voz activa.');
+    say(mode === 'ptt' ? t('Conectado a la voz. Mantén {k} para hablar.', { k: key.toUpperCase() }) : t('Conectado a la voz. Detección de voz activa.'));
     if (opts.livekit?.()) { if (!await joinSfu()) { const t = st.textContent!; leave(); say(t); return; } }
     else mems.filter(m => m.online && m.id !== me && m.role !== 'spectator').forEach(m => send(m.id, { type: 'hello' }));
     paint();
@@ -159,7 +160,7 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
     try {
       const got = new Promise<{ url: string; token: string }>((ok, ko) => {
         const o = net.on(m => { if (m.t === 'livekit') { o(); ok(m); } else if (m.t === 'error') { o(); ko(new Error(m.msg)); } });
-        setTimeout(() => { o(); ko(new Error('sin respuesta')); }, 8000);
+        setTimeout(() => { o(); ko(new Error(t('sin respuesta'))); }, 8000);
       });
       net.send({ t: 'livekit' });
       const { url, token } = await got;
@@ -169,12 +170,12 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
       room.on(RoomEvent.TrackUnsubscribed, (t) => t.detach().forEach(e => e.remove()));
       room.on(RoomEvent.ParticipantConnected, () => paint());
       room.on(RoomEvent.ParticipantDisconnected, (p) => { talking.delete(p.identity); lkVol.delete(p.identity); paint(); });
-      room.on(RoomEvent.Disconnected, () => { if (lk === room) { say('Se perdió la conexión de voz.'); leave(); } });
+      room.on(RoomEvent.Disconnected, () => { if (lk === room) { say(t('Se perdió la conexión de voz.')); leave(); } });
       await room.connect(url, token);
       lk = room;
       if (mems.find(m => m.id === me)?.role !== 'spectator') await room.localParticipant.publishTrack(stream!.getAudioTracks()[0], { source: Track.Source.Microphone });
       return true;
-    } catch (e) { say(`No se pudo conectar a la voz: ${e instanceof Error ? e.message : 'error'}`); return false; }
+    } catch (e) { say(t('No se pudo conectar a la voz: {e}', { e: e instanceof Error ? tsrv(e.message) : t('error') })); return false; }
   }
 
   function leave() {
@@ -183,11 +184,11 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
     stream?.getTracks().forEach(t => t.stop()); probe?.getTracks().forEach(t => t.stop());
     void ctx?.close();
     stream = probe = ctx = meAn = undefined; joined = false; ptt = vadOn = false; talking.delete(me);
-    say('Has salido de la voz.'); paint();
+    say(t('Has salido de la voz.')); paint();
   }
 
   joinB.onclick = () => (joined ? leave() : void join());
-  muteB.onclick = () => { muted = !muted; gate(); say(muted ? 'Micrófono silenciado.' : 'Micrófono activado.'); paint(); };
+  muteB.onclick = () => { muted = !muted; gate(); say(muted ? t('Micrófono silenciado.') : t('Micrófono activado.')); paint(); };
   el.querySelectorAll<HTMLButtonElement>('[data-m]').forEach(b => b.onclick = () => {
     mode = b.dataset.m as 'ptt' | 'vad'; store('lantern:voice:mode', mode); ptt = vadOn = false; gate(); paint();
   });
@@ -219,7 +220,7 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
     list.querySelectorAll<HTMLElement>('li').forEach(li => {
       const on = talking.has(li.dataset.id!);
       li.classList.toggle('habla', on);
-      li.querySelector('.voz-s')!.textContent = on ? 'hablando' : '';
+      li.querySelector('.voz-s')!.textContent = on ? t('hablando') : '';
     });
   }, 80);
 

@@ -496,7 +496,7 @@ span.c2-pips { cursor: default; }
 .mesa:not(.dock-narrow) .lado[data-z=aba].plegado { height: auto; bottom: 12px; }
 .lado.vacia { display: none !important; }
 .dock-drag .lado.vacia { display: flex !important; min-width: 120px; min-height: 64px; outline: 2px dashed var(--oro-mapa); }
-.dock-drag .lado.vacia::before { content: 'Suelta la pestaña aquí'; padding: 12px; color: var(--txt2); }
+.dock-drag .lado.vacia::before { content: attr(data-drop); padding: 12px; color: var(--txt2); }
 .mesa.dock-aba .lado:not([data-z=aba]):not(.plegado) { bottom: var(--ab-h); }
 .mesa.dock-aba .hud { bottom: var(--ab-h); }
 .mesa.dock-izq .tl { left: var(--izq-w); }

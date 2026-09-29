@@ -1,8 +1,9 @@
 // Transiciones de escena (fundido, tinta, pergamino, corte a título) y precarga de la escena siguiente.
 import './transiciones.css';
 import type { TransitionKind } from '@lantern/protocol';
+import { t } from '../i18n.ts';
 
-const NAMES: [TransitionKind | '', string][] = [['', 'Sin transición'], ['fade', 'Fundido'], ['ink', 'Barrido de tinta'], ['scroll', 'Pergamino que pasa'], ['title', 'Corte a título']];
+const NAMES: [TransitionKind | '', string][] = [['', t('Sin transición')], ['fade', t('Fundido')], ['ink', t('Barrido de tinta')], ['scroll', t('Pergamino que pasa')], ['title', t('Corte a título')]];
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches || document.documentElement.classList.contains('reduce-motion');
 const esc = (s: string) => s.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 
@@ -30,7 +31,7 @@ export function preload(urls: string[]) {
 export function transitionPicker() {
   const box = document.createElement('div');
   box.className = 'tx-pick';
-  box.innerHTML = `<label>Transición al activar<select>${NAMES.map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></label><label>Duración (s)<input type="number" min="0.5" max="8" step="0.5" value="2"></label>`;
+  box.innerHTML = `<label>${t('Transición al activar')}<select>${NAMES.map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></label><label>${t('Duración (s)')}<input type="number" min="0.5" max="8" step="0.5" value="2"></label>`;
   const sel = box.querySelector('select')!, dur = box.querySelector('input')!;
   return {
     el: box,

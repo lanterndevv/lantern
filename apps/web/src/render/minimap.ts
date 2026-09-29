@@ -1,6 +1,7 @@
 // Minimapa: re-renderiza el mundo (con su luz y niebla, o sea solo lo que el jugador ya ve) a una RT pequeña cada ~500 ms
 // y lo vuelca a un canvas 2D con puntos de fichas y el rectángulo de la vista. Clic/arrastre mueve la cámara.
 import { Matrix, RenderTexture } from 'pixi.js';
+import { t } from '../i18n.ts';
 import type { Application, Container } from 'pixi.js';
 import type { Scene, Token } from '@lantern/protocol';
 
@@ -10,9 +11,9 @@ export function createMinimap(host: HTMLElement, o: {
   scene(): Scene | undefined; level(): string; color(t: Token): string; moveTo(x: number, y: number): void;
 }) {
   const box = document.createElement('div'); box.className = 'minimapa';
-  const tog = document.createElement('button'); tog.type = 'button'; tog.className = 'mm-tog'; tog.setAttribute('aria-expanded', 'true'); tog.setAttribute('aria-label', 'Plegar minimapa');
+  const tog = document.createElement('button'); tog.type = 'button'; tog.className = 'mm-tog'; tog.setAttribute('aria-expanded', 'true'); tog.setAttribute('aria-label', t('Plegar minimapa'));
   const cv = document.createElement('canvas'), cap = document.createElement('small');
-  cv.setAttribute('role', 'img'); cv.setAttribute('aria-label', 'Minimapa: clic o arrastre para mover la cámara');
+  cv.setAttribute('role', 'img'); cv.setAttribute('aria-label', t('Minimapa: clic o arrastre para mover la cámara'));
   box.append(tog, cv, cap); host.append(box);
   const x = cv.getContext('2d')!;
   let rt: RenderTexture | undefined, base: CanvasImageSource | undefined, last = 0, key = '', open = true, drag = false;
@@ -61,7 +62,7 @@ export function createMinimap(host: HTMLElement, o: {
   cv.onpointerup = cv.onpointercancel = () => { drag = false; };
   tog.onclick = () => {
     open = !open; box.classList.toggle('plegado', !open);
-    tog.setAttribute('aria-expanded', String(open)); tog.setAttribute('aria-label', open ? 'Plegar minimapa' : 'Desplegar minimapa');
+    tog.setAttribute('aria-expanded', String(open)); tog.setAttribute('aria-label', open ? t('Plegar minimapa') : t('Desplegar minimapa'));
     last = 0;
   };
   return { frame, destroy() { rt?.destroy(true); box.remove(); } };

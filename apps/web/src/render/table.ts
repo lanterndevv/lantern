@@ -1,4 +1,5 @@
 // Renderer Pixi v8: «mesa a la luz de una linterna». Implementa CreateTable (api.ts).
+import { t as tr } from '../i18n.ts';
 import {
   Application, Assets, BlurFilter, ColorMatrixFilter, Container, Circle, DisplacementFilter, Graphics, Polygon, Rectangle, RenderTexture, Sprite, Text, Texture, TilingSprite, VideoSource,
 } from 'pixi.js';
@@ -692,7 +693,7 @@ export const createTable: CreateTable = async (el, opts) => {
     for (let i = 1; i < pts.length; i++) { cells += gridCells(g, pts[i - 1], pts[i]); dashed(ruler, pts[i - 1], pts[i], 10, 7); }
     ruler.stroke({ width: 3, color: AMBER });
     ruler.visible = rulerTxt.visible = drag.to.x !== drag.from.x || drag.to.y !== drag.from.y;
-    rulerTxt.text = `${Math.round(cells * g.feet)} pies`;
+    rulerTxt.text = tr('{n} pies', { n: Math.round(cells * g.feet) });
     rulerTxt.position.set(drag.to.x, drag.to.y - t.size * g.size * 0.5 - 14);
   });
   const up = (e: FederatedPointerEvent) => {
@@ -835,7 +836,7 @@ export const createTable: CreateTable = async (el, opts) => {
       routeG.circle(b.x, b.y, 4.5).fill(c).stroke({ width: 1.5, color: 0x000000, alpha: 0.6 });
     }
     const e = pts[pts.length - 1];
-    routeTxt.text = `${Math.round(spent)} pies`; routeTxt.position.set(e.x, e.y - 14); routeTxt.visible = true;
+    routeTxt.text = tr('{n} pies', { n: Math.round(spent) }); routeTxt.position.set(e.x, e.y - 14); routeTxt.visible = true;
   }
   type Cur = { c: Container; tx: number; ty: number; t: number; key: string };
   const cursors = new Map<Id, Cur>();

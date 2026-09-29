@@ -4,6 +4,7 @@ import { net, savedName } from '../net.ts';
 import { mountAccount } from './account.ts';
 import { PREGENS, CLASSES, pregenToImported } from '@lantern/srd';
 import { parseSheetJson } from './sheetx.ts';
+import { t, tsrv } from '../i18n.ts';
 
 // El personaje elegido aquí se aplica al entrar en la mesa (extras.ts lo envía con myChar).
 export const PENDING_CHAR = 'lantern:pending-char';
@@ -17,22 +18,22 @@ export function mountJoin(app: HTMLElement) {
   main.className = 'unirse';
   main.innerHTML = `
     <form class="panel" id="f">
-      <h1>Únete a la mesa</h1>
-      <p class="sub">Escribe el código que te dio tu DM.</p>
-      <label>Código de la mesa
-        <input id="code" class="mono" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="K7Q-4ZP o enlace" inputmode="text">
+      <h1>${t('Únete a la mesa')}</h1>
+      <p class="sub">${t('Escribe el código que te dio tu DM.')}</p>
+      <label>${t('Código de la mesa')}
+        <input id="code" class="mono" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="${t('K7Q-4ZP o enlace')}" inputmode="text">
       </label>
-      <label>Tu nombre
+      <label>${t('Tu nombre')}
         <input id="name" autocomplete="nickname" maxlength="24" required>
       </label>
-      <label>Personaje inicial (opcional)
-        <select id="pre"><option value="">Lo elegiré después</option>${Object.entries(PREGENS).map(([id, p]) => `<option value="${id}">${p.name} — ${CLASSES[p.class]?.name ?? p.class} (pregenerado)</option>`).join('')}<option value="json">Importar hoja JSON…</option></select>
+      <label>${t('Personaje inicial (opcional)')}
+        <select id="pre"><option value="">${t('Lo elegiré después')}</option>${Object.entries(PREGENS).map(([id, p]) => `<option value="${id}">${p.name} — ${CLASSES[p.class]?.name ?? p.class} (${t('pregenerado')})</option>`).join('')}<option value="json">${t('Importar hoja JSON…')}</option></select>
       </label>
       <input type="file" id="prej" accept=".json,application/json" hidden>
       <p id="err" role="alert" class="err" hidden></p>
-      <button class="primary" type="submit">Entrar</button>
-      <button class="secondary" type="button" id="new">Crear mesa nueva (serás DM)</button>
-      <ul class="chips"><li>Sin cuenta</li><li>Sin instalar nada</li><li>Gratis para jugadores</li></ul>
+      <button class="primary" type="submit">${t('Entrar')}</button>
+      <button class="secondary" type="button" id="new">${t('Crear mesa nueva (serás DM)')}</button>
+      <ul class="chips"><li>${t('Sin cuenta')}</li><li>${t('Sin instalar nada')}</li><li>${t('Gratis para jugadores')}</li></ul>
     </form>`;
   app.append(main);
   const $ = <T extends HTMLElement>(id: string) => main.querySelector<T>('#' + id)!;
@@ -47,7 +48,7 @@ export function mountJoin(app: HTMLElement) {
   pre.onchange = () => { if (pre.value === 'json') prej.click(); else sheet = ''; };
   prej.onchange = async () => {
     const f = prej.files?.[0]; prej.value = '';
-    try { const c = parseSheetJson(await f!.text()); sheet = JSON.stringify(c); pre.options[pre.selectedIndex].text = `Hoja: ${c.name}`; err.hidden = true; }
+    try { const c = parseSheetJson(await f!.text()); sheet = JSON.stringify(c); pre.options[pre.selectedIndex].text = t('Hoja: {name}', { name: c.name }); err.hidden = true; }
     catch (e) { sheet = ''; pre.value = ''; fail((e as Error).message); }
   };
   const keep = () => {
@@ -60,7 +61,7 @@ export function mountJoin(app: HTMLElement) {
   $('f').onsubmit = e => {
     e.preventDefault();
     const c = clean(code.value);
-    if (c.length !== 6) return fail('El código tiene 6 caracteres.'), code.focus();
+    if (c.length !== 6) return fail(t('El código tiene 6 caracteres.')), code.focus();
     err.hidden = true; keep();
     net.send({ t: 'join', code: c, name: name.value.trim() });
   };
@@ -71,5 +72,5 @@ export function mountJoin(app: HTMLElement) {
     net.send({ t: 'join', name: name.value.trim() });
   };
   mountAccount(main); // cuentas opcionales: «Mis mesas» en cualquier dispositivo
-  return { handle(m: S2C) { if (m.t === 'error') fail(m.msg); } };
+  return { handle(m: S2C) { if (m.t === 'error') fail(tsrv(m.msg)); } };
 }

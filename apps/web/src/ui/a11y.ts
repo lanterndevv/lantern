@@ -2,13 +2,14 @@ import './a11y.css';
 import type { ClientState, ChatMsg } from '@lantern/protocol';
 import { net } from '../net.ts';
 import { PORTATIL, setPortatil } from '../render/portatil.ts';
+import { t, lang, setLang, type Lang } from '../i18n.ts';
 
 // ---------- preferencias ----------
 type Prefs = { paleta: string; escala: number; contraste: boolean; dislexia: boolean; movimiento: boolean; atajos: Record<string, string> };
 const KEY = 'lantern:a11y';
 const ACCIONES: [string, string, string][] = [
-  ['voz', 'Pulsar para hablar', 'v'], ['ping', 'Ping', 'p'], ['fin', 'Fin de turno', 'f'], ['paleta', 'Paleta de comandos', 'ctrl+k'],
-  ...Array.from({ length: 10 }, (_, i): [string, string, string] => [`accion${i + 1}`, `Acción ${i + 1}`, String((i + 1) % 10)]),
+  ['voz', t('Pulsar para hablar'), 'v'], ['ping', 'Ping', 'p'], ['fin', t('Fin de turno'), 'f'], ['paleta', t('Paleta de comandos'), 'ctrl+k'],
+  ...Array.from({ length: 10 }, (_, i): [string, string, string] => [`accion${i + 1}`, t('Acción {n}', { n: i + 1 }), String((i + 1) % 10)]),
 ];
 const DEF: Prefs = { paleta: 'ninguna', escala: 100, contraste: false, dislexia: false, movimiento: false, atajos: {} };
 const load = (): Prefs => { try { return { ...DEF, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; } catch { return { ...DEF }; } };
@@ -65,30 +66,32 @@ export function mountA11y(panelEl: HTMLElement, _ctx?: unknown) {
   const sec = document.createElement('section');
   sec.className = 'a11y';
   sec.setAttribute('aria-labelledby', 'a11y-t');
-  const opt = (v: string, t: string) => `<option value="${v}"${P.paleta === v ? ' selected' : ''}>${t}</option>`;
+  const opt = (v: string, txt: string) => `<option value="${v}"${P.paleta === v ? ' selected' : ''}>${txt}</option>`;
   sec.innerHTML = `
-    <h2 id="a11y-t">Accesibilidad</h2>
-    <label>Tema
-      <select data-tema>${(['auto', 'dia', 'noche'] as const).map(v => `<option value="${v}"${getTema() === v ? ' selected' : ''}>${{ auto: 'Automático (según el sistema)', dia: 'Día · Libro de horas', noche: 'Noche · Grimorio' }[v]}</option>`).join('')}</select></label>
-    <label>Paleta para daltonismo
-      <select data-k="paleta">${opt('ninguna', 'Ninguna')}${opt('deuteranopia', 'Deuteranopía')}${opt('protanopia', 'Protanopía')}${opt('tritanopia', 'Tritanopía')}</select></label>
-    <label>Escala de la interfaz <output>${P.escala}%</output>
+    <h2 id="a11y-t">${t('Accesibilidad')}</h2>
+    <label>${t('Tema')}
+      <select data-tema>${(['auto', 'dia', 'noche'] as const).map(v => `<option value="${v}"${getTema() === v ? ' selected' : ''}>${{ auto: t('Automático (según el sistema)'), dia: t('Día · Libro de horas'), noche: t('Noche · Grimorio') }[v]}</option>`).join('')}</select></label>
+    <label>${t('Idioma')}
+      <select data-lang>${(['es', 'en'] as const).map(v => `<option value="${v}"${lang === v ? ' selected' : ''}>${{ es: 'Español', en: 'English' }[v]}</option>`).join('')}</select></label>
+    <label>${t('Paleta para daltonismo')}
+      <select data-k="paleta">${opt('ninguna', t('Ninguna'))}${opt('deuteranopia', t('Deuteranopía'))}${opt('protanopia', t('Protanopía'))}${opt('tritanopia', t('Tritanopía'))}</select></label>
+    <label>${t('Escala de la interfaz')} <output>${P.escala}%</output>
       <input type="range" data-k="escala" min="90" max="150" step="5" value="${P.escala}"></label>
-    <label>Alto contraste <input type="checkbox" data-k="contraste"${P.contraste ? ' checked' : ''}></label>
-    <label>Tipografía para dislexia <input type="checkbox" data-k="dislexia"${P.dislexia ? ' checked' : ''}></label>
-    <label>Movimiento reducido <input type="checkbox" data-k="movimiento"${P.movimiento ? ' checked' : ''}></label>
-    <label>Modo portátil (ahorra batería: 30 fps, sin postproceso ni efectos extra; recarga la página) <input type="checkbox" data-portatil${PORTATIL ? ' checked' : ''}></label>
-    <h3>Atajos de teclado</h3>
+    <label>${t('Alto contraste')} <input type="checkbox" data-k="contraste"${P.contraste ? ' checked' : ''}></label>
+    <label>${t('Tipografía para dislexia')} <input type="checkbox" data-k="dislexia"${P.dislexia ? ' checked' : ''}></label>
+    <label>${t('Movimiento reducido')} <input type="checkbox" data-k="movimiento"${P.movimiento ? ' checked' : ''}></label>
+    <label>${t('Modo portátil (ahorra batería: 30 fps, sin postproceso ni efectos extra; recarga la página)')} <input type="checkbox" data-portatil${PORTATIL ? ' checked' : ''}></label>
+    <h3>${t('Atajos de teclado')}</h3>
     <ul class="atajos"></ul>
-    <button type="button" data-reset>Restablecer atajos</button>`;
+    <button type="button" data-reset>${t('Restablecer atajos')}</button>`;
   const ul = sec.querySelector('.atajos')!;
   const draw = () => {
     ul.replaceChildren(...ACCIONES.map(([id, nombre]) => {
       const li = document.createElement('li'), b = document.createElement('button');
       b.type = 'button'; b.textContent = getShortcut(id) || '—';
-      b.setAttribute('aria-label', `${nombre}: ${getShortcut(id)}. Pulsa para cambiar`);
+      b.setAttribute('aria-label', t('{name}: {key}. Pulsa para cambiar', { name: nombre, key: getShortcut(id) }));
       b.onclick = () => {
-        b.textContent = 'Pulsa una tecla…';
+        b.textContent = t('Pulsa una tecla…');
         const on = (e: KeyboardEvent) => {
           if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return; // esperar a la tecla real
           e.preventDefault(); e.stopPropagation();
@@ -105,6 +108,7 @@ export function mountA11y(panelEl: HTMLElement, _ctx?: unknown) {
   draw();
   sec.addEventListener('input', e => {
     const t = e.target as HTMLInputElement, k = t.dataset.k as keyof Prefs | undefined;
+    if (t.dataset.lang != null) return setLang(t.value as Lang);
     if (t.dataset.portatil != null) return setPortatil(t.checked);
     if (t.dataset.tema != null) { temaMem = t.value as Tema; try { localStorage.setItem(TEMA, t.value); } catch { /* sin storage */ } applyTema(); return; }
     if (!k) return;
@@ -118,44 +122,44 @@ export function mountA11y(panelEl: HTMLElement, _ctx?: unknown) {
 }
 
 // ---------- lector de pantalla ----------
-const estado = (t: { hp?: { cur: number; max: number } }) => {
-  if (!t.hp) return '';
-  const { cur, max } = t.hp;
-  return cur <= 0 ? 'caído' : cur <= max / 2 ? 'malherido' : cur < max ? 'herido' : 'ileso';
+const estado = (k: { hp?: { cur: number; max: number } }) => {
+  if (!k.hp) return '';
+  const { cur, max } = k.hp;
+  return t(cur <= 0 ? 'caído' : cur <= max / 2 ? 'malherido' : cur < max ? 'herido' : 'ileso');
 };
-const fac = { ally: 'aliado', enemy: 'enemigo', neutral: 'neutral' } as const;
+const fac = { ally: t('aliado'), enemy: t('enemigo'), neutral: t('neutral') } as const;
 
 function cardText(m: ChatMsg): string {
-  if (m.roll) return m.roll.secret ? '' : `Tirada ${m.roll.expr}: ${m.roll.total}`;
+  if (m.roll) return m.roll.secret ? '' : t('Tirada {expr}: {total}', { expr: m.roll.expr, total: m.roll.total });
   const c = m.card;
   if (!c) return '';
-  const t = c.targets.map(x => {
-    const r = x.attack ? (x.attack.crit ? 'crítico' : x.attack.hit ? 'impacta' : 'falla') : x.save ? (x.save.success ? 'supera la salvación' : 'falla la salvación') : '';
-    return `${x.name} ${r}${x.amount != null ? `, ${x.amount} ${c.kind === 'heal' ? 'de curación' : 'de daño'}` : ''}`;
+  const tg = c.targets.map(x => {
+    const r = x.attack ? t(x.attack.crit ? 'crítico' : x.attack.hit ? 'impacta' : 'falla') : x.save ? t(x.save.success ? 'supera la salvación' : 'falla la salvación') : '';
+    return `${x.name} ${r}${x.amount != null ? `, ${x.amount} ${t(c.kind === 'heal' ? 'de curación' : 'de daño')}` : ''}`;
   }).join('; ');
-  return `${c.actorName} usa ${c.actionName}. ${t}`;
+  return t('{actor} usa {action}. {targets}', { actor: c.actorName, action: c.actionName, targets: tg });
 }
 
 export function mountScreenReaderMirror(root: HTMLElement, getState: () => ClientState | undefined) {
   const live = document.createElement('div');
   live.className = 'sr-only'; live.setAttribute('aria-live', 'polite'); live.setAttribute('role', 'status');
   const list = document.createElement('ul');
-  list.className = 'sr-only'; list.tabIndex = -1; list.setAttribute('aria-label', 'Tokens visibles en el mapa');
+  list.className = 'sr-only'; list.tabIndex = -1; list.setAttribute('aria-label', t('Tokens visibles en el mapa'));
   root.append(live, list);
   let last = '';
   const say = (s: string) => { if (s) live.textContent = s; };
 
   const refresh = (s: ClientState) => {
     const g = s.scene.grid;
-    list.replaceChildren(...s.scene.tokens.filter(t => !t.hidden).map(t => {
+    list.replaceChildren(...s.scene.tokens.filter(k => !k.hidden).map(k => {
       const li = document.createElement('li');
-      const col = Math.floor((t.x - g.offsetX) / g.size) + 1, fila = Math.floor((t.y - g.offsetY) / g.size) + 1;
-      li.textContent = [t.name, fac[t.faction], `casilla ${col}-${fila}`, estado(t)].filter(Boolean).join(', ');
+      const col = Math.floor((k.x - g.offsetX) / g.size) + 1, fila = Math.floor((k.y - g.offsetY) / g.size) + 1;
+      li.textContent = [k.name, fac[k.faction], t('casilla {c}-{f}', { c: col, f: fila }), estado(k)].filter(Boolean).join(', ');
       return li;
     }));
     const c = s.combat, id = c?.order[c.turn]?.tokenId;
     const key = c && id ? `${id}:${c.round}` : '';
-    if (key && key !== last) say(`Turno de ${s.scene.tokens.find(t => t.id === id)?.name ?? 'alguien'}, ronda ${c!.round}`);
+    if (key && key !== last) say(t('Turno de {name}, ronda {n}', { name: s.scene.tokens.find(k => k.id === id)?.name ?? t('alguien'), n: c!.round }));
     last = key;
   };
   const s0 = getState(); if (s0) refresh(s0);

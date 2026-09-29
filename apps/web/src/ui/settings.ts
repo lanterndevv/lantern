@@ -1,16 +1,17 @@
 import type { C2S, ClientState, Role, TableSettings } from '@lantern/protocol';
+import { t } from '../i18n.ts';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
-const ROLES: Record<Role, string> = { dm: 'DM', assistant: 'Asistente', trusted: 'De confianza', player: 'Jugador', spectator: 'Espectador' };
+const ROLES: Record<Role, string> = { dm: 'DM', assistant: t('Asistente'), trusted: t('De confianza'), player: t('Jugador'), spectator: t('Espectador') };
 const LAYERS: [keyof TableSettings['layers'], string][] = [
-  ['lighting', 'Luz y visión'], ['initiative', 'Iniciativa'], ['automation', 'Automatización'], ['effects', 'Efectos'], ['story', 'Modo Historia'],
+  ['lighting', t('Luz y visión')], ['initiative', t('Iniciativa')], ['automation', t('Automatización')], ['effects', t('Efectos')], ['story', t('Modo Historia')],
 ];
 const OPT: [keyof TableSettings['optional'], string, string][] = [
-  ['flanking', 'Flanqueo', 'Ventaja al atacar con un aliado en el lado opuesto.'],
-  ['heroPoints', 'Puntos de héroe', 'Cada jugador puede repetir una tirada gastando un punto.'],
-  ['brutalCrit', 'Crítico brutal', 'Los críticos suman un dado de daño extra.'],
-  ['fumbles', 'Pifias', 'Un 1 natural en ataque tiene consecuencias.'],
-  ['sideInit', 'Iniciativa por bandos', 'Una tirada para aliados y otra para enemigos.'],
+  ['flanking', t('Flanqueo'), t('Ventaja al atacar con un aliado en el lado opuesto.')],
+  ['heroPoints', t('Puntos de héroe'), t('Cada jugador puede repetir una tirada gastando un punto.')],
+  ['brutalCrit', t('Crítico brutal'), t('Los críticos suman un dado de daño extra.')],
+  ['fumbles', t('Pifias'), t('Un 1 natural en ataque tiene consecuencias.')],
+  ['sideInit', t('Iniciativa por bandos'), t('Una tirada para aliados y otra para enemigos.')],
 ];
 
 export function mountSettings(el: HTMLElement, send: (m: C2S) => void, myId: string) {
@@ -21,17 +22,17 @@ export function mountSettings(el: HTMLElement, send: (m: C2S) => void, myId: str
     const S = st.settings;
     const sw = (f: string, on: boolean, label: string, desc = '') =>
       `<button type="button" role="switch" class="sw" data-f="${f}" aria-checked="${on}"${desc ? ` aria-describedby="d-${f}"` : ''}><span>${label}</span><i aria-hidden="true"></i></button>${desc ? `<p class="det" id="d-${f}">${desc}</p>` : ''}`;
-    const card = (m: 'simple' | 'full', t: string, d: string) =>
-      `<button type="button" role="radio" class="card" data-f="mode-${m}" data-mode="${m}" aria-checked="${S.mode === m}"><strong>${t}</strong><span class="det">${d}</span></button>`;
-    el.innerHTML = `<section aria-labelledby="st-m"><h2 id="st-m">Modo de mesa</h2>
-        <div class="cards" role="radiogroup" aria-labelledby="st-m">${card('simple', 'Sencillo', 'Mapa, tokens, dados y chat.')}${card('full', 'Completo', 'Todas las capas activas.')}</div>
+    const card = (m: 'simple' | 'full', ti: string, d: string) =>
+      `<button type="button" role="radio" class="card" data-f="mode-${m}" data-mode="${m}" aria-checked="${S.mode === m}"><strong>${ti}</strong><span class="det">${d}</span></button>`;
+    el.innerHTML = `<section aria-labelledby="st-m"><h2 id="st-m">${t('Modo de mesa')}</h2>
+        <div class="cards" role="radiogroup" aria-labelledby="st-m">${card('simple', t('Sencillo'), t('Mapa, tokens, dados y chat.'))}${card('full', t('Completo'), t('Todas las capas activas.'))}</div>
         <div class="sws">${LAYERS.map(([k, n]) => sw('layer-' + k, S.layers[k], n)).join('')}</div></section>
-      <section aria-labelledby="st-e"><h2 id="st-e">Edición</h2>
+      <section aria-labelledby="st-e"><h2 id="st-e">${t('Edición')}</h2>
         <div class="seg" role="radiogroup" aria-labelledby="st-e">${(['2014', '2024'] as const).map(v =>
           `<button type="button" role="radio" data-f="ed-${v}" data-ed="${v}" aria-checked="${S.edition === v}">${v}</button>`).join('')}</div></section>
-      <section aria-labelledby="st-o"><h2 id="st-o">Reglas opcionales</h2>${OPT.map(([k, n, d]) => sw('opt-' + k, !!S.optional[k], n, d)).join('')}</section>
-      <section aria-labelledby="st-r"><h2 id="st-r">Roles</h2><table class="roles"><thead><tr><th scope="col">Miembro</th><th scope="col">Rol</th></tr></thead><tbody>${st.members.map(m =>
-        `<tr><th scope="row">${esc(m.name)}</th><td><select data-f="role-${esc(m.id)}" data-role="${esc(m.id)}" aria-label="Rol de ${esc(m.name)}"${m.id === myId ? ' disabled' : ''}>${(Object.keys(ROLES) as Role[]).map(r =>
+      <section aria-labelledby="st-o"><h2 id="st-o">${t('Reglas opcionales')}</h2>${OPT.map(([k, n, d]) => sw('opt-' + k, !!S.optional[k], n, d)).join('')}</section>
+      <section aria-labelledby="st-r"><h2 id="st-r">${t('Roles')}</h2><table class="roles"><thead><tr><th scope="col">${t('Miembro')}</th><th scope="col">${t('Rol')}</th></tr></thead><tbody>${st.members.map(m =>
+        `<tr><th scope="row">${esc(m.name)}</th><td><select data-f="role-${esc(m.id)}" data-role="${esc(m.id)}" aria-label="${t('Rol de {name}', { name: esc(m.name) })}"${m.id === myId ? ' disabled' : ''}>${(Object.keys(ROLES) as Role[]).map(r =>
           `<option value="${r}"${m.role === r ? ' selected' : ''}>${ROLES[r]}</option>`).join('')}</select></td></tr>`).join('')}</tbody></table></section>`;
     if (focus) el.querySelector<HTMLElement>(`[data-f="${focus}"]`)?.focus();
   };

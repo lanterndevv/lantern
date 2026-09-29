@@ -1,6 +1,7 @@
 import type { ClientState, ChatMsg } from '@lantern/protocol';
 import type { Table } from '../render/api.ts';
 import { net } from '../net.ts';
+import { t } from '../i18n.ts';
 import './a11y.css';
 
 export type DisplayMode = 'normal' | 'mesa' | 'espectador';
@@ -33,7 +34,7 @@ export function applyDisplayMode(
   root.append(aviso);
   let top: HTMLElement | undefined, log: HTMLElement | undefined;
   if (mode === 'espectador') {
-    top = el('div', 'dm-top'); log = el('ul', 'dm-log'); log.setAttribute('aria-label', 'Últimas tiradas');
+    top = el('div', 'dm-top'); log = el('ul', 'dm-log'); log.setAttribute('aria-label', t('Últimas tiradas'));
     root.append(top, log);
   }
 
@@ -45,13 +46,13 @@ export function applyDisplayMode(
   function update(s: ClientState, first = false) {
     state = s;
     const c = s.combat, id = c?.order[c.turn]?.tokenId;
-    if (top) top.innerHTML = `${esc(s.scene.name)}${c ? `<span>Ronda ${c.round}</span>` : ''}`;
+    if (top) top.innerHTML = `${esc(s.scene.name)}${c ? `<span>${t('Ronda {n}', { n: c.round })}</span>` : ''}`;
     const key = c && id ? `${id}:${c.round}` : '';
     if (key && key !== turn && !first) {
       const tk = s.scene.tokens.find(t => t.id === id);
       if (tk) {
         table?.focus(tk.x, tk.y);
-        aviso.textContent = `¡Turno de ${tk.name}!`;
+        aviso.textContent = t('¡Turno de {n}!', { n: tk.name });
         aviso.classList.remove('show'); void aviso.offsetWidth; aviso.classList.add('show');
       }
     }

@@ -2,6 +2,7 @@
 import './docchat.css';
 import type { C2S, ChatMsg, ClientState, Id } from '@lantern/protocol';
 import { showHandout } from './journal.ts';
+import { t } from '../i18n.ts';
 
 export type ChatCtx = { send(m: C2S): void; state(): ClientState; me: Id; toast(msg: string): void };
 
@@ -25,19 +26,19 @@ export function chatSendFromInput(text: string, c: ChatCtx): boolean {
     c.send({ t: 'roll', expr: roll[2], ...(roll[1].toLowerCase() === 'rs' ? { secret: true } : {}), ...(own ? { as: own.id } : {}) }); return true;
   }
   const cmd = /^\/(w|me|ic)\s+(.+)$/is.exec(v);
-  if (/^\/(w|me|ic)\b/i.test(v) && !cmd) { c.toast('Falta el texto del comando'); return false; }
+  if (/^\/(w|me|ic)\b/i.test(v) && !cmd) { c.toast(t('Falta el texto del comando')); return false; }
   if (cmd) {
     const k = cmd[1].toLowerCase(), rest = cmd[2].trim();
     if (k === 'w') {
       const m = memberAt(rest, c);
-      if (!m) { c.toast('Uso: /w nombre texto. No conozco a ese miembro'); return false; }
+      if (!m) { c.toast(t('Uso: /w nombre texto. No conozco a ese miembro')); return false; }
       const body = rest.slice(m.name.length).trim();
-      if (!body) { c.toast('Escribe el texto del susurro'); return false; }
+      if (!body) { c.toast(t('Escribe el texto del susurro')); return false; }
       c.send({ t: 'chat', text: body, to: [m.id] }); return true;
     }
     if (k === 'me') { c.send({ t: 'chat', text: rest, emote: true, ...(sel.as ? { as: sel.as } : {}), ...(sel.to ? { to: [sel.to] } : {}) }); return true; }
     const own = mine(c).find(t => t.id === sel.as) ?? mine(c)[0]; // /ic: token elegido o el principal (el primero)
-    if (!own) { c.toast('No controlas ningún token'); return false; }
+    if (!own) { c.toast(t('No controlas ningún token')); return false; }
     c.send({ t: 'chat', text: rest, as: own.id, ...(sel.to ? { to: [sel.to] } : {}) }); return true;
   }
   c.send({ t: 'chat', text: v, ...(sel.as ? { as: sel.as } : {}), ...(sel.to ? { to: [sel.to] } : {}) });
@@ -49,11 +50,11 @@ export function chatSendFromInput(text: string, c: ChatCtx): boolean {
  * html ya va escapado; sustituye al contenido del div.msg.
  */
 export function renderChatExtras(m: ChatMsg, name: (id: Id) => string): { cls: string; html: string } | null {
-  if (m.doc) return { cls: 'msg doc', html: `${m.doc.image ? `<img src="${esc(m.doc.image)}" alt="">` : '<span class="doc-ico" aria-hidden="true">📄</span>'}<span class="doc-t"><strong>${esc(m.doc.title)}</strong><br><span class="det">${esc(name(m.from))} te muestra un documento</span></span><button type="button" data-doc="${esc(m.doc.entryId)}">Abrir<span class="sr"> ${esc(m.doc.title)}</span></button>` };
-  if (m.loot) return { cls: 'msg botin', html: `<strong>${esc(m.loot.title)}</strong> <span class="det">botín</span><ul class="filas">${m.loot.lines.map(l => `<li><span class="obj">${esc(l.item)}</span>${l.to ? `<em class="res ok">→ ${esc(l.to)}</em>` : ''}</li>`).join('')}</ul>` };
+  if (m.doc) return { cls: 'msg doc', html: `${m.doc.image ? `<img src="${esc(m.doc.image)}" alt="">` : '<span class="doc-ico" aria-hidden="true">📄</span>'}<span class="doc-t"><strong>${esc(m.doc.title)}</strong><br><span class="det">${esc(t('{name} te muestra un documento', { name: name(m.from) }))}</span></span><button type="button" data-doc="${esc(m.doc.entryId)}">${t('Abrir')}<span class="sr"> ${esc(m.doc.title)}</span></button>` };
+  if (m.loot) return { cls: 'msg botin', html: `<strong>${esc(m.loot.title)}</strong> <span class="det">${t('botín')}</span><ul class="filas">${m.loot.lines.map(l => `<li><span class="obj">${esc(l.item)}</span>${l.to ? `<em class="res ok">→ ${esc(l.to)}</em>` : ''}</li>`).join('')}</ul>` };
   if (m.text == null || (!m.to?.length && !m.as && !m.emote)) return null;
   const from = esc(m.as ?? name(m.from)), text = esc(m.text);
-  const whisper = m.to?.length ? `<em class="cx-susurro">susurro a ${esc(m.to.map(name).join(', '))}</em> ` : '';
+  const whisper = m.to?.length ? `<em class="cx-susurro">${esc(t('susurro a {name}', { name: m.to.map(name).join(', ') }))}</em> ` : '';
   const cls = ['msg', m.to?.length ? 'susurro' : '', m.emote ? 'emote' : '', m.as && !m.emote ? 'ic' : ''].filter(Boolean).join(' ');
   if (m.emote) return { cls, html: `${whisper}<em class="cx-emote">* ${from} ${text} *</em>` };
   return { cls, html: `<span class="quien${m.as ? ' cx-ic' : ''}">${from}</span> ${whisper}${m.to?.length ? `<em>${text}</em>` : text}` };
@@ -63,14 +64,14 @@ export function renderChatExtras(m: ChatMsg, name: (id: Id) => string): { cls: s
 export function mountChat2(form: HTMLElement, c: ChatCtx) {
   const box = document.createElement('div');
   box.className = 'cx-sel';
-  box.innerHTML = `<label>Hablar como<select id="cx-as"></select></label><label>Susurrar a<select id="cx-to"></select></label>`;
+  box.innerHTML = `<label>${t('Hablar como')}<select id="cx-as"></select></label><label>${t('Susurrar a')}<select id="cx-to"></select></label>`;
   form.prepend(box);
   const as = box.querySelector<HTMLSelectElement>('#cx-as')!, to = box.querySelector<HTMLSelectElement>('#cx-to')!;
   as.onchange = () => { sel.as = as.value || undefined; };
   to.onchange = () => { sel.to = to.value || undefined; };
   form.ownerDocument.addEventListener('click', e => { // botón Abrir de las tarjetas de documento
     const id = (e.target as HTMLElement).closest<HTMLElement>('[data-doc]')?.dataset.doc, en = id ? c.state().journal.find(x => x.id === id) : undefined;
-    if (en) showHandout(en); else if (id) c.toast('Ya no puedes abrir ese documento');
+    if (en) showHandout(en); else if (id) c.toast(t('Ya no puedes abrir ese documento'));
   });
   let sig = '';
   return {
@@ -80,8 +81,8 @@ export function mountChat2(form: HTMLElement, c: ChatCtx) {
       if (k === sig) return; sig = k;
       if (sel.as && !toks.some(t => t.id === sel.as)) sel.as = undefined;
       if (sel.to && !others.some(m => m.id === sel.to)) sel.to = undefined;
-      as.innerHTML = `<option value="">Tú (OOC)</option>` + toks.map(t => `<option value="${esc(t.id)}">${esc(t.name)} (IC)</option>`).join('');
-      to.innerHTML = `<option value="">Todos</option>` + others.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
+      as.innerHTML = `<option value="">${t('Tú (OOC)')}</option>` + toks.map(t => `<option value="${esc(t.id)}">${esc(t.name)} (IC)</option>`).join('');
+      to.innerHTML = `<option value="">${t('Todos')}</option>` + others.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
       as.value = sel.as ?? ''; to.value = sel.to ?? '';
     },
   };

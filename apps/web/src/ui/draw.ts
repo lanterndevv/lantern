@@ -1,6 +1,7 @@
 // Dibujo para todos, cursores, «Mostrar a todos aquí», deshacer e imagen de token propio.
 import type { C2S, ClientState, Drawing, Id, Role, S2C, Token } from '@lantern/protocol';
 import { brushPolygon } from '@lantern/vision';
+import { t, tsrv } from '../i18n.ts';
 
 // ponytail: los nombres siguen el contrato de api.ts pedido a otro agente (EditTool 'draw', drawEphemeral, setCursors).
 // Si aún no existen en render/api.ts, este tipo local los cubre; el orquestador pasa el Table real (cast en el montaje).
@@ -18,8 +19,8 @@ export type DrawCtx = {
   onMapClick(cb: ((x: number, y: number) => void) | null): void; // el de UiCtx
 };
 
-const COLORS: [string, string][] = [['#ff5c5c', 'Rojo'], ['#ffb85c', 'Ámbar'], ['#f2e35c', 'Amarillo'], ['#5cd67a', 'Verde'], ['#5cb8ff', 'Azul'], ['#c78cff', 'Violeta']];
-const WIDTHS: [number, string][] = [[3, 'Fino'], [6, 'Medio'], [12, 'Grueso']];
+const COLORS: [string, string][] = [['#ff5c5c', t('Rojo')], ['#ffb85c', t('Ámbar')], ['#f2e35c', t('Amarillo')], ['#5cd67a', t('Verde')], ['#5cb8ff', t('Azul')], ['#c78cff', t('Violeta')]];
+const WIDTHS: [number, string][] = [[3, t('Fino')], [6, t('Medio')], [12, t('Grueso')]];
 const typing = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.('input,textarea,select,dialog');
 const rid = () => Math.random().toString(36).slice(2, 10);
 const colorOfMember = (s: ClientState, id: Id) => COLORS[Math.max(0, s.members.findIndex(m => m.id === id)) % COLORS.length][0];
@@ -29,17 +30,17 @@ export function mountDraw(bar: HTMLElement, c: DrawCtx) {
   if (c.role === 'spectator') return { onDraw() {}, onErase() {}, pointer() {}, handle() {}, update() {} };
   const box = document.createElement('div');
   box.className = 'dr-box';
-  box.innerHTML = `<button type="button" id="dr-on" aria-pressed="false" aria-keyshortcuts="D" title="Dibujar (D)">✎<span class="sr"> Dibujar</span></button>
-    <div id="dr-panel" class="dr-panel panel" hidden role="group" aria-label="Opciones de dibujo">
-      <div role="radiogroup" aria-label="Color" class="dr-cols">${COLORS.map(([h, n], i) =>
+  box.innerHTML = `<button type="button" id="dr-on" aria-pressed="false" aria-keyshortcuts="D" title="${t('Dibujar (D)')}">✎<span class="sr"> ${t('Dibujar')}</span></button>
+    <div id="dr-panel" class="dr-panel panel" hidden role="group" aria-label="${t('Opciones de dibujo')}">
+      <div role="radiogroup" aria-label="${t('Color')}" class="dr-cols">${COLORS.map(([h, n], i) =>
         `<label class="dr-col" style="--c:${h}"><input type="radio" name="dr-c" value="${h}"${i === 1 ? ' checked' : ''}><span class="sr">${n}</span></label>`).join('')}</div>
-      <label>Grosor<select id="dr-w">${WIDTHS.map(([v, n]) => `<option value="${v}">${n}</option>`).join('')}</select></label>
-      <label class="chk" id="dr-pl"><input type="checkbox" id="dr-p"> Persistente</label>
-      ${staff ? '<label class="chk"><input type="checkbox" id="dr-fog"> Niebla (pincel): cada trazo crea una región de niebla</label>' : ''}
-      <button type="button" id="dr-me">Borrar mío</button>
-      ${dm ? '<button type="button" id="dr-all">Borrar todo</button><button type="button" id="dr-focus">Mostrar a todos aquí</button>' : ''}
+      <label>${t('Grosor')}<select id="dr-w">${WIDTHS.map(([v, n]) => `<option value="${v}">${n}</option>`).join('')}</select></label>
+      <label class="chk" id="dr-pl"><input type="checkbox" id="dr-p"> ${t('Persistente')}</label>
+      ${staff ? `<label class="chk"><input type="checkbox" id="dr-fog"> ${t('Niebla (pincel): cada trazo crea una región de niebla')}</label>` : ''}
+      <button type="button" id="dr-me">${t('Borrar mío')}</button>
+      ${dm ? `<button type="button" id="dr-all">${t('Borrar todo')}</button><button type="button" id="dr-focus">${t('Mostrar a todos aquí')}</button>` : ''}
     </div>
-    <label class="chk dr-cur" title="Ver cursores de los demás"><input type="checkbox" id="dr-cur" role="switch"><span aria-hidden="true">↖</span><span class="sr"> Ver cursores</span></label>`;
+    <label class="chk dr-cur" title="${t('Ver cursores de los demás')}"><input type="checkbox" id="dr-cur" role="switch"><span aria-hidden="true">↖</span><span class="sr"> ${t('Ver cursores')}</span></label>`;
   bar.append(box);
   const q = <T extends HTMLElement>(id: string) => box.querySelector<T>('#' + id)!;
   const on = q('dr-on'), panel = q('dr-panel'), persist = q<HTMLInputElement>('dr-p'), cur = q<HTMLInputElement>('dr-cur');
@@ -53,9 +54,9 @@ export function mountDraw(bar: HTMLElement, c: DrawCtx) {
   panel.addEventListener('change', apply);
   q('dr-me').onclick = () => c.send({ t: 'erase', id: 'mine' });
   if (dm) {
-    q('dr-all').onclick = () => { if (confirm('¿Borrar todos los dibujos de la escena?')) c.send({ t: 'erase', id: 'all' }); };
+    q('dr-all').onclick = () => { if (confirm(t('¿Borrar todos los dibujos de la escena?'))) c.send({ t: 'erase', id: 'all' }); };
     q('dr-focus').onclick = () => {
-      set(false); c.toast('Haz clic en el mapa: todos verán ese punto');
+      set(false); c.toast(t('Haz clic en el mapa: todos verán ese punto'));
       c.onMapClick((x, y) => c.send({ t: 'focusAll', x, y }));
     };
   }
@@ -79,8 +80,8 @@ export function mountDraw(bar: HTMLElement, c: DrawCtx) {
     onDraw(d: Drawing, persist: boolean) {
       if (staff && q<HTMLInputElement>('dr-fog').checked) { // niebla a mano alzada: el trazo pasa a región 'fog' simplificada (el grosor es el del pincel)
         const sc = c.state().scene, poly = brushPolygon(d.points, +q<HTMLSelectElement>('dr-w').value * 5)?.map(p => ({ x: Math.min(sc.width, Math.max(0, p.x)), y: Math.min(sc.height, Math.max(0, p.y)) }));
-        if (!poly) return c.toast('Trazo demasiado corto para crear niebla');
-        c.send({ t: 'upsert', kind: 'region', item: { id: rid(), name: 'Niebla', kind: 'fog', hidden: false, points: poly, ...(d.level && { level: d.level }) } });
+        if (!poly) return c.toast(t('Trazo demasiado corto para crear niebla'));
+        c.send({ t: 'upsert', kind: 'region', item: { id: rid(), name: t('Niebla'), kind: 'fog', hidden: false, points: poly, ...(d.level && { level: d.level }) } });
         return;
       }
       c.send({ t: 'draw', item: { ...d, id: d.id || rid(), by: d.by || c.me }, persist: persist && canPersist() }); },
@@ -110,7 +111,7 @@ export function bindUndo(c: { send(m: C2S): void; state(): ClientState; toast(ms
   document.addEventListener('keydown', e => {
     if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'z' || typing(e.target)) return;
     e.preventDefault();
-    if (c.state().canUndo) c.send({ t: 'undo' }); else c.toast('No hay nada que deshacer');
+    if (c.state().canUndo) c.send({ t: 'undo' }); else c.toast(t('No hay nada que deshacer'));
   });
 }
 
@@ -122,28 +123,28 @@ async function square256(f: File): Promise<Blob> {
   const cv = document.createElement('canvas'); cv.width = cv.height = 256;
   cv.getContext('2d')!.drawImage(bmp, (bmp.width - s) / 2, (bmp.height - s) / 2, s, s, 0, 0, 256, 256); // recorte central
   bmp.close();
-  return new Promise((ok, ko) => cv.toBlob(b => b ? ok(b) : ko(new Error('No se pudo procesar la imagen')), 'image/webp', 0.9));
+  return new Promise((ok, ko) => cv.toBlob(b => b ? ok(b) : ko(new Error(t('No se pudo procesar la imagen'))), 'image/webp', 0.9));
 }
 
 /** Botón «Cambiar imagen» (para la hoja). Devuelve el elemento a insertar. */
 export function tokenImagePicker(token: Token, c: { send(m: C2S): void; code: string; key(): string | null }) {
   const el = document.createElement('div'); el.className = 'ti-pick';
-  el.innerHTML = `<button type="button" class="secondary">Cambiar imagen</button><input type="file" accept="image/png,image/jpeg,image/webp" hidden><p class="det" role="status"></p>`;
+  el.innerHTML = `<button type="button" class="secondary">${t('Cambiar imagen')}</button><input type="file" accept="image/png,image/jpeg,image/webp" hidden><p class="det" role="status"></p>`;
   const [btn, inp, st] = [el.children[0] as HTMLButtonElement, el.children[1] as HTMLInputElement, el.children[2]];
   btn.onclick = () => inp.click();
   inp.onchange = async () => {
     const f = inp.files?.[0]; inp.value = ''; if (!f) return;
-    if (!IMG_TYPES.includes(f.type)) { st.textContent = 'Usa un png, jpg o webp'; return; }
-    if (f.size > 5e6) { st.textContent = 'La imagen pesa más de 5 MB'; return; }
-    st.textContent = 'Subiendo…'; btn.disabled = true;
+    if (!IMG_TYPES.includes(f.type)) { st.textContent = t('Usa un png, jpg o webp'); return; }
+    if (f.size > 5e6) { st.textContent = t('La imagen pesa más de 5 MB'); return; }
+    st.textContent = t('Subiendo…'); btn.disabled = true;
     try {
       const b = await square256(f);
       const r = await fetch('/api/assets', { method: 'POST', headers: { 'content-type': b.type, 'x-lantern-code': c.code, 'x-lantern-key': c.key() ?? '' }, body: b });
-      const t = await r.text();
-      if (!r.ok) throw new Error(t || `Error ${r.status}`);
-      let url = t.trim(); try { url = (JSON.parse(t) as { url: string }).url; } catch { /* texto plano */ }
-      if (!/^(https?:\/\/|\/)\S+$/.test(url)) throw new Error('El servidor no devolvió una URL');
-      c.send({ t: 'tokenImage', tokenId: token.id, img: url }); st.textContent = 'Imagen cambiada';
+      const txt = await r.text();
+      if (!r.ok) throw new Error(txt ? tsrv(txt) : t('Error {n}', { n: r.status }));
+      let url = txt.trim(); try { url = (JSON.parse(txt) as { url: string }).url; } catch { /* texto plano */ }
+      if (!/^(https?:\/\/|\/)\S+$/.test(url)) throw new Error(t('El servidor no devolvió una URL'));
+      c.send({ t: 'tokenImage', tokenId: token.id, img: url }); st.textContent = t('Imagen cambiada');
     } catch (e) { st.textContent = (e as Error).message; } finally { btn.disabled = false; }
   };
   return el;

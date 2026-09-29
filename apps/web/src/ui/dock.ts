@@ -1,10 +1,11 @@
 // Paneles acoplables (plan §4.9): zonas izquierda / derecha / abajo con pestañas movibles, plegado, redimensión,
 // distribución guardada por usuario y ventana aparte. Cada pestaña es #t-<id> y su panel #p-<id> (los crean table.ts y extras.ts).
+import { t } from '../i18n.ts';
 const KEY = 'lantern:dock2';
 const POP = ['reg', 'hoja', 'mesa', 'esc', 'aj', 'dia', 'biblioteca', 'encuentros', 'pantalla', 'cuenta', 'comp', 'dmx']; // comp/dmx los crea mountPopoutExtras (extras.ts)
 type Zona = 'izq' | 'der' | 'aba';
 const ZONAS: Zona[] = ['izq', 'der', 'aba'];
-const NOM: Record<Zona, string> = { izq: 'Izquierda', der: 'Derecha', aba: 'Abajo' };
+const NOM: Record<Zona, string> = { izq: t('Izquierda'), der: t('Derecha'), aba: t('Abajo') };
 type Lay = Partial<Record<Zona, string[]>> & { s?: Partial<Record<Zona, number>> };
 
 export function isPopout(): string | null {
@@ -41,13 +42,13 @@ export function mountDock(root: HTMLElement) {
   type Z = { z: Zona; el: HTMLElement; list: HTMLElement; body: HTMLElement; mv: HTMLButtonElement; pop: HTMLButtonElement };
   const Zs = {} as Record<Zona, Z>;
   const mk = (z: Zona, el: HTMLElement, list: HTMLElement, body: HTMLElement, hd: HTMLElement, fold?: HTMLElement) => {
-    el.dataset.z = z; list.setAttribute('aria-label', 'Panel ' + NOM[z].toLowerCase());
-    const mv = btn('⋮', 'Mover la pestaña activa a otra zona'), pp = btn('⧉', 'Separar en ventana', 'dock-pop');
+    el.dataset.z = z; el.dataset.drop = t('Suelta la pestaña aquí'); list.setAttribute('aria-label', t('Panel {z}', { z: NOM[z].toLowerCase() }));
+    const mv = btn('⋮', t('Mover la pestaña activa a otra zona')), pp = btn('⧉', t('Separar en ventana'), 'dock-pop');
     mv.setAttribute('aria-haspopup', 'menu');
     const grp = document.createElement('div'); grp.className = 'dock-btns'; grp.append(mv, pp);
     hd.insertBefore(grp, fold ?? null);
     const r = document.createElement('div'); r.className = 'dock-res'; r.tabIndex = 0; r.setAttribute('role', 'separator');
-    r.setAttribute('aria-label', 'Redimensionar zona ' + NOM[z].toLowerCase()); r.setAttribute('aria-orientation', z === 'aba' ? 'horizontal' : 'vertical');
+    r.setAttribute('aria-label', t('Redimensionar zona {z}', { z: NOM[z].toLowerCase() })); r.setAttribute('aria-orientation', z === 'aba' ? 'horizontal' : 'vertical');
     el.append(r);
     Zs[z] = { z, el, list, body, mv, pop: pp };
     return r;
@@ -55,7 +56,7 @@ export function mountDock(root: HTMLElement) {
   const resH = { der: mk('der', der, der.querySelector('[role=tablist]')!, der.querySelector('#cuerpo')!, head as HTMLElement, head.querySelector('#plegar')!) } as unknown as Record<Zona, HTMLElement>;
   for (const z of ['izq', 'aba'] as const) {
     const el = document.createElement('aside'); el.className = 'panel lado vacia'; el.id = 'lado-' + z;
-    el.innerHTML = '<header><div role="tablist"></div><button type="button" class="dock-fold" aria-expanded="true" aria-label="Plegar zona">▾</button></header><div class="cuerpo"></div>';
+    el.innerHTML = `<header><div role="tablist"></div><button type="button" class="dock-fold" aria-expanded="true" aria-label="${t('Plegar zona')}">▾</button></header><div class="cuerpo"></div>`;
     const hd = el.querySelector('header')!, f = el.querySelector<HTMLButtonElement>('.dock-fold')!;
     f.onclick = () => f.setAttribute('aria-expanded', String(!el.classList.toggle('plegado')));
     resH[z] = mk(z, el, el.querySelector('[role=tablist]')!, el.querySelector('.cuerpo')!, hd, f);
@@ -108,7 +109,7 @@ export function mountDock(root: HTMLElement) {
       z.el.classList.toggle('vacia', !vis.length);
       const k = cur(z);
       z.pop.disabled = !k || !POP.includes(k);
-      z.pop.title = k ? `Separar ${tabName(k)} en ventana` : 'Separar en ventana'; z.pop.setAttribute('aria-label', z.pop.title);
+      z.pop.title = k ? t('Separar {name} en ventana', { name: tabName(k) }) : t('Separar en ventana'); z.pop.setAttribute('aria-label', z.pop.title);
     }
     size(); busy = false;
   };
@@ -140,9 +141,9 @@ export function mountDock(root: HTMLElement) {
     from = anchor; menu.replaceChildren();
     const here = ZONAS.find(z => Zs[z].list.contains(root.querySelector('#t-' + id)));
     const items: [string, () => void][] = [];
-    if (!narrowQ.matches) for (const z of ZONAS) if (z !== here) items.push([`Mover ${tabName(id)} a ${NOM[z].toLowerCase()}`, () => { place(id, z); selectTab(id); commit(); }]);
-    if (POP.includes(id)) items.push([`Ventana aparte`, () => openPop(id)]);
-    items.push(['Restablecer distribución', () => { lay = {}; save(); apply(); }]);
+    if (!narrowQ.matches) for (const z of ZONAS) if (z !== here) items.push([t('Mover {name} a {zone}', { name: tabName(id), zone: NOM[z].toLowerCase() }), () => { place(id, z); selectTab(id); commit(); }]);
+    if (POP.includes(id)) items.push([t('Ventana aparte'), () => openPop(id)]);
+    items.push([t('Restablecer distribución'), () => { lay = {}; save(); apply(); }]);
     for (const [txt, fn] of items) {
       const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'menuitem'); b.textContent = txt;
       b.onclick = () => { close(false); fn(); const t = root.querySelector<HTMLElement>('#t-' + id); (t?.offsetParent ? t : anchor).focus(); };

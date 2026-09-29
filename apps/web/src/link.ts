@@ -1,3 +1,4 @@
+import { t } from './i18n.ts';
 import type { ImportedCharacter } from '@lantern/protocol';
 import type { LinkMonsterHit, LinkReq, LinkReq2, LinkReq3, LinkRes, LinkRes2, LinkRes3, LinkRoll } from '@lantern/protocol/link';
 
@@ -11,7 +12,7 @@ function ask<T extends (LinkRes | LinkRes2 | LinkRes3)['t']>(req: { t: 'ping' } 
       if (e.source !== window || d?.lantern !== 'link' || d.dir !== 'res' || d.rid !== rid) return;
       done(); ok(d as never);
     };
-    const to = setTimeout(() => { done(); ko(new Error('La extensión Lantern Link no responde.')); }, ms);
+    const to = setTimeout(() => { done(); ko(new Error(t('La extensión Lantern Link no responde.'))); }, ms);
     addEventListener('message', on);
     postMessage({ lantern: 'link', dir: 'req', rid, ...req } satisfies LinkReq | LinkReq2 | LinkReq3, location.origin);
   });

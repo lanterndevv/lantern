@@ -1,5 +1,6 @@
 // Voces de PNJ con speechSynthesis nativo (sin IA, sin coste). Desactivado por defecto.
 import { getVolume } from './audio.ts';
+import { t } from '../i18n.ts';
 
 const KEY = 'lantern:npcvoz';
 const synth: SpeechSynthesis | undefined = typeof speechSynthesis === 'undefined' ? undefined : speechSynthesis;
@@ -37,12 +38,12 @@ export function mountVoicesToggle(el: HTMLElement): void {
   const chk = document.createElement('input');
   chk.type = 'checkbox'; chk.checked = on();
   chk.onchange = () => { try { localStorage.setItem(KEY, chk.checked ? '1' : '0'); } catch { /* sin almacenamiento */ } if (!chk.checked) stopSpeaking(); };
-  lbl.append(chk, ' Leer en voz alta a los PNJ');
+  lbl.append(chk, ' ' + t('Leer en voz alta a los PNJ'));
   const hint = document.createElement('p');
   hint.className = 'det';
-  hint.textContent = 'Usa el volumen del canal «Voz» del mezclador. Esc detiene la lectura.';
+  hint.textContent = t('Usa el volumen del canal «Voz» del mezclador. Esc detiene la lectura.');
   stopBtn = document.createElement('button');
-  stopBtn.type = 'button'; stopBtn.hidden = true; stopBtn.textContent = 'Silenciar';
+  stopBtn.type = 'button'; stopBtn.hidden = true; stopBtn.textContent = t('Silenciar');
   stopBtn.onclick = () => { stopSpeaking(); stopBtn!.hidden = true; };
   el.append(lbl, hint, stopBtn);
   addEventListener('keydown', e => { if (e.key === 'Escape' && synth.speaking) { stopSpeaking(); stopBtn!.hidden = true; } });

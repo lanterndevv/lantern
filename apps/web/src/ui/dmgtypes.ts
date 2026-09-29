@@ -1,5 +1,6 @@
 // Tipos de daño: nombre, color e icono SVG de trazo (24×24) para tarjetas y números flotantes. El estilo del icono (.dmg-ic) lo pone el CSS.
 import { DAMAGE_ES } from '@lantern/srd';
+import { lang } from '../i18n.ts';
 
 const P = (d: string) => `<path d="${d}"/>`;
 export const DMG_TYPES: Record<string, { color: string; icon: string }> = {
@@ -19,7 +20,7 @@ export const DMG_TYPES: Record<string, { color: string; icon: string }> = {
 };
 const FALLBACK = '#D3C3A6'; // desconocidos
 
-export const dmgName = (t?: string) => (t && DAMAGE_ES[t]) || t || '';
+export const dmgName = (t?: string) => (t && lang !== 'en' && DAMAGE_ES[t]) || t || '';
 export const dmgColor = (t?: string) => (t && DMG_TYPES[t]?.color) || FALLBACK;
 /** SVG completo del icono con el trazo en `color` (para Pixi: Graphics.svg no entiende currentColor). */
 export const dmgSvg = (t: string | undefined, color = 'currentColor') => {

@@ -2,6 +2,7 @@ import type { C2S, Member, Token } from '@lantern/protocol';
 import { CONDITIONS } from '@lantern/rules';
 import { pickMembers } from './perms.ts';
 import './mobile.css';
+import { t } from '../i18n.ts';
 
 export type RadialItem = { id: string; label: string; icon: string; disabled?: boolean; run(): void };
 
@@ -38,7 +39,7 @@ export function openRadial(clientX: number, clientY: number, items: RadialItem[]
   back.className = 'rad-fondo';
   const menu = document.createElement('div');
   menu.className = 'rad'; menu.setAttribute('role', 'menu');
-  menu.setAttribute('aria-label', title ? `Acciones de ${title}` : 'Acciones');
+  menu.setAttribute('aria-label', title ? t('Acciones de {name}', { name: title }) : t('Acciones'));
   menu.style.cssText = `left:${cx}px;top:${cy}px`;
   const centro = document.createElement('div');
   centro.className = 'rad-centro'; centro.setAttribute('aria-hidden', 'true');
@@ -123,48 +124,48 @@ export type RadialCtx = {
   grid?: number;                                  // px por casilla (por defecto 70), para el radio de la luz
 };
 
-export function tokenRadialItems(t: Token, c: RadialCtx): RadialItem[] {
-  const dm = c.role === 'dm', own = t.owners.includes(c.memberId);
-  const acts = t.actions ?? [];
+export function tokenRadialItems(tk: Token, c: RadialCtx): RadialItem[] {
+  const dm = c.role === 'dm', own = tk.owners.includes(c.memberId);
+  const acts = tk.actions ?? [];
   const atk = acts.find(a => a.kind === 'attack');
   // ponytail: «conjuro» = acción con slot definido (0 = truco) o que no es ataque; sin campo explícito de conjuro en Action
   const spells = acts.filter(a => a.slot != null || a.kind !== 'attack');
-  const say = (verb: string) => () => c.send({ t: 'chat', text: `${t.name} ${verb}.` });
-  const turn = (op: 'dodge' | 'dash' | 'disengage' | 'hide' | 'useObject') => c.send({ t: 'turnAction', tokenId: t.id, op });
-  const luz = `luz-${t.id}`, lit = c.lit?.(t.id) ?? false, g = c.grid ?? 70;
+  const say = (verb: string) => () => c.send({ t: 'chat', text: `${tk.name} ${verb}.` });
+  const turn = (op: 'dodge' | 'dash' | 'disengage' | 'hide' | 'useObject') => c.send({ t: 'turnAction', tokenId: tk.id, op });
+  const luz = `luz-${tk.id}`, lit = c.lit?.(tk.id) ?? false, g = c.grid ?? 70;
   const it: RadialItem[] = [
-    { id: 'attack', label: 'Atacar', icon: 'attack', disabled: !atk, run: () => atk && c.arm(t.id, atk.id) },
-    { id: 'spell', label: 'Conjuro', icon: 'spell', disabled: !spells.length,
+    { id: 'attack', label: t('Atacar'), icon: 'attack', disabled: !atk, run: () => atk && c.arm(tk.id, atk.id) },
+    { id: 'spell', label: t('Conjuro'), icon: 'spell', disabled: !spells.length,
       run: () => openRadial(last.x, last.y, spells.map(a => ({
-        id: a.id, label: a.name, icon: 'spell', run: () => c.arm(t.id, a.id),
-      })), t.name) },
-    { id: 'actions', label: 'Acción…', icon: 'dodge', disabled: !(dm || own), run: () => openRadial(last.x, last.y, [
-      { id: 'dodge', label: 'Esquivar', icon: 'dodge', run: () => turn('dodge') },
-      { id: 'dash', label: 'Correr', icon: 'disengage', run: () => turn('dash') },
-      { id: 'disengage', label: 'Destrabarse', icon: 'disengage', run: () => turn('disengage') },
-      { id: 'hide', label: 'Esconderse', icon: 'hide', run: () => turn('hide') },
-      { id: 'object', label: 'Usar objeto', icon: 'notes', run: () => turn('useObject') },
-      { id: 'help', label: 'Ayudar', icon: 'help', run: say('ayuda (Ayudar)') },
-    ], t.name) },
-    { id: 'conds', label: 'Condiciones…', icon: 'status', disabled: !(dm || own), run: () => openRadial(last.x, last.y, Object.entries(CONDITIONS).filter(([k]) => k !== 'dead').map(([k, n]) => {
-      const on = t.conditions.includes(k);
-      return { id: k, label: `${on ? '✓ ' : ''}${n}`, icon: on ? 'trash' : 'status', run: () => c.send({ t: 'condition', tokenId: t.id, condition: k, on: !on }) };
-    }), t.name) },
-    { id: 'status', label: 'Estado', icon: 'status', run: () => c.openSheet(t.id) },
+        id: a.id, label: a.name, icon: 'spell', run: () => c.arm(tk.id, a.id),
+      })), tk.name) },
+    { id: 'actions', label: t('Acción…'), icon: 'dodge', disabled: !(dm || own), run: () => openRadial(last.x, last.y, [
+      { id: 'dodge', label: t('Esquivar'), icon: 'dodge', run: () => turn('dodge') },
+      { id: 'dash', label: t('Correr'), icon: 'disengage', run: () => turn('dash') },
+      { id: 'disengage', label: t('Destrabarse'), icon: 'disengage', run: () => turn('disengage') },
+      { id: 'hide', label: t('Esconderse'), icon: 'hide', run: () => turn('hide') },
+      { id: 'object', label: t('Usar objeto'), icon: 'notes', run: () => turn('useObject') },
+      { id: 'help', label: t('Ayudar'), icon: 'help', run: say(t('ayuda (Ayudar)')) },
+    ], tk.name) },
+    { id: 'conds', label: t('Condiciones…'), icon: 'status', disabled: !(dm || own), run: () => openRadial(last.x, last.y, Object.entries(CONDITIONS).filter(([k]) => k !== 'dead').map(([k, n]) => {
+      const on = tk.conditions.includes(k);
+      return { id: k, label: `${on ? '✓ ' : ''}${t(n)}`, icon: on ? 'trash' : 'status', run: () => c.send({ t: 'condition', tokenId: tk.id, condition: k, on: !on }) };
+    }), tk.name) },
+    { id: 'status', label: t('Estado'), icon: 'status', run: () => c.openSheet(tk.id) },
   ];
-  if (own || dm) it.push({ id: 'light', label: lit ? 'Apagar luz' : 'Luz', icon: 'light', run: () => lit
+  if (own || dm) it.push({ id: 'light', label: lit ? t('Apagar luz') : t('Luz'), icon: 'light', run: () => lit
     ? c.send({ t: 'remove', kind: 'light', id: luz })
     // ponytail: una luz fija en su posición actual, no sigue al token
-    : c.send({ t: 'upsert', kind: 'light', item: { id: luz, x: t.x, y: t.y, bright: 4 * g, dim: 8 * g, color: '#ffb85c', anim: 'torch' } }) });
-  it.push({ id: 'ping', label: 'Ping', icon: 'ping', run: () => c.ping(t.x, t.y) });
+    : c.send({ t: 'upsert', kind: 'light', item: { id: luz, x: tk.x, y: tk.y, bright: 4 * g, dim: 8 * g, color: '#ffb85c', anim: 'torch' } }) });
+  it.push({ id: 'ping', label: 'Ping', icon: 'ping', run: () => c.ping(tk.x, tk.y) });
   if (dm) it.push(
-    { id: 'hide', label: t.hidden ? 'Mostrar' : 'Ocultar', icon: t.hidden ? 'show' : 'hide', run: () => c.send({ t: 'upsert', kind: 'token', item: { ...t, hidden: !t.hidden } }) },
-    { id: 'owners', label: 'Controlan…', icon: 'status', run: () => pickMembers(`Quién controla a ${t.name}`, 'Pueden moverlo y actuar con él.', c.members?.() ?? [], t.owners, ids => c.send({ t: 'tokenOwners', tokenId: t.id, owners: ids })) },
-    { id: 'notes', label: 'Notas', icon: 'notes', run: () => {
-      const v = prompt(`Notas de ${t.name} (solo DM)`, t.notes ?? ''); // nativo y accesible
-      if (v != null) c.send({ t: 'upsert', kind: 'token', item: { ...t, notes: v } });
+    { id: 'hide', label: tk.hidden ? t('Mostrar') : t('Ocultar'), icon: tk.hidden ? 'show' : 'hide', run: () => c.send({ t: 'upsert', kind: 'token', item: { ...tk, hidden: !tk.hidden } }) },
+    { id: 'owners', label: t('Controlan…'), icon: 'status', run: () => pickMembers(t('Quién controla a {name}', { name: tk.name }), t('Pueden moverlo y actuar con él.'), c.members?.() ?? [], tk.owners, ids => c.send({ t: 'tokenOwners', tokenId: tk.id, owners: ids })) },
+    { id: 'notes', label: t('Notas'), icon: 'notes', run: () => {
+      const v = prompt(t('Notas de {name} (solo DM)', { name: tk.name }), tk.notes ?? ''); // nativo y accesible
+      if (v != null) c.send({ t: 'upsert', kind: 'token', item: { ...tk, notes: v } });
     } },
-    { id: 'del', label: 'Borrar', icon: 'trash', run: () => { if (confirm(`¿Borrar a ${t.name}?`)) c.send({ t: 'remove', kind: 'token', id: t.id }); } },
+    { id: 'del', label: t('Borrar'), icon: 'trash', run: () => { if (confirm(t('¿Borrar a {name}?', { name: tk.name }))) c.send({ t: 'remove', kind: 'token', id: tk.id }); } },
   );
   return it;
 }

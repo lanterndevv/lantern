@@ -1,4 +1,5 @@
 import type { C2S, ClientState, LibraryItem, Role } from '@lantern/protocol';
+import { lang, t, tsrv } from '../i18n.ts';
 import { pickMembers } from './perms.ts';
 import { transitionPicker } from './transiciones.ts';
 
@@ -13,29 +14,29 @@ export type UiCtx = {
 };
 
 const esc = (s: string) => s.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
-const NOFOLDER = 'Sin carpeta';
+const NOFOLDER = t('Sin carpeta');
 
 export function mountLibrary(el: HTMLElement, ctx: UiCtx) {
   const staff = ctx.role === 'dm' || ctx.role === 'assistant';
-  if (!staff) { el.textContent = 'Solo el DM y los asistentes ven la biblioteca.'; return { update() {} }; }
+  if (!staff) { el.textContent = t('Solo el DM y los asistentes ven la biblioteca.'); return { update() {} }; }
   let items: LibraryItem[] = ctx.state().library ?? [];
   let watch: { ids: Set<string>; cb(it: LibraryItem): void } | null = null;
 
   el.classList.add('bib');
   el.innerHTML = `
     <div class="bib-barra">
-      <input type="search" id="bib-q" placeholder="Buscar escena" aria-label="Buscar escena">
-      <button type="button" class="primary" id="bib-nueva">Nueva escena</button>
+      <input type="search" id="bib-q" placeholder="${t('Buscar escena')}" aria-label="${t('Buscar escena')}">
+      <button type="button" class="primary" id="bib-nueva">${t('Nueva escena')}</button>
     </div>
     <div class="bib-barra">
-      <details class="bib-menu"><summary>Importar</summary>
+      <details class="bib-menu"><summary>${t('Importar')}</summary>
         <div class="bib-opts">
-          <label class="bib-op">Universal VTT (.dd2vtt / .uvtt)<input type="file" id="bib-uvtt" accept=".dd2vtt,.uvtt,.json"></label>
-          <label class="bib-op">Imagen o vídeo<input type="file" id="bib-img" accept="image/*,video/*"></label>
-          <label class="bib-op">Campaña de Lantern (.json)<input type="file" id="bib-camp" accept=".json,application/json"></label>
+          <label class="bib-op">${t('Universal VTT (.dd2vtt / .uvtt)')}<input type="file" id="bib-uvtt" accept=".dd2vtt,.uvtt,.json"></label>
+          <label class="bib-op">${t('Imagen o vídeo')}<input type="file" id="bib-img" accept="image/*,video/*"></label>
+          <label class="bib-op">${t('Campaña de Lantern (.json)')}<input type="file" id="bib-camp" accept=".json,application/json"></label>
         </div>
       </details>
-      <button type="button" id="bib-exp">Exportar campaña</button>
+      <button type="button" id="bib-exp">${t('Exportar campaña')}</button>
     </div>
     <div id="bib-tx"></div>
     <p class="det" id="bib-msg" role="status"></p>
@@ -48,7 +49,7 @@ export function mountLibrary(el: HTMLElement, ctx: UiCtx) {
   const hdr = (extra: Record<string, string> = {}) => ({ 'x-lantern-code': ctx.code, 'x-lantern-key': ctx.key() ?? '', ...extra });
   async function api(url: string, init: RequestInit): Promise<Response> {
     const r = await fetch(url, init);
-    if (!r.ok) { ctx.toast(`Error ${r.status}: ${(await r.text().catch(() => '')).slice(0, 120) || r.statusText}`); throw new Error(String(r.status)); }
+    if (!r.ok) { ctx.toast(t('Error {n}: {e}', { n: r.status, e: tsrv((await r.text().catch(() => '')).slice(0, 120)) || r.statusText })); throw new Error(String(r.status)); }
     return r;
   }
   // Ejecuta cb con la primera escena de la biblioteca que aún no existía.
@@ -62,19 +63,19 @@ export function mountLibrary(el: HTMLElement, ctx: UiCtx) {
       const k = it.folder || NOFOLDER;
       (groups.get(k) ?? groups.set(k, []).get(k)!).push(it);
     }
-    q('bib-lista').innerHTML = [...groups].sort(([a], [b]) => a === NOFOLDER ? -1 : b === NOFOLDER ? 1 : a.localeCompare(b, 'es')).map(([k, list], n) => `
+    q('bib-lista').innerHTML = [...groups].sort(([a], [b]) => a === NOFOLDER ? -1 : b === NOFOLDER ? 1 : a.localeCompare(b, lang)).map(([k, list], n) => `
       <section aria-labelledby="bib-f${n}"><h3 id="bib-f${n}">${esc(k)}</h3><ul class="bib-ul">${list.map(it => `
         <li class="${it.active ? 'activa' : ''}" data-id="${esc(it.id)}">
-          <div class="bib-cab"><strong>${esc(it.name)}</strong>${it.active ? '<span class="chip en-juego">EN JUEGO</span>' : ''}</div>
-          <div class="det">${it.tokens} tokens · ${it.walls} muros</div>
+          <div class="bib-cab"><strong>${esc(it.name)}</strong>${it.active ? `<span class="chip en-juego">${t('EN JUEGO')}</span>` : ''}</div>
+          <div class="det">${t('{a} tokens · {b} muros', { a: it.tokens, b: it.walls })}</div>
           <div class="bib-acc">
-            ${it.active ? '' : `<button type="button" class="primary" data-a="act" aria-label="Activar ${esc(it.name)}">Activar</button><button type="button" data-a="prep" aria-label="Preparar ${esc(it.name)}" title="Descarga el mapa en todos los clientes para que el cambio sea instantáneo">Preparar</button>`}
-            <button type="button" data-a="dup" aria-label="Duplicar ${esc(it.name)}">Duplicar</button>
-            <button type="button" data-a="ren" aria-label="Renombrar ${esc(it.name)}">Renombrar</button>
-            <button type="button" data-a="mov" aria-label="Mover ${esc(it.name)} a carpeta">Mover a carpeta</button>
-            <button type="button" data-a="vis" aria-label="Quién ve ${esc(it.name)}">Visible: ${it.visibleTo ? `${it.visibleTo.length} jugador(es)` : 'todos'}</button>
-            ${it.active ? '' : `<button type="button" class="secondary" data-a="del" aria-label="Borrar ${esc(it.name)}">Borrar</button>`}
-          </div></li>`).join('')}</ul></section>`).join('') || '<p class="det">No hay escenas.</p>';
+            ${it.active ? '' : `<button type="button" class="primary" data-a="act" aria-label="${t('Activar {n}', { n: esc(it.name) })}">${t('Activar')}</button><button type="button" data-a="prep" aria-label="${t('Preparar {n}', { n: esc(it.name) })}" title="${t('Descarga el mapa en todos los clientes para que el cambio sea instantáneo')}">${t('Preparar')}</button>`}
+            <button type="button" data-a="dup" aria-label="${t('Duplicar {n}', { n: esc(it.name) })}">${t('Duplicar')}</button>
+            <button type="button" data-a="ren" aria-label="${t('Renombrar {n}', { n: esc(it.name) })}">${t('Renombrar')}</button>
+            <button type="button" data-a="mov" aria-label="${t('Mover {n} a carpeta', { n: esc(it.name) })}">${t('Mover a carpeta')}</button>
+            <button type="button" data-a="vis" aria-label="${t('Quién ve {n}', { n: esc(it.name) })}">${t('Visible: {v}', { v: it.visibleTo ? t('{n} jugador(es)', { n: it.visibleTo.length }) : t('todos') })}</button>
+            ${it.active ? '' : `<button type="button" class="secondary" data-a="del" aria-label="${t('Borrar {n}', { n: esc(it.name) })}">${t('Borrar')}</button>`}
+          </div></li>`).join('')}</ul></section>`).join('') || `<p class="det">${t('No hay escenas.')}</p>`;
   }
 
   q('bib-q').addEventListener('input', render);
@@ -84,15 +85,15 @@ export function mountLibrary(el: HTMLElement, ctx: UiCtx) {
     if (!b || !it) return;
     const a = b.dataset.a;
     if (a === 'act') { const transition = tx.get(); ctx.send({ t: 'sceneActivate', id: it.id, ...(transition && { transition }) }); }
-    else if (a === 'prep') { ctx.send({ t: 'scenePrepare', id: it.id }); ctx.toast('Precargando la escena en todos los clientes'); }
-    else if (a === 'dup') ctx.send({ t: 'sceneNew', name: `${it.name} (copia)`, from: it.id });
-    else if (a === 'ren') { const n = prompt('Nuevo nombre', it.name)?.trim(); if (n) ctx.send({ t: 'sceneUpdate', id: it.id, name: n }); }
-    else if (a === 'mov') { const n = prompt('Carpeta (vacía = sin carpeta)', it.folder ?? ''); if (n !== null) ctx.send({ t: 'sceneUpdate', id: it.id, folder: n.trim() }); }
-    else if (a === 'vis') pickMembers(`Quién ve «${it.name}»`, 'Sin marcar a nadie la ven todos. Los demás verán un mapa en blanco cuando esté activa.', ctx.state().members, it.visibleTo ?? [], ids => ctx.send({ t: 'sceneUpdate', id: it.id, visibleTo: ids.length ? ids : null }));
-    else if (a === 'del' && confirm(`¿Borrar la escena «${it.name}»? No se puede deshacer.`)) ctx.send({ t: 'sceneDelete', id: it.id });
+    else if (a === 'prep') { ctx.send({ t: 'scenePrepare', id: it.id }); ctx.toast(t('Precargando la escena en todos los clientes')); }
+    else if (a === 'dup') ctx.send({ t: 'sceneNew', name: t('{n} (copia)', { n: it.name }), from: it.id });
+    else if (a === 'ren') { const n = prompt(t('Nuevo nombre'), it.name)?.trim(); if (n) ctx.send({ t: 'sceneUpdate', id: it.id, name: n }); }
+    else if (a === 'mov') { const n = prompt(t('Carpeta (vacía = sin carpeta)'), it.folder ?? ''); if (n !== null) ctx.send({ t: 'sceneUpdate', id: it.id, folder: n.trim() }); }
+    else if (a === 'vis') pickMembers(t('Quién ve «{n}»', { n: it.name }), t('Sin marcar a nadie la ven todos. Los demás verán un mapa en blanco cuando esté activa.'), ctx.state().members, it.visibleTo ?? [], ids => ctx.send({ t: 'sceneUpdate', id: it.id, visibleTo: ids.length ? ids : null }));
+    else if (a === 'del' && confirm(t('¿Borrar la escena «{n}»? No se puede deshacer.', { n: it.name }))) ctx.send({ t: 'sceneDelete', id: it.id });
   });
   q('bib-nueva').addEventListener('click', () => {
-    const n = prompt('Nombre de la escena', 'Escena nueva')?.trim();
+    const n = prompt(t('Nombre de la escena'), t('Escena nueva'))?.trim();
     if (n) ctx.send({ t: 'sceneNew', name: n });
   });
 
@@ -105,17 +106,17 @@ export function mountLibrary(el: HTMLElement, ctx: UiCtx) {
 
   pick('bib-uvtt', async f => {
     await api('/api/uvtt', { method: 'POST', headers: hdr({ 'content-type': 'application/json' }), body: await f.text() });
-    ctx.toast('Escena importada');
-    whenNew(it => { if (confirm(`Escena importada: «${it.name}». ¿Activarla ahora?`)) ctx.send({ t: 'sceneActivate', id: it.id }); });
+    ctx.toast(t('Escena importada'));
+    whenNew(it => { if (confirm(t('Escena importada: «{n}». ¿Activarla ahora?', { n: it.name }))) ctx.send({ t: 'sceneActivate', id: it.id }); });
   });
 
   pick('bib-img', async f => {
     const type = f.type || 'application/octet-stream';
     const r = await api('/api/assets', { method: 'POST', headers: hdr({ 'content-type': type }), body: f });
-    const t = await r.text();
-    let url = t.trim();
-    try { url = (JSON.parse(t) as { url: string }).url; } catch { /* texto plano */ }
-    if (!url) throw new Error('El servidor no devolvió una URL');
+    const txt = await r.text();
+    let url = txt.trim();
+    try { url = (JSON.parse(txt) as { url: string }).url; } catch { /* texto plano */ }
+    if (!url) throw new Error(t('El servidor no devolvió una URL'));
     const dim = await new Promise<{ w: number; h: number } | null>(res => {
       const local = URL.createObjectURL(f);
       const done = (v: { w: number; h: number } | null) => { URL.revokeObjectURL(local); res(v); };
@@ -126,12 +127,12 @@ export function mountLibrary(el: HTMLElement, ctx: UiCtx) {
         const i = new Image(); i.onload = () => done({ w: i.naturalWidth, h: i.naturalHeight }); i.onerror = () => done(null); i.src = local;
       }
     });
-    const name = f.name.replace(/\.[^.]+$/, '').slice(0, 60) || 'Mapa';
+    const name = f.name.replace(/\.[^.]+$/, '').slice(0, 60) || t('Mapa');
     whenNew(it => {
       ctx.send({ t: 'sceneActivate', id: it.id });
       ctx.send({ t: 'scene', patch: { background: url, ...(dim && dim.w > 0 ? { width: dim.w, height: dim.h } : {}) } });
       if (ctx.setTool) {
-        msg('<button type="button" id="bib-cal" class="primary">Calibrar cuadrícula</button>');
+        msg(`<button type="button" id="bib-cal" class="primary">${t('Calibrar cuadrícula')}</button>`);
         q('bib-cal').addEventListener('click', () => { ctx.setTool!('grid'); msg(''); });
       }
     });
@@ -141,7 +142,7 @@ export function mountLibrary(el: HTMLElement, ctx: UiCtx) {
   pick('bib-camp', async f => {
     const r = await api('/api/import', { method: 'POST', headers: hdr({ 'content-type': 'application/json' }), body: await f.text() });
     const j = await r.json() as { code: string; key?: string };
-    msg(`Campaña importada. Código de la mesa nueva: <strong class="mono">${esc(j.code)}</strong> <button type="button" id="bib-ir" class="primary">Ir a la mesa</button>`);
+    msg(`${t('Campaña importada. Código de la mesa nueva:')} <strong class="mono">${esc(j.code)}</strong> <button type="button" id="bib-ir" class="primary">${t('Ir a la mesa')}</button>`);
     q('bib-ir').addEventListener('click', () => {
       if (j.key) try { localStorage.setItem(`lantern:key:${j.code}`, j.key); } catch { /* sin almacenamiento */ }
       location.href = `?code=${encodeURIComponent(j.code)}`;

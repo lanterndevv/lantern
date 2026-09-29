@@ -1,4 +1,5 @@
 // Reloj del mundo junto al nombre de la escena + escena al aire libre + antorcha.
+import { t } from '../i18n.ts';
 import type { C2S, ClientState, Id, Token } from '@lantern/protocol';
 
 type Ctx = { send(m: C2S): void; state(): ClientState; role: string };
@@ -12,11 +13,11 @@ export const clockText = (m: number) => {
 export function mountClock(el: HTMLElement, c: Ctx) {
   const dm = c.role === 'dm';
   el.classList.add('rl');
-  el.innerHTML = `<span class="rl-t" role="timer" aria-label="Reloj del mundo"><span class="rl-i" aria-hidden="true"></span> <span class="rl-x"></span></span>` + (dm ? `
-    <span class="rl-b"><button type="button" data-m="10">+10 min</button><button type="button" data-m="60">+1 h</button><button type="button" data-m="480" title="Descanso largo">+8 h<span class="sr"> (descanso largo)</span></button>
-    <button type="button" data-m="?" aria-expanded="false">Avanzar…</button>
-    <form class="rl-f" hidden><label>Minutos<input type="number" step="1" inputmode="numeric" required aria-describedby="rl-h"></label><small id="rl-h" class="det">Negativo = retroceder</small><button type="submit">Avanzar</button></form>
-    <label class="chk"><input type="checkbox" class="rl-o" role="switch"> Escena al aire libre</label></span>` : '');
+  el.innerHTML = `<span class="rl-t" role="timer" aria-label="${t('Reloj del mundo')}"><span class="rl-i" aria-hidden="true"></span> <span class="rl-x"></span></span>` + (dm ? `
+    <span class="rl-b"><button type="button" data-m="10">${t('+10 min')}</button><button type="button" data-m="60">${t('+1 h')}</button><button type="button" data-m="480" title="${t('Descanso largo')}">${t('+8 h')}<span class="sr"> (${t('descanso largo')})</span></button>
+    <button type="button" data-m="?" aria-expanded="false">${t('Avanzar…')}</button>
+    <form class="rl-f" hidden><label>${t('Minutos')}<input type="number" step="1" inputmode="numeric" required aria-describedby="rl-h"></label><small id="rl-h" class="det">${t('Negativo = retroceder')}</small><button type="submit">${t('Avanzar')}</button></form>
+    <label class="chk"><input type="checkbox" class="rl-o" role="switch"> ${t('Escena al aire libre')}</label></span>` : '');
   const x = el.querySelector('.rl-x')!, ic = el.querySelector('.rl-i')!;
   if (dm) {
     const form = el.querySelector<HTMLFormElement>('.rl-f')!, more = el.querySelector<HTMLElement>('[data-m="?"]')!;
@@ -31,9 +32,9 @@ export function mountClock(el: HTMLElement, c: Ctx) {
   }
   return {
     update(s: ClientState) {
-      const t = clockText(s.clock);
-      x.textContent = `Día ${t.day} · ${t.time}`; ic.textContent = t.sun ? '☀' : '☾';
-      ic.setAttribute('data-sun', String(t.sun));
+      const ck = clockText(s.clock);
+      x.textContent = t('Día {d} · {h}', { d: ck.day, h: ck.time }); ic.textContent = ck.sun ? '☀' : '☾';
+      ic.setAttribute('data-sun', String(ck.sun));
       const o = el.querySelector<HTMLInputElement>('.rl-o'); if (o) o.checked = !!s.scene.outdoor;
     },
   };
@@ -43,13 +44,13 @@ export function mountClock(el: HTMLElement, c: Ctx) {
  * «Encender antorcha (1 h)». Solo DM: upsert light es del DM en el servidor.
  * Para jugadores haría falta un C2S propio (p. ej. { t: 'torch'; tokenId }) validado por dueño.
  */
-export function torchButton(t: Token, c: Ctx): HTMLButtonElement | null {
+export function torchButton(tk: Token, c: Ctx): HTMLButtonElement | null {
   if (c.role !== 'dm') return null;
   const b = document.createElement('button');
-  b.type = 'button'; b.textContent = 'Encender antorcha (1 h)';
+  b.type = 'button'; b.textContent = t('Encender antorcha (1 h)');
   b.onclick = () => {
     const s = c.state(), g = s.scene.grid, px = (ft: number) => ft / g.feet * g.size;
-    c.send({ t: 'upsert', kind: 'light', item: { id: `luz-${t.id}` as Id, x: t.x, y: t.y, bright: px(TORCH.bright), dim: px(TORCH.dim), color: '#ffb85c', anim: 'torch', follow: t.id, burnUntil: s.clock + 60, ...(t.level ? { level: t.level } : {}) } });
+    c.send({ t: 'upsert', kind: 'light', item: { id: `luz-${tk.id}` as Id, x: tk.x, y: tk.y, bright: px(TORCH.bright), dim: px(TORCH.dim), color: '#ffb85c', anim: 'torch', follow: tk.id, burnUntil: s.clock + 60, ...(tk.level ? { level: tk.level } : {}) } });
   };
   return b;
 }

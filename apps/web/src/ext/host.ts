@@ -1,15 +1,16 @@
+import { t } from '../i18n.ts';
 import type { C2S, ClientState, ExtensionManifest, ExtensionPermission, Id, Role } from '@lantern/protocol';
 import type { RadialItem } from '../ui/radial.ts';
 
 export type ExtCtx = { state(): ClientState; send(m: C2S): void; role: Role; memberId: Id };
 
 const PERMS: Record<ExtensionPermission, string> = {
-  state: 'Leer el estado de la escena (tokens visibles para ti, ronda y turno)',
-  chat: 'Escribir en el chat como tú',
-  roll: 'Tirar dados como tú',
-  contextMenu: 'Añadir entradas al menú radial de los tokens',
-  panel: 'Cambiar la altura de su propio panel',
-  tokens: 'Mover tokens (solo los que tú podrías mover)',
+  state: t('Leer el estado de la escena (tokens visibles para ti, ronda y turno)'),
+  chat: t('Escribir en el chat como tú'),
+  roll: t('Tirar dados como tú'),
+  contextMenu: t('Añadir entradas al menú radial de los tokens'),
+  panel: t('Cambiar la altura de su propio panel'),
+  tokens: t('Mover tokens (solo los que tú podrías mover)'),
 };
 const RATE = 20;   // llamadas por segundo y extensión
 const MAX_MENU = 10;
@@ -105,7 +106,7 @@ export function mountExtensions(container: HTMLElement, ctx: ExtCtx) {
     frame.className = 'ext-frame';
     frame.setAttribute('sandbox', 'allow-scripts allow-forms'); // SIN allow-same-origin: origen opaco, sin cookies ni storage de la mesa
     frame.setAttribute('referrerpolicy', 'no-referrer');
-    frame.title = `Extensión ${m.name}`;
+    frame.title = t('Extensión {name}', { name: m.name });
     frame.src = m.url;
     box.append(sum, frame); container.append(box);
     exts.set(m.id, { key: JSON.stringify(m), m, box, frame, ready: false, sub: false, menu: [], calls: [] });
@@ -130,41 +131,41 @@ export function mountExtensions(container: HTMLElement, ctx: ExtCtx) {
 export function openInstaller(ctx: ExtCtx): void {
   if (ctx.role !== 'dm') return;
   const dlg = document.createElement('dialog'); dlg.className = 'panel ext-inst';
-  dlg.setAttribute('aria-label', 'Extensiones');
+  dlg.setAttribute('aria-label', t('Extensiones'));
   const cur = ctx.state().extensions;
-  dlg.innerHTML = `<h2>Extensiones</h2><ul class="ext-lista"></ul>
-    <form><label>URL del manifiesto (JSON)<input name="u" type="url" required placeholder="http://localhost:5174/manifest.json"></label><button type="submit">Ver</button></form>
-    <div class="ext-prev" aria-live="polite"></div><p class="err" role="alert"></p><button type="button" class="ext-cerrar">Cerrar</button>`;
+  dlg.innerHTML = `<h2>${t('Extensiones')}</h2><ul class="ext-lista"></ul>
+    <form><label>${t('URL del manifiesto (JSON)')}<input name="u" type="url" required placeholder="http://localhost:5174/manifest.json"></label><button type="submit">${t('Ver')}</button></form>
+    <div class="ext-prev" aria-live="polite"></div><p class="err" role="alert"></p><button type="button" class="ext-cerrar">${t('Cerrar')}</button>`;
   const q = <T extends Element>(s: string) => dlg.querySelector<T>(s)!;
   const err = q<HTMLElement>('.err'), prev = q<HTMLElement>('.ext-prev'), ul = q<HTMLElement>('.ext-lista');
   cur.forEach(m => {
     const li = document.createElement('li'); li.textContent = `${m.name} ${m.version} `;
-    const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Quitar';
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = t('Quitar');
     b.onclick = () => { ctx.send({ t: 'extRemove', id: m.id }); li.remove(); };
     li.append(b); ul.append(li);
   });
-  if (!cur.length) ul.innerHTML = '<li class="sub">Ninguna instalada.</li>';
+  if (!cur.length) ul.innerHTML = '<li class="sub">' + t('Ninguna instalada.') + '</li>';
   q<HTMLButtonElement>('.ext-cerrar').onclick = () => dlg.close();
   dlg.addEventListener('close', () => dlg.remove());
   q<HTMLFormElement>('form').onsubmit = async ev => {
     ev.preventDefault(); err.textContent = ''; prev.replaceChildren();
     try {
       const u = new URL(q<HTMLInputElement>('input').value);
-      if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error('URL no válida');
+      if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error(t('URL no válida'));
       const r = await fetch(u, { credentials: 'omit' });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const m = await r.json() as ExtensionManifest;
       const perms = Array.isArray(m.permissions) ? m.permissions : [];
       if (!/^[a-z0-9-]{3,40}$/.test(String(m.id)) || typeof m.name !== 'string' || typeof m.version !== 'string' || !urlOk(String(m.url)) || perms.some(p => !(p in PERMS)))
-        throw new Error('Manifiesto inválido (id, nombre, versión, url https/localhost o permisos desconocidos)');
-      const t = (s: string, txt: string, tag = 'p') => { const n = document.createElement(tag); n.className = s; n.textContent = txt; return n; };
+        throw new Error(t('Manifiesto inválido (id, nombre, versión, url https/localhost o permisos desconocidos)'));
+      const el = (s: string, txt: string, tag = 'p') => { const n = document.createElement(tag); n.className = s; n.textContent = txt; return n; };
       const lst = document.createElement('ul');
-      perms.forEach(p => lst.append(t('', `${p}: ${PERMS[p]}`, 'li')));
-      if (!perms.length) lst.append(t('', 'No pide ningún permiso', 'li'));
-      const ok = document.createElement('button'); ok.type = 'button'; ok.className = 'primary'; ok.textContent = 'Instalar';
+      perms.forEach(p => lst.append(el('', `${p}: ${PERMS[p]}`, 'li')));
+      if (!perms.length) lst.append(el('', t('No pide ningún permiso'), 'li'));
+      const ok = document.createElement('button'); ok.type = 'button'; ok.className = 'primary'; ok.textContent = t('Instalar');
       ok.onclick = () => { ctx.send({ t: 'extInstall', manifest: { id: m.id, name: m.name, version: m.version, author: m.author, description: m.description, url: m.url, permissions: perms } }); dlg.close(); };
-      prev.append(t('', m.name, 'h3'), t('sub', `${m.author ?? 'autor desconocido'} · v${m.version}`), t('', m.description ?? ''), t('sub', `Cargará ${m.url} en un iframe aislado. Permisos que pide:`), lst, ok);
-    } catch (e) { err.textContent = e instanceof Error ? e.message : 'No se pudo descargar el manifiesto'; }
+      prev.append(el('', m.name, 'h3'), el('sub', `${m.author ?? t('autor desconocido')} · v${m.version}`), el('', m.description ?? ''), el('sub', t('Cargará {url} en un iframe aislado. Permisos que pide:', { url: m.url })), lst, ok);
+    } catch (e) { err.textContent = e instanceof Error ? e.message : t('No se pudo descargar el manifiesto'); }
   };
   document.body.append(dlg); dlg.showModal();
 }

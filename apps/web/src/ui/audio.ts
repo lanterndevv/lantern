@@ -1,9 +1,10 @@
 // Audio compartido: música sincronizada con el reloj del servidor, capas de ambiente y mezclador local.
 import type { AudioState, C2S, Point, Wall } from '@lantern/protocol';
 import { cover, sightSegments } from '@lantern/vision';
+import { t } from '../i18n.ts';
 
 export type Chan = 'musica' | 'ambiente' | 'efectos' | 'voz';
-export const CHANNELS: [Chan, string][] = [['musica', 'Música'], ['ambiente', 'Ambiente'], ['efectos', 'Efectos'], ['voz', 'Voz']];
+export const CHANNELS: [Chan, string][] = [['musica', t('Música')], ['ambiente', t('Ambiente')], ['efectos', t('Efectos')], ['voz', t('Voz')]];
 
 const mem: Partial<Record<Chan, number>> = {}, muteMem: Partial<Record<Chan, boolean>> = {}; // por si localStorage no está disponible
 export function isMuted(k: Chan): boolean {
@@ -26,8 +27,8 @@ export function setVolume(k: Chan, v: number) {
 }
 
 export function mountMixer(el: HTMLElement) {
-  el.innerHTML = '<h2>Mezclador</h2>' + CHANNELS.map(([k, n]) =>
-    `<label>${n} <output id="mx-o-${k}"></output><input type="range" min="0" max="100" step="1" data-k="${k}" value="${Math.round(rawVolume(k) * 100)}"><input type="checkbox" data-m="${k}" aria-label="Silenciar ${n}"${isMuted(k) ? ' checked' : ''}> Silencio</label>`).join('');
+  el.innerHTML = `<h2>${t('Mezclador')}</h2>` + CHANNELS.map(([k, n]) =>
+    `<label>${n} <output id="mx-o-${k}"></output><input type="range" min="0" max="100" step="1" data-k="${k}" value="${Math.round(rawVolume(k) * 100)}"><input type="checkbox" data-m="${k}" aria-label="${t('Silenciar {n}', { n })}"${isMuted(k) ? ' checked' : ''}> ${t('Silencio')}</label>`).join('');
   const out = (k: string, v: number) => { el.querySelector('#mx-o-' + k)!.textContent = v + ' %'; };
   el.querySelectorAll<HTMLInputElement>('input[data-k]').forEach(i => out(i.dataset.k!, +i.value));
   el.addEventListener('input', e => {
@@ -49,7 +50,7 @@ export function mountAudio(root: HTMLElement, o: { own(): Point | undefined; wal
   const layers = new Map<string, Entry & { l: AudioState['layers'][number] }>();
 
   const btn = document.createElement('button');
-  btn.type = 'button'; btn.className = 'snd-on primary'; btn.textContent = 'Activar sonido'; btn.hidden = true;
+  btn.type = 'button'; btn.className = 'snd-on primary'; btn.textContent = t('Activar sonido'); btn.hidden = true;
   root.append(btn);
   const setBlocked = (b: boolean) => { blocked = b; btn.hidden = !b; };
   btn.onclick = () => setBlocked(false);
