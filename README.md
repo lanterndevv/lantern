@@ -42,14 +42,6 @@ Una pregunta por pantalla, con valores por defecto sensatos, teclado o ratón, y
 5. **Tu mesa:** tu nombre de DM, el título, e importar una campaña de Lantern o un mapa `.dd2vtt`/`.uvtt`.
 6. **Listo:** enlace de invitación con código y QR, y Lantern arranca solo al encender el equipo. Al volver a ejecutar `lantern` tienes un panel con estado, enlace, registros, actualización y desinstalación.
 
-## Capturas
-
-<!-- TODO: añadir capturas reales en docs/img/ (no hay imágenes inventadas). Sugeridas: asistente.png, mesa.png, combate.png, movil.png -->
-
-| Asistente | Mesa | Combate | Móvil |
-|---|---|---|---|
-| *TODO: `docs/img/asistente.png`* | *TODO: `docs/img/mesa.png`* | *TODO: `docs/img/combate.png`* | *TODO: `docs/img/movil.png`* |
-
 ## Funciones principales
 
 - **Luz y niebla dinámicas** por raycast: muros, puertas, luces y visión de cada ficha (oscuridad, visión en la oscuridad, cobertura), con cuadrícula calibrable y mapas de Dungeondraft (`.dd2vtt`/`.uvtt`).
