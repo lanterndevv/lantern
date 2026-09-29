@@ -163,6 +163,9 @@ export type JournalEntry = {
 
 export type LibraryItem = { id: Id; name: string; folder?: string; active: boolean; tokens: number; walls: number; background?: string };
 
+// Turno propuesto por el copiloto; el cliente del DM lo aplica con los C2S normales (moveToken + act) si lo acepta.
+export type CopilotTurn = { tokenId: Id; moveTo?: Point; actionId?: Id; targets: Id[]; rationale: string };
+
 export type SessionSummary = {
   started: number; ended: number; rounds: number;
   highlights: { kind: 'crit' | 'fumble' | 'kill' | 'down' | 'highest'; text: string }[];
@@ -203,6 +206,7 @@ export type ClientState = {
   extensions: ExtensionManifest[]; // instaladas en la mesa (todos las cargan)
   safety: { lines: string[]; veils: string[] }; // líneas y velos de la mesa (anónimos)
   sessionStart?: number;       // ms del servidor en que empezó la sesión actual
+  copilot: boolean;            // hay un modelo configurado en el servidor
 };
 
 export type ChatMsg = {
@@ -270,7 +274,12 @@ export type C2S =
   | { t: 'requestCheck'; tokenIds: Id[]; kind: 'save' | 'skill' | 'ability'; key: string; dc?: number; blind?: boolean } // DM
   | { t: 'answerCheck'; requestId: Id; tokenId: Id }                  // dueño responde a una prueba pedida
   | { t: 'sessionEnd' }                                               // DM: cierra la sesión → resumen
-  | { t: 'externalRoll'; source: 'beyond20'; name: string; expr: string; total: number; dice: Die[]; kind?: string }; // tirada hecha en la hoja de DDB vía Beyond20
+  | { t: 'externalRoll'; source: 'beyond20'; name: string; expr: string; total: number; dice: Die[]; kind?: string } // tirada hecha en la hoja de DDB vía Beyond20
+  // Copiloto IA (opcional; el servidor necesita LANTERN_LLM_URL). Nunca actúa solo: sugiere y alguien confirma.
+  | { t: 'copilot'; op: 'monsterTurn'; tokenId: Id; rid: string }     // DM: propone el turno de un monstruo
+  | { t: 'copilot'; op: 'rules'; question: string; rid: string }      // cualquiera: duda de reglas (contexto = lo que ve quien pregunta)
+  | { t: 'copilot'; op: 'npc'; prompt: string; rid: string }          // DM: nombre/descripción/voz de un PNJ
+  | { t: 'copilot'; op: 'recap'; rid: string };                       // DM: resumen narrativo de la sesión → diario
 
 // Servidor → cliente
 export type S2C =
@@ -288,6 +297,8 @@ export type S2C =
   | { t: 'safety'; op: 'x' }                                           // tarjeta X: todos ven la pausa (sin autor)
   | { t: 'checkRequest'; id: Id; tokenIds: Id[]; kind: 'save' | 'skill' | 'ability'; key: string; label: string; dc?: number } // a los dueños
   | { t: 'sessionSummary'; summary: SessionSummary }
+  | { t: 'copilot'; rid: string; ok: true; text?: string; turn?: CopilotTurn }
+  | { t: 'copilot'; rid: string; ok: false; error: string }
   | { t: 'error'; msg: string };
 
 // Versión del protocolo: sube cuando un cambio rompe clientes viejos; el cliente ofrece recargar si no coincide.
