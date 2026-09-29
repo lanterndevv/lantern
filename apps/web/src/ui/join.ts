@@ -1,6 +1,7 @@
 import type { S2C } from '@lantern/protocol';
 import { CODE_ALPHABET } from '@lantern/protocol';
 import { net, savedName } from '../net.ts';
+import { mountAccount } from './account.ts';
 
 // Acepta el código suelto o el enlace de invitación entero (…?code=XXXXXX).
 const clean = (s: string) => [...(s.match(/code=([^&#\s]+)/i)?.[1] ?? s).toUpperCase()].filter(c => CODE_ALPHABET.includes(c)).join('').slice(0, 6);
@@ -44,5 +45,6 @@ export function mountJoin(app: HTMLElement) {
     err.hidden = true;
     net.send({ t: 'join', name: name.value.trim() });
   };
+  mountAccount(main); // cuentas opcionales: «Mis mesas» en cualquier dispositivo
   return { handle(m: S2C) { if (m.t === 'error') fail(m.msg); } };
 }

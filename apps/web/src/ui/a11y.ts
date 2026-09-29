@@ -24,6 +24,7 @@ const VARS = ['--aliado', '--enemigo', '--exito', '--peligro'];
 const FONT_ID = 'lexend-font';
 
 function apply() {
+  queueMicrotask(() => dispatchEvent(new Event('lantern:a11y'))); // el renderer relee los colores de facción/estado
   const h = document.documentElement, pal = PALETAS[P.paleta];
   VARS.forEach((v, i) => pal ? h.style.setProperty(v, pal[i]) : h.style.removeProperty(v));
   h.style.fontSize = P.escala === 100 ? '' : `${16 * P.escala / 100}px`;

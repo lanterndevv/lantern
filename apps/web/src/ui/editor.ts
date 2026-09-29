@@ -10,10 +10,11 @@ import type { Ability, C2S, ClientState, Light, Region, Role, Token, Wall } from
 import { CONDITIONS } from '@lantern/rules';
 import type { EditOp, EditTool } from '../render/api.ts';
 import { SFX_LIST } from './sfx.ts';
+import { detectWalls } from '../render/walls-detect.ts';
 
 export type EdCtx = {
   send(m: C2S): void; state(): ClientState;
-  table: { setTool(t: EditTool): void; onEdit(cb: (op: EditOp) => void): void };
+  table: { setTool(t: EditTool): void; onEdit(cb: (op: EditOp) => void): void; previewWalls?(w: Wall[] | null): void }; // previewWalls: extra de Table (render/table.ts)
   role: Role; memberId: string; toast(msg: string): void;
 };
 
@@ -91,6 +92,28 @@ export function mountEditor(toolbarEl: HTMLElement, inspectorEl: HTMLElement, ct
   inspectorEl.classList.add('ed-insp');
   inspectorEl.setAttribute('aria-label', 'Inspector');
   inspectorEl.innerHTML = `<div class="ed-form"></div><footer class="ed-diag" aria-label="Diagnóstico"></footer>`;
+  inspectorEl.insertAdjacentHTML('beforeend', '<div class="ed-btns ed-auto"><button type="button" data-auto="detect">Detectar muros (beta)</button></div>');
+  const auto = inspectorEl.querySelector<HTMLElement>('.ed-auto')!;
+  let found: Wall[] = [];
+  const autoUi = () => { auto.innerHTML = found.length ? `<button type="button" class="primary" data-auto="ok">Aceptar ${found.length} muros</button><button type="button" data-auto="no">Descartar</button>` : '<button type="button" data-auto="detect">Detectar muros (beta)</button>'; };
+  auto.addEventListener('click', async e => {
+    const a = (e.target as HTMLElement).closest('button')?.dataset.auto, sc = st().scene;
+    if (a === 'detect') {
+      if (!sc.background) return ctx.toast('La escena no tiene imagen de fondo');
+      try {
+        const img = new Image(); img.crossOrigin = 'anonymous'; img.src = sc.background; await img.decode();
+        found = detectWalls(img, sc.grid, { width: sc.width, height: sc.height });
+      } catch { return ctx.toast('No se pudo analizar la imagen'); }
+      ctx.table.previewWalls?.(found); autoUi(); ctx.toast(found.length ? `${found.length} muros detectados (vista previa)` : 'No se detectó ningún muro');
+    } else if (a === 'ok' || a === 'no') {
+      const todo = a === 'ok' ? found : []; found = []; ctx.table.previewWalls?.(null); autoUi();
+      for (let i = 0; i < todo.length; i += 50) { // lotes de 50 por tick
+        for (const item of todo.slice(i, i + 50)) ctx.send({ t: 'upsert', kind: 'wall', item });
+        await new Promise(r => setTimeout(r));
+      }
+      if (todo.length) ctx.toast(`${todo.length} muros añadidos`);
+    }
+  });
   const form = inspectorEl.querySelector<HTMLElement>('.ed-form')!, diag = inspectorEl.querySelector<HTMLElement>('.ed-diag')!;
   const $ = <T extends HTMLElement = HTMLInputElement>(id: string) => form.querySelector<T>('#ed-' + id)!;
   const chk = (id: string, l: string, v?: boolean) => `<label class="chk"><input type="checkbox" id="ed-${id}"${v ? ' checked' : ''}> ${l}</label>`;

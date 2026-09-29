@@ -1,16 +1,16 @@
 // Lógica pura de una mesa: sin sockets ni BD. Todo lo que llega de un cliente se valida aquí.
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { CODE_ALPHABET, DEFAULT_SETTINGS, DICE_THEMES, blocksMove } from '@lantern/protocol';
-import type { Ability, ActionCard, AudioState, C2S, ChatMsg, ClientState, Combat, DiceTheme, Die, Hp, Id, JournalEntry, LibraryItem, Member, Point, Region, Role, S2C, Scene, TableSettings, Token, Wall } from '@lantern/protocol';
+import type { Ability, ActionCard, AudioState, C2S, ChatMsg, ClientState, Combat, DiceTheme, Die, ExtensionManifest, Hp, Id, JournalEntry, LibraryItem, Member, Point, Region, Role, S2C, Scene, TableSettings, Token, Wall } from '@lantern/protocol';
 import { ABILITY_ES, CONDITIONS, SKILLS, abilityMod, applyCard, applyDamage, autoFailSave, concentrationDC, d20Penalty, deathSave, grantTemp, heal, resolveAction } from '@lantern/rules';
 import { MONSTERS } from '@lantern/srd';
 import { parseCharacter } from './import.ts';
 import { demoScene } from '@lantern/protocol/demo';
 import { cover, pointInPolygon, sightSegments, visibility } from '@lantern/vision';
-import { MAX_ITEMS, MAX_JOURNAL, MAX_LAYERS, MAX_REGIONS, MAX_SCENES, MAX_WALLS, SFX, inScene, inr, num, obj, parseAudio, parseJournal, parseLayer, parseLight, parseRegion, parseToken, parseWall, patchScene, short, str, urlOk } from './validate.ts';
+import { MAX_EXTENSIONS, MAX_ITEMS, MAX_JOURNAL, MAX_LAYERS, MAX_REGIONS, MAX_SCENES, MAX_WALLS, SFX, inScene, inr, num, obj, parseAudio, parseJournal, parseLayer, parseLight, parseManifest, parseRegion, parseToken, parseWall, patchScene, short, str, urlOk } from './validate.ts';
 
-export type MemberRec = { id: Id; name: string; role: Role; keyHash: string; dice: DiceTheme };
-export type Room = { code: string; scene: Scene; scenes: Record<Id, Scene>; activeId: Id; journal: JournalEntry[]; members: Map<Id, MemberRec>; chat: ChatMsg[]; automation: 'assisted' | 'auto'; combat?: Combat; pending: ActionCard[]; settings: TableSettings; view: 'tactical' | 'story'; audio: AudioState };
+export type MemberRec = { id: Id; name: string; role: Role; keyHashes: string[]; dice: DiceTheme };
+export type Room = { code: string; scene: Scene; scenes: Record<Id, Scene>; activeId: Id; journal: JournalEntry[]; members: Map<Id, MemberRec>; chat: ChatMsg[]; automation: 'assisted' | 'auto'; combat?: Combat; pending: ActionCard[]; settings: TableSettings; view: 'tactical' | 'story'; audio: AudioState; extensions: ExtensionManifest[] };
 export type RollFn = (expr: string) => { total: number; detail: string; dice?: Die[] };
 export type Effect = { error?: string; state?: boolean; chat?: ChatMsg; chats?: ChatMsg[]; ping?: { from: Id; x: number; y: number }; all?: S2C; to?: { id: Id; msg: S2C }; clock?: boolean;
   sends?: { who: (m: MemberRec) => boolean; msg: S2C }[] }; // mensajes a los miembros que cumplan `who`
@@ -29,7 +29,7 @@ export const genCode = (taken: (c: string) => boolean = () => false) => {
 // ---- unirse ----
 function addMember(room: Room, name: string, role: Role) {
   const key = randomBytes(24).toString('base64url');
-  const m: MemberRec = { id: randomUUID(), name, role, keyHash: sha(key), dice: 'linterna' };
+  const m: MemberRec = { id: randomUUID(), name, role, keyHashes: [sha(key)], dice: 'linterna' };
   room.members.set(m.id, m);
   return { member: m, key };
 }
@@ -42,7 +42,7 @@ export function mkRoom(r: Omit<Room, 'scene'>): Room {
 export function createRoom(name: unknown, code: string, scene: Scene = demoScene()): { error: string } | { room: Room; member: MemberRec; key: string } {
   const n = cleanName(name);
   if (!n) return { error: 'nombre inválido' };
-  const room = mkRoom({ code, scenes: { [scene.id]: scene }, activeId: scene.id, journal: [], members: new Map(), chat: [], automation: 'assisted', pending: [], settings: structuredClone(DEFAULT_SETTINGS), view: 'tactical', audio: { layers: [] } });
+  const room = mkRoom({ code, scenes: { [scene.id]: scene }, activeId: scene.id, journal: [], members: new Map(), chat: [], automation: 'assisted', pending: [], settings: structuredClone(DEFAULT_SETTINGS), view: 'tactical', audio: { layers: [] }, extensions: [] });
   return { room, ...addMember(room, n, 'dm') };
 }
 
@@ -56,7 +56,7 @@ export function joinRoom(room: Room, name: unknown, key: unknown, as?: unknown):
   if (key !== undefined) {
     if (typeof key !== 'string' || key.length > 200) return { error: 'key inválida' };
     const h = sha(key);
-    for (const m of room.members.values()) if (m.keyHash === h) return { member: m };
+    for (const m of room.members.values()) if (m.keyHashes.includes(h)) return { member: m };
     return { error: 'key inválida' };
   }
   const n = cleanName(name);
@@ -78,9 +78,9 @@ const libraryOf = (room: Room): LibraryItem[] => Object.values(room.scenes).map(
 export function filterFor(room: Room, member: MemberRec, online: ReadonlySet<Id> = new Set()): ClientState {
   const members: Member[] = [...room.members.values()].map((m) => ({ id: m.id, name: m.name, role: m.role, online: online.has(m.id), dice: m.dice }));
   const s = room.scene;
-  const automation = room.automation, settings = structuredClone(room.settings), view = room.view, audio = structuredClone(room.audio);
+  const extensions = structuredClone(room.extensions), automation = room.automation, settings = structuredClone(room.settings), view = room.view, audio = structuredClone(room.audio);
   const journal = structuredClone(room.journal.filter((e) => canRead(e, member)));
-  if (isDM(member)) return { code: room.code, members, scene: structuredClone(s), automation, settings, view, audio, journal, library: libraryOf(room), ...(room.combat && { combat: structuredClone(room.combat) }) };
+  if (isDM(member)) return { code: room.code, members, scene: structuredClone(s), automation, settings, view, audio, journal, extensions, library: libraryOf(room), ...(room.combat && { combat: structuredClone(room.combat) }) };
 
   // ponytail: las capas de audio posicionales NO se filtran por visión: el sonido atraviesa paredes (y el jugador ve x/y de capas ajenas)
   const segs = sightSegments(s.walls);
@@ -117,7 +117,7 @@ export function filterFor(room: Room, member: MemberRec, online: ReadonlySet<Id>
     combat = { round: c.round, turn, order, used: Object.fromEntries(Object.entries(c.used).filter(([id]) => ids.has(id))) };
   }
   const { dmNotes: _d, regions: _r, tokens: _t, walls: _w, lights: _l, ...pub } = structuredClone(s);
-  return { code: room.code, members, visible, scene: { ...pub, walls, lights, tokens, ...(regions.length && { regions }) }, automation, settings, view, audio, journal, ...(combat && { combat }) };
+  return { code: room.code, members, visible, scene: { ...pub, walls, lights, tokens, ...(regions.length && { regions }) }, automation, settings, view, audio, journal, extensions, ...(combat && { combat }) };
 }
 
 export function chatFor(room: Room, m: MemberRec) {
@@ -498,6 +498,21 @@ export function handle(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, n
       if (!t.owners.includes(m.id) && t.owners.length > 0) return { error: 'ya tiene dueño' };
       for (const o of s.tokens) o.owners = o.owners.filter((x) => x !== m.id);
       t.owners.push(m.id);
+      return { state: true };
+    }
+    case 'extInstall': {
+      if (role !== 'dm') return DENY;
+      const man = parseManifest(m2.manifest);
+      if (typeof man === 'string') return { error: man };
+      const i = room.extensions.findIndex((e) => e.id === man.id);
+      if (i < 0 && room.extensions.length >= MAX_EXTENSIONS) return { error: 'demasiadas extensiones' };
+      if (i < 0) room.extensions.push(man); else room.extensions[i] = man;
+      return { state: true };
+    }
+    case 'extRemove': {
+      if (role !== 'dm') return DENY;
+      if (!str(m2.id, 64)) return { error: 'mensaje inválido' };
+      room.extensions = room.extensions.filter((e) => e.id !== m2.id);
       return { state: true };
     }
     case 'automation': {

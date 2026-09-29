@@ -347,3 +347,14 @@ kbd { font: .7rem var(--mono); color: var(--ambar-claro); }
 .mesa > .ed-bar { position: absolute; left: 12px; top: 84px; z-index: 5; max-height: calc(100% - 180px); overflow-y: auto; }
 .mesa > .ed-insp { position: absolute; left: 76px; top: 84px; z-index: 5; width: 300px; max-height: calc(100% - 180px); }
 .mesa > .ed-insp:empty { display: none; }
+/* extensiones */
+.ext-panel { border: 1px solid var(--borde); border-radius: var(--r-card); background: var(--sombra); margin-top: 8px; }
+.ext-panel summary { min-height: 44px; display: flex; align-items: center; padding: 0 12px; cursor: pointer; font-weight: 700; }
+.ext-frame { display: block; width: 100%; height: 160px; border: 0; border-radius: 0 0 var(--r-card) var(--r-card); background: #fff; }
+.ext-inst { color: var(--txt); max-width: min(480px, calc(100% - 24px)); padding: 16px; }
+.ext-inst::backdrop { background: rgba(0,0,0,.6); }
+.ext-inst form { display: grid; gap: 8px; margin: 12px 0; }
+.ext-lista { list-style: none; padding: 0; display: grid; gap: 6px; }
+.ext-lista li { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.ext-prev ul { padding-left: 18px; }
+/* fin extensiones */

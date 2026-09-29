@@ -17,6 +17,8 @@ import { mountLibrary, type UiCtx } from './library.ts';
 import { mountEncounter } from './encounter.ts';
 import { maybeStartTutorial } from './tutorial.ts';
 import { openRadial, tokenRadialItems } from './radial.ts';
+import { mountExtensions, openInstaller } from '../ext/host.ts';
+import { linkCurrentTable } from './account.ts';
 import { mountPalette, defaultCommands } from './palette.ts';
 import { applyDisplayMode, displayModeFromUrl } from './display.ts';
 import { mountA11y, mountScreenReaderMirror, matchesShortcut } from './a11y.ts';
@@ -105,7 +107,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
             <input id="txt" autocomplete="off" placeholder="Mensaje, /r 1d20+5 o /rs 2d6" maxlength="500">
             <button class="primary" type="submit">Enviar</button>
           </form>
-        </div>
+        <div id="exts"></div></div>
         <div id="p-hoja" role="tabpanel" aria-labelledby="t-hoja" class="hoja" hidden></div>
         <div id="p-esc" role="tabpanel" aria-labelledby="t-esc" class="ajustes escena" hidden></div>
         <div id="p-aj" role="tabpanel" aria-labelledby="t-aj" class="ajustes" hidden></div>
@@ -204,7 +206,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     onPointer: (x, y) => { pointer = { x, y }; if (armed?.a.area) marks(); },
     onMoveToken: (id, x, y) => net.send({ t: 'moveToken', id, x, y }),
     onPing: (x, y) => net.send({ t: 'ping', x, y }),
-    onTokenContext: (id, x, y) => { const t = tok(id); if (t) openRadial(x, y, tokenRadialItems(t, radialCtx), t.name); },
+    onTokenContext: (id, x, y) => { const t = tok(id); if (t) openRadial(x, y, [...tokenRadialItems(t, radialCtx), ...(exts?.radialItems(id) ?? [])], t.name); },
     onDoor: (id, open) => net.send({ t: 'door', id, open }),
   });
 
@@ -232,8 +234,9 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   const scenePanel = staff || w.role === 'trusted' ? mountScenePanel($('p-esc'), { role: w.role, code: w.state.code, send: m => net.send(m) }) : undefined;
   $('t-esc').hidden = !scenePanel;
 
+  let exts: ReturnType<typeof mountExtensions> | undefined; // se monta más abajo; render() corre antes
   const render = (s: ClientState) => {
-    voz.onState(s.members);
+    voz.onState(s.members); exts?.update(s);
     ed?.update(s); jr.update(s); lib?.update(s); enc?.update(s);
     state = s;
     $('escena').textContent = s.scene.name;
@@ -560,6 +563,11 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     lit: (id: Id) => state.scene.lights.some(l => l.id === `luz-${id}`),
     grid: state.scene.grid.size,
   };
+  const extCtx = { state: () => state, send: (m: C2S) => net.send(m), role: w.role, memberId: w.memberId };
+  exts = mountExtensions($('exts'), extCtx);
+  exts.update(state);
+  if (w.role === 'dm') { const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Extensiones…'; b.onclick = () => openInstaller(extCtx); $('p-aj').append(b); }
+  void linkCurrentTable(w.state.code, w.key); // si hay cuenta con sesión, la mesa queda en «Mis mesas»
   mountPalette({ commands: q => defaultCommands({
     role: w.role, memberId: w.memberId, send: m => net.send(m), state: () => state,
     center: () => ({ x: state.scene.width / 2, y: state.scene.height / 2 }), // ponytail: centro de la escena, no de la vista

@@ -9,7 +9,15 @@ import type { CreateTable, Marks } from './api.ts';
 import { createVfx, LITE } from './vfx.ts';
 import { createEdit, dashed, REGION_COLOR } from './edit.ts';
 
-const FACTION = { ally: '#5B9BE0', enemy: '#E0643A', neutral: '#BFAE86' } as const;
+const FACTION = { ally: '#5B9BE0', enemy: '#E0643A', neutral: '#BFAE86' };
+const HP = { ok: '#7cc47f', bad: '#d9503a' }; // PG alto / PG bajo
+// Daltonismo: --aliado, --enemigo, --exito y --peligro del documento (con fallback a los actuales). Muta FACTION y HP.
+function readPalette() {
+  const cs = getComputedStyle(document.documentElement), v = (n: string, d: string) => cs.getPropertyValue(n).trim() || d;
+  FACTION.ally = v('--aliado', '#5B9BE0'); FACTION.enemy = v('--enemigo', '#E0643A');
+  HP.ok = v('--exito', '#7cc47f'); HP.bad = v('--peligro', '#d9503a');
+}
+const paletteKey = () => FACTION.ally + FACTION.enemy + HP.ok + HP.bad;
 const MINE = '#F5C877', AMBER = '#E8A33D', TEXT = '#F2E8DA', SERIF = 'Georgia, "Times New Roman", serif';
 // Condición -> [letra(s), color]: el color nunca es la única pista, cada una lleva su letra.
 const COND: Record<string, [string, string]> = {
@@ -58,6 +66,7 @@ function gradTexture(r: number): Texture {
 type LightObj = { key: string; lm: Container; lmMask: Graphics; gl: Container; glMask: Graphics; spr: Sprite[]; phase: number; base: number; anim?: Light['anim'] };
 
 export const createTable: CreateTable = async (el, opts) => {
+  readPalette();
   const app = new Application();
   if (import.meta.env.DEV) (globalThis as unknown as { __pixi: unknown }).__pixi = app; // pruebas E2E
   await app.init({ background: '#070504', resizeTo: el, antialias: true, resolution: devicePixelRatio, autoDensity: true });
@@ -176,6 +185,8 @@ export const createTable: CreateTable = async (el, opts) => {
   app.canvas.addEventListener('wheel', onWheel, { passive: false });
   const ek = (e: KeyboardEvent) => edit.key(e);
   addEventListener('keydown', kd); addEventListener('keyup', ku); addEventListener('keydown', ek);
+  const onA11y = () => { readPalette(); if (cur) syncTokens(cur.scene); };
+  addEventListener('lantern:a11y', onA11y);
 
   // ---- ping / regla ----
   const pings: { g: Graphics; t0: number }[] = [];
@@ -218,7 +229,7 @@ export const createTable: CreateTable = async (el, opts) => {
         const b = a0 + (i * Math.PI) / 2;
         g.moveTo(q.x + R * Math.cos(b), q.y + R * Math.sin(b)).arc(q.x, q.y, R, b, b + 0.7);
       }
-      g.stroke({ width: 3, color: 0xe0643a });
+      g.stroke({ width: 3, color: FACTION.enemy });
     }
   }
 
@@ -347,7 +358,7 @@ export const createTable: CreateTable = async (el, opts) => {
       const k = Math.max(0, Math.min(1, t.hp.cur / t.hp.max)), a0 = -Math.PI / 2;
       const arc = new Graphics();
       arc.circle(0, 0, r + 6).stroke({ width: 3, color: 0x000000, alpha: 0.5 });
-      if (k > 0) arc.arc(0, 0, r + 6, a0, a0 + Math.PI * 2 * k).stroke({ width: 3, color: k > 0.5 ? '#7cc47f' : k > 0.25 ? AMBER : '#d9503a' });
+      if (k > 0) arc.arc(0, 0, r + 6, a0, a0 + Math.PI * 2 * k).stroke({ width: 3, color: k > 0.5 ? HP.ok : k > 0.25 ? AMBER : HP.bad });
       main.addChild(arc);
     }
     const ini = new Text({ text: [...t.name][0]?.toUpperCase() ?? '?', style: { fontFamily: SERIF, fontSize: r * 1.1, fontWeight: 'bold', fill: TEXT } });
@@ -440,7 +451,7 @@ export const createTable: CreateTable = async (el, opts) => {
         tokens.set(t.id, o);
       }
       o.t = t;
-      const k = `${t.name}|${t.faction}|${t.size}|${t.owners.includes(opts.memberId)}|${t.hp?.cur}/${t.hp?.max}|${s.grid.size}|${statusKey(t)}`;
+      const k = `${t.name}|${t.faction}|${t.size}|${t.owners.includes(opts.memberId)}|${t.hp?.cur}/${t.hp?.max}|${s.grid.size}|${statusKey(t)}|${paletteKey()}`;
       if (k !== o.key) { o.key = k; o.fx = drawToken(o.c, t, s.grid); }
       o.c.eventMode = 'static'; // también los no movibles: reciben clic
       o.c.cursor = canDrag(t) ? 'grab' : 'pointer';
@@ -664,11 +675,19 @@ export const createTable: CreateTable = async (el, opts) => {
     if (lmDirty && now - lastLm > 33) { lastLm = now; renderLightmap(); } // ponytail: parpadeo a ~30 fps
   });
 
+  // Extra de Table (no está en api.ts): vista previa de muros propuestos (autodetección); null la quita.
+  const previewG = new Graphics(); previewG.eventMode = 'none'; world.addChild(previewG);
+  function previewWalls(ws: Wall[] | null) {
+    previewG.clear();
+    for (const w of ws ?? []) previewG.moveTo(w.a.x, w.a.y).lineTo(w.b.x, w.b.y);
+    previewG.stroke({ width: 5, color: 0xe8a33d, alpha: 0.85, cap: 'round' });
+  }
+
   function destroy() {
     app.canvas.removeEventListener('wheel', onWheel);
     cancelLong();
     for (const [n, f] of [['pointerdown', tDown], ['pointermove', tMove], ['pointerup', tUp], ['pointercancel', tUp]] as const) app.canvas.removeEventListener(n, f);
-    removeEventListener('keydown', kd); removeEventListener('keydown', ek); removeEventListener('keyup', ku);
+    removeEventListener('keydown', kd); removeEventListener('keydown', ek); removeEventListener('keyup', ku); removeEventListener('lantern:a11y', onA11y);
     for (const m of memories.values()) m.destroy(true);
     vfx.destroy();
     lmRT?.destroy(true); fogRT?.destroy(true);
@@ -682,7 +701,7 @@ export const createTable: CreateTable = async (el, opts) => {
   return {
     focus, fitScene, worldToClient,
     setDisplay: (m) => { fixed = m === 'fixed'; pan = undefined; if (fixed) { endDrag(false); cam = undefined; } if (cur) syncTokens(cur.scene); },
-    setState, setMarks, ping, floatText, effect: vfx.effect, destroy,
+    previewWalls, setState, setMarks, ping, floatText, effect: vfx.effect, destroy,
     setTool: (t) => edit.setTool(isDM() ? t : { tool: 'none' }), onEdit: edit.onEdit,
   };
 };

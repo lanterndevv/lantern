@@ -4,3 +4,4 @@ dist
 # Personajes reales de repos sin licencia: solo para tests locales (ver packages/ddb/src/fixtures/README.md)
 packages/ddb/src/fixtures/*.json
 !packages/ddb/src/fixtures/rogue1-willie.json
+tools/e2e/out/

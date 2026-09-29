@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+**/dist
+.git
+*.db
+*.md
+!README.md
+tools/e2e/out
+apps/link
+Dockerfile

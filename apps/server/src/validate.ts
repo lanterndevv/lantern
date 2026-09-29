@@ -1,5 +1,5 @@
 // Validación de todo lo que entra al servidor (mensajes de cliente e importaciones): nada es de fiar.
-import type { Ability, AudioState, Id, JournalEntry, Light, Point, Region, Scene, Token, Wall } from '@lantern/protocol';
+import type { ExtensionManifest, ExtensionPermission, Ability, AudioState, Id, JournalEntry, Light, Point, Region, Scene, Token, Wall } from '@lantern/protocol';
 import { CONDITIONS, roll } from '@lantern/rules';
 import { parseCharacter } from './import.ts';
 
@@ -200,4 +200,23 @@ export function parseScene(v: unknown): Scene | null {
   if (v.dmNotes !== undefined) { if (!short(v.dmNotes, 5000)) return null; s.dmNotes = v.dmNotes; }
   if (v.audioPreset !== undefined) { const a = parseAudio(v.audioPreset); if (!a) return null; s.audioPreset = a; }
   return s;
+}
+
+export const MAX_EXTENSIONS = 10;
+const EXT_PERMS: ExtensionPermission[] = ['state', 'chat', 'roll', 'contextMenu', 'panel', 'tokens'];
+/** Valida un manifiesto de extensión: devuelve el manifiesto limpio (solo campos conocidos) o el motivo del rechazo. */
+export function parseManifest(v: unknown): ExtensionManifest | string {
+  const bad = 'manifiesto inválido';
+  if (!obj(v)) return bad;
+  if (typeof v.id !== 'string' || !/^[a-z0-9-]{3,40}$/.test(v.id)) return 'id de extensión inválido';
+  if (!str(v.name, 60) || !str(v.version, 20)) return bad;
+  for (const [k, max] of [['author', 60], ['description', 300]] as const) if (v[k] !== undefined && !short(v[k], max)) return bad;
+  if (typeof v.url !== 'string' || v.url.length > 300) return 'url de extensión inválida';
+  let u: URL;
+  try { u = new URL(v.url); } catch { return 'url de extensión inválida'; }
+  const local = u.protocol === 'http:' && u.hostname === 'localhost' && u.port !== ''; // desarrollo
+  if ((u.protocol !== 'https:' && !local) || u.username || u.password || /[\s"'<>]/.test(v.url)) return 'url de extensión inválida';
+  const p = v.permissions;
+  if (!Array.isArray(p) || p.length > EXT_PERMS.length || new Set(p).size !== p.length || !p.every((x) => EXT_PERMS.includes(x))) return 'permisos inválidos';
+  return { id: v.id, name: v.name, version: v.version, ...(v.author !== undefined && { author: v.author as string }), ...(v.description !== undefined && { description: v.description as string }), url: v.url, permissions: p };
 }

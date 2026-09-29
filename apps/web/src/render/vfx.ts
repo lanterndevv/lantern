@@ -9,6 +9,37 @@ const TYPE: Record<string, number> = {
   fire: 0xf58a3c, cold: 0x8fd3f5, lightning: 0xf2e45a, acid: 0xa5d65a, poison: 0x6fcb7c, necrotic: 0x9dbb86,
   radiant: 0xffe08a, force: 0xc29cf5, psychic: 0xee8ccb, thunder: 0x8fa6f7,
 };
+// ---- recetas: efectos data-driven que las extensiones registran y reproducen con playRecipe / effect({recipe}) ----
+// color: un valor o una lista (se reparte entre partículas). trail = partículas de estela por fotograma; speed en px/ms.
+type RC = number | number[];
+export type VfxRecipe = {
+  id: string; name: string;
+  projectile?: { color: RC; size: number; trail: number; speed: number };
+  impact?: { color: RC; particles: number; radius: number; ring: boolean };
+  burst?: { color: RC; particles: number; radius: number; ring?: boolean };
+};
+export type RecipeEffect = Effect & { recipe?: string }; // effect() de Table acepta esto (api.ts no lo declara)
+const recipes = new Map<string, VfxRecipe>();
+export const registerRecipe = (r: VfxRecipe) => { recipes.set(r.id, r); };
+const pick = (c: RC, i: number) => (Array.isArray(c) ? c[i % c.length] : c);
+let playFn: ((id: string, from: { x: number; y: number }, to: { x: number; y: number }) => void) | undefined;
+/** Reproduce una receta registrada de `from` a `to` (proyectil si lo tiene, luego impacto y ráfaga en `to`). Sin mesa creada no hace nada. */
+export const playRecipe = (id: string, from: { x: number; y: number }, to: { x: number; y: number }) => playFn?.(id, from, to);
+
+[
+  { id: 'arcoiris-feerico', name: 'Arcoíris feérico',
+    projectile: { color: [0xff5d5d, 0xffb84d, 0xfff35c, 0x6fdc6f, 0x5cb8ff, 0xb06cff], size: 6, trail: 3, speed: 1.1 },
+    impact: { color: [0xff8ad8, 0xfff35c, 0x8fd3f5, 0x9dffb0], particles: 26, radius: 40, ring: true } },
+  { id: 'rayo-sombrio', name: 'Rayo sombrío',
+    projectile: { color: [0x6a2a9a, 0x2a1040], size: 5, trail: 4, speed: 1.6 },
+    impact: { color: [0x8a3cc8, 0x1a0a28], particles: 20, radius: 44, ring: true },
+    burst: { color: [0x2a1040, 0x6a2a9a], particles: 30, radius: 70 } },
+  { id: 'enjambre', name: 'Enjambre de insectos',
+    projectile: { color: [0x3a2a14, 0x5a4a22, 0x1c1a0e], size: 2, trail: 6, speed: 0.5 },
+    impact: { color: [0x3a2a14, 0x6b5b2a], particles: 36, radius: 50, ring: false },
+    burst: { color: [0x3a2a14, 0x1c1a0e], particles: 60, radius: 90, ring: false } },
+].forEach(registerRecipe);
+
 const col = (t?: string) => TYPE[t ?? ''] ?? 0xe4dacb; // slashing/piercing/bludgeoning y desconocidos
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
 const ease = (t: number) => 1 - (1 - t) ** 3;
@@ -176,8 +207,53 @@ export function createVfx(app: Application, world: Container, fxL: Container, re
     });
   }
 
-  function effect(e: Effect) {
+  function recipeImpact(r: VfxRecipe, at: { x: number; y: number }) {
+    const i = r.impact, b = r.burst;
+    if (i) {
+      if (reduced) flash(at.x, at.y, i.radius, pick(i.color, 0), 150);
+      else {
+        flash(at.x, at.y, i.radius, pick(i.color, 0), 250);
+        if (i.ring) add(timed(500, (k, ad) => ad.circle(at.x, at.y, i.radius * (0.3 + ease(k))).stroke({ width: 2, color: pick(i.color, 1), alpha: 0.8 * (1 - k) })));
+        for (let n = 0; n < i.particles * F; n++) radial(at.x, at.y, 1, pick(i.color, n), i.radius * 4, 500, 2.5);
+      }
+    }
+    if (b) recipeBurst(r, at, b.radius);
+  }
+  function recipeBurst(r: VfxRecipe, at: { x: number; y: number }, R: number) {
+    const b = r.burst ?? r.impact; if (!b) return;
+    const c0 = pick(b.color, 0);
+    if (reduced) return flash(at.x, at.y, R * 0.6, c0, 150);
+    add(timed(800, (k, ad) => { const g = R * ease(Math.min(1, k * 2.5)), f = 1 - k; ad.circle(at.x, at.y, g).fill({ color: c0, alpha: 0.25 * f }); if ('ring' in b && b.ring !== false) ad.circle(at.x, at.y, g).stroke({ width: 4, color: pick(b.color, 1), alpha: 0.9 * f }); }));
+    for (let n = 0; n < b.particles * F; n++) {
+      const a = rnd(0, 6.283), d = Math.sqrt(Math.random()) * R;
+      emit({ x: at.x, y: at.y, vx: Math.cos(a) * d * 2.5, vy: Math.sin(a) * d * 2.5, life: rnd(500, 900), c: pick(b.color, n), r: rnd(2, 4), d: 3 });
+    }
+  }
+  function recipeProjectile(r: VfxRecipe, a: { x: number; y: number }, b: { x: number; y: number }) {
+    const p = r.projectile;
+    if (!p) return recipeImpact(r, b);
+    const dx = b.x - a.x, dy = b.y - a.y, dist = Math.hypot(dx, dy) || 1, ms = Math.min(900, Math.max(120, dist / p.speed));
+    let t = 0;
+    add((dt, ad) => {
+      t += dt;
+      const k = Math.min(1, t / ms), x = a.x + dx * k, y = a.y + dy * k;
+      ad.circle(x, y, p.size * 2).fill({ color: pick(p.color, 0), alpha: 0.25 }).circle(x, y, p.size).fill(pick(p.color, Math.floor(t / 60)));
+      if (!reduced) for (let i = 0; i < p.trail; i++) emit({ x, y, vx: rnd(-50, 50), vy: rnd(-50, 50), life: rnd(250, 450), c: pick(p.color, i + Math.floor(t / 40)), r: rnd(1, p.size * 0.6 + 1), d: 1 });
+      if (k < 1) return true;
+      recipeImpact(r, b);
+      return false;
+    });
+  }
+  playFn = (id, from, to) => { const r = recipes.get(id); if (enabled && r) recipeProjectile(r, from, to); };
+
+  function effect(e: RecipeEffect) {
     if (!enabled) return;
+    const r = e.recipe ? recipes.get(e.recipe) : undefined;
+    if (r) {
+      if (e.kind === 'projectile') return recipeProjectile(r, e.from, e.to);
+      if (e.kind === 'burst') return recipeBurst(r, e.at, e.radius);
+      if (e.kind === 'impact') return recipeImpact(r, e.at);
+    }
     if (e.kind === 'projectile') projectile(e);
     else if (e.kind === 'impact') impact(e.at, e.damageType, e.crit);
     else if (e.kind === 'burst') burst(e);
@@ -332,6 +408,7 @@ export function createVfx(app: Application, world: Container, fxL: Container, re
     setWeather(on ? w : undefined);
   }
   function destroy() {
+    playFn = undefined;
     if (running) app.ticker.remove(tick);
     running = false;
     soft.destroy(true);

@@ -1,13 +1,15 @@
 import { createServer } from 'node:http';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve, sep, extname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { ChatMsg, Id, S2C } from '@lantern/protocol';
+import { PROTOCOL_VERSION } from '@lantern/protocol';
 import { roll } from '@lantern/rules';
 import { openDb } from './db.ts';
+import { createAccounts } from './accounts.ts';
 import { MAX_SCENES } from './validate.ts';
 import { MAX_ASSET, exportCampaign, importCampaign, parseUvtt, sha256 } from './campaign.ts';
 import { canSee, chatFor, redact, createRoom, filterFor, genCode, handle, joinRoom, normCode, sha, type MemberRec, type Room, type RollFn } from './room.ts';
@@ -16,9 +18,24 @@ const MAX_IMPORT = 250 * 1024 * 1024, MAX_UVTT = 60 * 1024 * 1024;
 const EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/webm': 'webm', 'video/webm': 'webm', 'video/mp4': 'mp4' };
 const TYPE: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', mp3: 'audio/mpeg', ogg: 'audio/ogg', webm: 'video/webm', mp4: 'video/mp4' };
 
+const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.woff': 'font/woff', '.txt': 'text/plain; charset=utf-8', '.map': 'application/json', '.wasm': 'application/wasm' };
+// Límites (seguridad). ponytail: contadores en memoria, se pierden al reiniciar; suficiente para un servidor único.
+const WS_RATE = 30, WS_BURST = 60, WS_MAX_EXCESS = 10, MAX_CONN_IP = 20, MAX_ROOMS_IP_DAY = 200, MAX_UPLOADS = 30, UPLOAD_WINDOW = 10 * 60_000, DAY = 86_400_000;
+
 type Conn = { room: Room; member: MemberRec };
 
 export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, rollFn: RollFn = roll) {
+  const webRoot = resolve(process.env.WEB_DIST ?? new URL('../../web/dist', import.meta.url).pathname);
+  const serveWeb = existsSync(join(webRoot, 'index.html'));
+  const ipOf = (req: IncomingMessage) => (process.env.TRUST_PROXY === '1' && String(req.headers['x-forwarded-for'] ?? '').split(',').at(-1)?.trim()) || req.socket.remoteAddress || '?'; // con proxy, la última entrada la añade el propio proxy
+  const connsByIp = new Map<string, number>();
+  const roomsByIp = new Map<string, { n: number; reset: number }>();
+  const uploads = new Map<string, { n: number; reset: number }>();
+  const hit = (m: Map<string, { n: number; reset: number }>, ip: string, max: number, win: number) => { // true = permitido
+    const now = Date.now(); let e = m.get(ip);
+    if (!e || e.reset <= now) { for (const [k, v] of m) if (v.reset <= now) m.delete(k); e = { n: 0, reset: now + win }; m.set(ip, e); }
+    return ++e.n <= max ? 0 : Math.ceil((e.reset - now) / 1000);
+  };
   const db = openDb(dbPath);
   const rooms = new Map<string, Room>();
   const conns = new Map<WebSocket, Conn>();
@@ -51,7 +68,7 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
     const code = req.headers['x-lantern-code'], key = req.headers['x-lantern-key'];
     const room = typeof code === 'string' && code.length < 32 ? getRoom(normCode(code)) : undefined;
     const h = typeof key === 'string' && key.length < 200 ? sha(key) : '';
-    const who = h && [...(room?.members.values() ?? [])].find((m) => m.keyHash === h);
+    const who = h && [...(room?.members.values() ?? [])].find((m) => m.keyHashes.includes(h));
     return room && who ? { room, who } : null;
   };
   const readBody = async (req: IncomingMessage, res: ServerResponse, max: number) => {
@@ -70,8 +87,26 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
     if (!b) return undefined;
     try { return JSON.parse(b.toString()) as unknown; } catch { json(res, 400, { error: 'JSON inválido' }); return undefined; }
   };
+  const web = async (req: IncomingMessage, res: ServerResponse) => {
+    let p: string;
+    try { p = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname); } catch { res.statusCode = 400; res.end(); return; }
+    if (p.includes('\0') || /^\/(api|assets|ws)(\/|$)/.test(p)) { res.statusCode = 404; res.end(); return; }
+    let file = resolve(webRoot, '.' + p);
+    if (file !== webRoot && !file.startsWith(webRoot + sep)) { res.statusCode = 404; res.end(); return; }
+    let data = await readFile(file).catch(() => null);
+    if (!data && !p.startsWith('/static/') && !extname(p)) { file = join(webRoot, 'index.html'); data = await readFile(file).catch(() => null); } // SPA
+    if (!data) { res.statusCode = 404; res.end(); return; }
+    res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream', 'content-length': data.length, 'x-content-type-options': 'nosniff', 'cache-control': p.startsWith('/static/') ? 'public, max-age=31536000, immutable' : 'no-cache' });
+    res.end(req.method === 'HEAD' ? undefined : data);
+  };
+  const accounts = createAccounts(db.raw, { getRoom, dirty });
   const http = createServer(async (req, res) => {
+    if (await accounts.handle(req, res)) return;
     if (req.url === '/health') { res.end('ok'); return; }
+    if (req.method === 'POST' && (req.url === '/api/assets' || req.url === '/api/import' || req.url === '/api/uvtt')) {
+      const wait = hit(uploads, ipOf(req), MAX_UPLOADS, UPLOAD_WINDOW);
+      if (wait) { res.writeHead(429, { 'retry-after': String(wait), connection: 'close' }); res.end(() => req.destroy()); return; }
+    }
     if (req.method === 'POST' && req.url === '/api/assets') {
       const a = auth(req), type = req.headers['content-type'] ?? '';
       if (!a || !['dm', 'assistant', 'trusted'].includes(a.who.role)) return fail(req, res, 403);
@@ -144,12 +179,25 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
         res.end(data); return;
       }
     }
+    if (serveWeb && (req.method === 'GET' || req.method === 'HEAD')) return web(req, res);
     res.statusCode = 404; res.end();
   });
   const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 64 * 1024 });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
+    const ip = ipOf(req), n = connsByIp.get(ip) ?? 0;
+    if (n >= MAX_CONN_IP) return ws.close(1008, 'demasiadas conexiones');
+    connsByIp.set(ip, n + 1);
+    ws.on('close', () => { const k = (connsByIp.get(ip) ?? 1) - 1; if (k > 0) connsByIp.set(ip, k); else connsByIp.delete(ip); });
+    let bucket = WS_BURST, last = Date.now(), excess = 0; // token bucket por conexión
     ws.on('message', (raw) => {
+      const now = Date.now();
+      bucket = Math.min(WS_BURST, bucket + (now - last) * WS_RATE / 1000); last = now;
+      if (bucket < 1) {
+        if (++excess > WS_MAX_EXCESS) { send(ws, { t: 'error', msg: 'demasiados mensajes' }); ws.close(1008, 'rate limit'); }
+        return;
+      }
+      bucket--; excess = 0;
       let msg: any;
       try { msg = JSON.parse(raw.toString()); } catch { return send(ws, { t: 'error', msg: 'JSON inválido' }); }
       if (typeof msg !== 'object' || msg === null) return send(ws, { t: 'error', msg: 'mensaje inválido' });
@@ -159,6 +207,8 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
         if (conn) return send(ws, { t: 'error', msg: 'ya estás en una mesa' });
         let room: Room | undefined, member: MemberRec, key: string;
         if (msg.code === undefined) {
+          const wait = hit(roomsByIp, ip, MAX_ROOMS_IP_DAY, DAY);
+          if (wait) return send(ws, { t: 'error', msg: 'demasiadas mesas creadas hoy desde tu IP' });
           const r = createRoom(msg.name, genCode((c) => rooms.has(c) || db.exists(c)));
           if ('error' in r) return send(ws, { t: 'error', msg: r.error });
           room = r.room; member = r.member; key = r.key;
@@ -172,7 +222,7 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
         }
         conns.set(ws, { room, member });
         dirty(room);
-        send(ws, { t: 'welcome', memberId: member.id, key, role: member.role, state: filterFor(room, member, online(room)), chat: chatFor(room, member) });
+        send(ws, { t: 'welcome', memberId: member.id, key, role: member.role, state: filterFor(room, member, online(room)), chat: chatFor(room, member), v: PROTOCOL_VERSION });
         send(ws, { t: 'clock', now: Date.now() });
     broadcastState(room); // el resto ve el nuevo miembro / online
         return;
@@ -199,7 +249,7 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
     ws.on('error', () => ws.terminate());
   });
 
-  http.listen(port);
+  http.listen(port, process.env.HOST ?? '0.0.0.0');
   return {
     port: () => (http.address() as { port: number }).port,
     ready: new Promise<void>((ok) => http.once('listening', ok)),
@@ -214,5 +264,5 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   start();
-  console.log('lantern server en :' + (process.env.PORT ?? 8787));
+  console.log(`lantern server en ${process.env.HOST ?? '0.0.0.0'}:${process.env.PORT ?? 8787}`);
 }

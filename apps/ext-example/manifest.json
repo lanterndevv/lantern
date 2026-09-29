@@ -1,0 +1,9 @@
+{
+  "id": "botin-aleatorio",
+  "name": "Botín aleatorio",
+  "version": "1.0.0",
+  "author": "Lantern",
+  "description": "Añade «Registrar botín» al menú de los tokens: tira en una tabla y lo publica en el chat.",
+  "url": "http://localhost:5174/",
+  "permissions": ["chat", "contextMenu", "state"]
+}
