@@ -196,6 +196,31 @@ async function main() {
     await v.shot('h-vista-mesa');
   });
 
+  await check('(i) un susurro del DM a Ana no lo recibe otro jugador', async () => {
+    const [ana, bruno] = [wsClient(sp), wsClient(sp)];
+    await Promise.all([ana.opened, bruno.opened]);
+    ana.send({ t: 'join', code, name: 'Ana', key: plW.key });
+    bruno.send({ t: 'join', code, name: 'Bruno' });
+    await Promise.all([ana.wait('welcome'), bruno.wait('welcome')]);
+    const secreto = 'susurro-e2e-' + Date.now();
+    dm.send({ t: 'chat', text: secreto, to: [plW.memberId] });
+    await until(() => ana.msgs.some((r) => r.includes(secreto)), 'Ana recibe el susurro');
+    await sleep(500); // margen para que llegara a Bruno si se filtrara
+    must(!bruno.msgs.some((r) => r.includes(secreto)), 'Bruno recibió el susurro');
+    ana.ws.close(); bruno.ws.close();
+  });
+
+  await check('(j) reloj en exterior a las 22:00 → globalLight 0', async () => {
+    const last = () => dm.msgs.map((r) => JSON.parse(r)).filter((m) => m.t === 'state').at(-1)?.state;
+    dm.send({ t: 'scene', patch: { outdoor: true } });
+    await until(() => last()?.scene.outdoor === true, 'outdoor activo');
+    const adv = ((22 * 60 - (last().clock % 1440)) + 1440) % 1440 || 1440;
+    dm.send({ t: 'clock', advance: adv });
+    const st = await until(() => { const l = last(); return l && l.clock % 1440 === 22 * 60 && l; }, 'reloj a las 22:00');
+    must(st.scene.globalLight === 0, `globalLight = ${st.scene.globalLight}`);
+    return `día ${Math.floor(st.clock / 1440) + 1}, 22:00`;
+  });
+
   dm.ws.close();
   for (const p of pages) p.close();
 }

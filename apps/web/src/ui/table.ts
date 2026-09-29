@@ -16,7 +16,15 @@ import { mountJournal, showHandout, showRegionMsg } from './journal.ts';
 import { mountLibrary, type UiCtx } from './library.ts';
 import { mountEncounter } from './encounter.ts';
 import { maybeStartTutorial } from './tutorial.ts';
-import { openRadial, tokenRadialItems } from './radial.ts';
+import { openRadial, tokenRadialItems, type RadialItem } from './radial.ts';
+import { mountChat2, chatSendFromInput, renderChatExtras } from './chat2.ts';
+import { mountDraw, bindUndo } from './draw.ts';
+import { mountClock, torchButton } from './clock.ts';
+import { mountDmScreen } from './dmscreen.ts';
+import { mountDdbMonsters } from './ddbmonsters.ts';
+import { mountLasso } from './select.ts';
+import { mountDock } from './dock.ts';
+import { legendaryPips, bindLegendary, combatExtras, combat2RadialItems, pickToken, reactionPrompt, templateTargeting, type C2Ctx } from './combat2.ts';
 import { mountExtensions, openInstaller } from '../ext/host.ts';
 import { mountLevels } from './levels.ts';
 import { mountCopilot } from './copilot.ts';
@@ -90,8 +98,9 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     <section id="ed-insp" class="ed-insp panel" aria-label="Inspector" hidden></section>
     <dialog id="elegir" aria-labelledby="elegir-t"><h2 id="elegir-t">Elige tu personaje</h2><ul id="libres" class="libres"></ul><button type="button" id="ddbc">Traer mi personaje de D&amp;D Beyond</button></dialog>
     <div id="lv" class="lv"></div>
+    <div id="dr-bar" class="dr-bar"></div>
     <div class="panel tl">
-      <h1 id="escena"></h1><span class="chip simple" id="simple" hidden>Modo Sencillo</span>
+      <h1 id="escena"></h1><span id="reloj"></span><span class="chip simple" id="simple" hidden>Modo Sencillo</span>
       <button class="chip" id="cod" type="button" title="Copiar enlace"></button>
       <span class="conn" id="conn"></span>
     </div>
@@ -106,6 +115,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
           <button role="tab" id="t-dia" aria-selected="false" aria-controls="p-dia">Diario</button>
           <button role="tab" id="t-biblioteca" aria-selected="false" aria-controls="p-biblioteca" hidden>Biblioteca</button>
           <button role="tab" id="t-encuentros" aria-selected="false" aria-controls="p-encuentros" hidden>Encuentros</button>
+          <button role="tab" id="t-pantalla" aria-selected="false" aria-controls="p-pantalla" hidden>Pantalla</button>
+          <button role="tab" id="t-cuenta" aria-selected="false" aria-controls="p-cuenta" hidden>Tu cuenta</button>
         </div>
         <button id="plegar" type="button" aria-expanded="true" aria-controls="cuerpo" aria-label="Plegar panel">▾</button>
       </header>
@@ -114,7 +125,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
           <div id="log" class="log" aria-live="polite" aria-label="Registro" tabindex="0"></div>
           <form id="chat">
             <label class="sr" for="txt">Mensaje o tirada</label>
-            <input id="txt" autocomplete="off" placeholder="Mensaje, /r 1d20+5 o /rs 2d6" maxlength="500">
+            <input id="txt" autocomplete="off" placeholder="Mensaje, /r 1d20, /w nombre, /me, /ic" maxlength="500">
             <button class="primary" type="submit">Enviar</button>
           </form>
         <div id="exts"></div></div>
@@ -124,6 +135,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
         <div id="p-dia" role="tabpanel" aria-labelledby="t-dia" class="ajustes" hidden></div>
         <div id="p-biblioteca" role="tabpanel" aria-labelledby="t-biblioteca" class="ajustes" hidden></div>
         <div id="p-encuentros" role="tabpanel" aria-labelledby="t-encuentros" class="ajustes" hidden></div>
+        <div id="p-pantalla" role="tabpanel" aria-labelledby="t-pantalla" class="ajustes" hidden></div>
+        <div id="p-cuenta" role="tabpanel" aria-labelledby="t-cuenta" class="ajustes" hidden></div>
         <div id="p-mesa" role="tabpanel" aria-labelledby="t-mesa" hidden>
           <ul id="miembros" class="miembros"></ul>
           <section id="voz" class="voz" aria-label="Voz"></section>
@@ -163,6 +176,9 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
 
   // Estado de interacción
   let selected: Id | undefined, targets: Id[] = [], armed: { tok: Id; a: Action } | undefined;
+  let tpl: ReturnType<typeof templateTargeting> | undefined; // plantilla de área de la acción armada
+  let drawApi: ReturnType<typeof mountDraw> | undefined, lasso: ReturnType<typeof mountLasso> | undefined; // se montan tras createTable; render() corre antes
+  let mapCb: ((x: number, y: number) => void) | null = null;
   let spawn: string | undefined, pointer: Point | undefined, turnKey = '';
   const tok = (id?: Id) => state.scene.tokens.find(t => t.id === id);
   const mine = () => state.scene.tokens.filter(t => t.owners.includes(w.memberId));
@@ -171,31 +187,27 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   const layerOn = (k: keyof ClientState['settings']['layers']) => state.settings.mode === 'full' && state.settings.layers[k];
   const canConfirm = w.role === 'dm' || w.role === 'assistant';
   const areaR = (a: Action) => a.area!.size / state.scene.grid.feet * state.scene.grid.size;
-  const marks = () => table.then(t => t.setMarks({
-    active: activeId(), selected, targets,
-    area: armed?.a.area && pointer ? { ...pointer, radius: areaR(armed.a), color: '#E8A33D' } : undefined,
-  }));
+  const baseMarks = () => ({ active: activeId(), selected, targets });
+  const marks = () => armed?.a.area && tpl && pointer ? tpl.pointer(pointer.x, pointer.y) : void table.then(t => t.setMarks(baseMarks()));
   const say = (msg: string, ms = 2000) => {
     const t = $('toast'); t.textContent = msg; t.classList.remove('sel'); t.classList.add('show');
     clearTimeout(tt); tt = window.setTimeout(() => t.classList.remove('show'), ms);
   };
   const fire = (tokenId: Id, actionId: Id, tg: Id[]) => {
     net.send({ t: 'act', tokenId, actionId, targets: tg });
-    armed = undefined; targets = []; renderHud(); marks();
+    armed = undefined; targets = []; tpl?.cancel(); tpl = undefined; renderHud(); marks();
   };
-  const atArea = (x: number, y: number) => {
-    if (!armed) return;
-    const r = areaR(armed.a);
-    fire(armed.tok, armed.a.id, state.scene.tokens.filter(t => Math.hypot(t.x - x, t.y - y) <= r).map(t => t.id));
-  };
+  const atArea = (x: number, y: number) => tpl?.click(x, y);
   const cancel = () => {
     if (!armed && !spawn) return;
+    tpl?.cancel(); tpl = undefined;
     armed = undefined; spawn = undefined; renderHud(); renderMonsters(); marks();
   };
 
   const table = createTable($('mapa'), {
     role: w.role, memberId: w.memberId,
     onTokenClick: (id, shift) => {
+      if (pickToken(id)) return;
       const t = tok(id); if (!t) return;
       if (armed?.a.area) return atArea(t.x, t.y);
       if (armed) {
@@ -214,15 +226,16 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       } else if (armed?.a.area) atArea(x, y);
       // ponytail: clic en el suelo sin acción no deselecciona; Esc o elegir otro token
     },
-    onPointer: (x, y) => { pointer = { x, y }; if (armed?.a.area) marks(); },
+    onPointer: (x, y) => { pointer = { x, y }; drawApi?.pointer(x, y); if (armed?.a.area) tpl?.pointer(x, y); },
+    onDraw: (d, persist) => drawApi?.onDraw(d, persist),
+    onErase: id => drawApi?.onErase(id),
     onMoveToken: (id, x, y) => net.send({ t: 'moveToken', id, x, y }),
     onPing: (x, y) => net.send({ t: 'ping', x, y }),
-    onTokenContext: (id, x, y) => { const t = tok(id); if (t) openRadial(x, y, [...tokenRadialItems(t, radialCtx), ...(exts?.radialItems(id) ?? []), ...(copilot?.radialItems(id) ?? [])], t.name); },
+    onTokenContext: (id, x, y) => { const t = tok(id); if (t) openRadial(x, y, [...tokenRadialItems(t, radialCtx), ...combat2RadialItems(t, c2), ...torchItem(t), ...(exts?.radialItems(id) ?? []), ...(copilot?.radialItems(id) ?? [])], t.name); },
     onDoor: (id, open) => net.send({ t: 'door', id, open }),
   });
 
   // ---- fase 5: edición, diario, biblioteca, encuentros, tutorial ----
-  let mapCb: ((x: number, y: number) => void) | null = null;
   const ctx: UiCtx = { send: m => net.send(m), state: () => state, code: w.state.code, key: () => localStorage.getItem(`lantern:key:${w.state.code}`), role: w.role, toast: m => say(m, 3500), onMapClick: cb => { mapCb = cb; }, setTool: t => void table.then(x => x.setTool({ tool: t })) };
   const tableEd = { setTool: (t: Parameters<Awaited<typeof table>['setTool']>[0]) => void table.then(x => x.setTool(t)), onEdit: (cb: Parameters<Awaited<typeof table>['onEdit']>[0]) => void table.then(x => x.onEdit(cb)) };
   const staffEd = w.role === 'dm' || w.role === 'assistant';
@@ -234,7 +247,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   $('t-biblioteca').hidden = $('t-encuentros').hidden = !staffEd;
   maybeStartTutorial(ctx);
 
-  const sheet = mountSheet($('p-hoja'), { role: w.role, send: m => net.send(m), token: () => w.role === 'dm' ? tok(selected) ?? hudTok() : mine().find(t => t.id === selected) ?? mine()[0] });
+  const sheet = mountSheet($('p-hoja'), { role: w.role, memberId: w.memberId, code: w.state.code, key: () => localStorage.getItem(`lantern:key:${w.state.code}`), send: m => net.send(m), token: () => w.role === 'dm' ? tok(selected) ?? hudTok() : mine().find(t => t.id === selected) ?? mine()[0] });
   const staff = w.role === 'dm' || w.role === 'assistant';
   const settings = staff ? mountSettings($('p-aj'), m => net.send(m), w.memberId) : undefined;
   $('t-aj').hidden = !staff;
@@ -246,11 +259,25 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   const story = mountStory(root, $('mapa'), { isDm: w.role === 'dm', send: m => net.send(m) });
   const scenePanel = staff || w.role === 'trusted' ? mountScenePanel($('p-esc'), { role: w.role, code: w.state.code, send: m => net.send(m) }) : undefined;
   $('t-esc').hidden = !scenePanel;
+  const c2: C2Ctx = { send: m => net.send(m), state: () => state, role: w.role, memberId: w.memberId, toast: m => say(m, 3500) };
+  bindLegendary($('init'), c2);
+  const extras = combatExtras(c2);
+  root.append(extras.el);
+  const chat2 = mountChat2($('chat'), { send: m => net.send(m), state: () => state, me: w.memberId, toast: m => say(m, 3500) });
+  const clockCtx = { send: (m: C2S) => net.send(m), state: () => state, role: w.role };
+  const clock = mountClock($('reloj'), clockCtx);
+  const torchItem = (t: Token): RadialItem[] => {
+    const b = torchButton(t, clockCtx); // solo DM; el botón se usa como fábrica de la acción
+    return b ? [{ id: 'torch', label: 'Encender antorcha (1 h)', icon: 'light', run: () => b.click() }] : [];
+  };
+  bindUndo({ send: m => net.send(m), state: () => state, toast: m => say(m, 3500) });
+  drawApi = mountDraw($('dr-bar'), { send: m => net.send(m), state: () => state, me: w.memberId, role: w.role, toast: m => say(m, 3500), table: () => table, onMapClick: cb => { mapCb = cb; } });
+  void table.then(t => { lasso = mountLasso($('mapa'), { table: t, state: () => state, role: w.role, memberId: w.memberId, send: m => net.send(m), toast: m => say(m, 3500), onMapClick: cb => { mapCb = cb; } }); lasso.update(); });
 
   let exts: ReturnType<typeof mountExtensions> | undefined; // se monta más abajo; render() corre antes
   let lv: ReturnType<typeof mountLevels> | undefined, lobby: ReturnType<typeof showLobby> | undefined, cr: ReturnType<typeof mountCheckRequester> | undefined;
   const render = (s: ClientState) => {
-    voz.onState(s.members); exts?.update(s); copilot?.update();
+    voz.onState(s.members); exts?.update(s); copilot?.update(); chat2.update(s); drawApi?.update(s); clock.update(s); extras.update(); lasso?.update();
     ed?.update(s); jr.update(s); lib?.update(s); enc?.update(s); lv?.update(s); lobby?.update(); cr?.render();
     state = s;
     $('escena').textContent = s.scene.name;
@@ -275,7 +302,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     el.innerHTML = `<span class="ronda">Ronda ${c.round}</span><ol>` + c.order.map((o, i) => {
       const t = tok(o.tokenId); if (!t) return '';
       const on = i === c.turn;
-      return `<li class="${on ? 'act' : ''}" title="${esc(t.name)}"${on ? ' aria-current="true"' : ''}>${portrait(t)}${hpBar(t)}<span class="sr">${esc(t.name)}${on ? ', turno activo' : ''}</span></li>`;
+      return `<li class="${on ? 'act' : ''}" title="${esc(t.name)}"${on ? ' aria-current="true"' : ''}>${portrait(t)}${hpBar(t)}${legendaryPips(t, w.role === 'dm')}<span class="sr">${esc(t.name)}${on ? ', turno activo' : ''}</span></li>`;
     }).join('') + '</ol>';
   };
 
@@ -298,6 +325,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     spawn = undefined; renderMonsters();
     if (!a.area && targets.length) return fire(t.id, a.id, targets);
     armed = { tok: t.id, a };
+    tpl = a.area ? templateTargeting(a, { caster: t.id, state: () => state, table: { setMarks: m => void table.then(x => x.setMarks(m)) }, baseMarks, fire }) : undefined;
     renderHud(); marks();
     say(a.area ? `${a.name}: haz clic en el mapa` : `${a.name}: elige un objetivo`);
   };
@@ -512,8 +540,9 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
         ${m.roll.expr === 'iniciativa' ? '' : `<strong class="total">${m.roll.total}</strong>`}<span class="det">${esc(m.roll.detail)}</span>
         ${m.roll.secret ? '<em class="secreta">secreta</em>' : ''}${rollBadges(m.roll)}`;
     } else {
-      el.className = 'msg';
-      el.innerHTML = `<span class="quien">${who}</span> ${esc(m.text ?? '')}`;
+      const x = renderChatExtras(m, name);
+      el.className = x?.cls ?? 'msg';
+      el.innerHTML = x?.html ?? `<span class="quien">${who}</span> ${esc(m.text ?? '')}`;
     }
     const dice = m.card?.dice ?? m.roll?.dice;
     if (live && show3d && dice?.length && !rolled.has(m.id)) {
@@ -555,8 +584,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   };
 
   // Pestañas y plegado
-  const tab = (a: 'reg' | 'hoja' | 'mesa' | 'esc' | 'aj' | 'dia' | 'biblioteca' | 'encuentros') => {
-    for (const k of ['reg', 'hoja', 'mesa', 'esc', 'aj', 'dia', 'biblioteca', 'encuentros'] as const) {
+  const tab = (a: 'reg' | 'hoja' | 'mesa' | 'esc' | 'aj' | 'dia' | 'biblioteca' | 'encuentros' | 'pantalla' | 'cuenta') => {
+    for (const k of ['reg', 'hoja', 'mesa', 'esc', 'aj', 'dia', 'biblioteca', 'encuentros', 'pantalla', 'cuenta'] as const) {
       $('t-' + k).setAttribute('aria-selected', String(k === a));
       $('p-' + k).hidden = k !== a;
     }
@@ -569,6 +598,13 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   $('t-dia').onclick = () => tab('dia');
   $('t-biblioteca').onclick = () => tab('biblioteca');
   $('t-encuentros').onclick = () => tab('encuentros');
+  $('t-pantalla').onclick = () => tab('pantalla');
+  $('t-cuenta').onclick = () => tab('cuenta');
+  if (w.role === 'dm') {
+    mountDmScreen($('p-pantalla')); mountDdbMonsters($('p-cuenta'), ctx);
+    $('t-pantalla').hidden = $('t-cuenta').hidden = false;
+  }
+  mountDock(root);
   // ---- fase 6: menú radial, paleta, modos de pantalla, accesibilidad ----
   const radialCtx = {
     role: w.role, memberId: w.memberId,
@@ -627,10 +663,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     const inp = $<HTMLInputElement>('txt');
     const v = inp.value.trim();
     if (!v) return;
-    const r = v.match(/^\/(rs|r|tirar)\s+(.+)$/i);
-    if (r) net.send({ t: 'roll', expr: r[2], ...(r[1].toLowerCase() === 'rs' ? { secret: true } : {}) });
-    else net.send({ t: 'chat', text: v });
-    inp.value = '';
+    if (chatSendFromInput(v, { send: m => net.send(m), state: () => state, me: w.memberId, toast: m => say(m, 3500) })) inp.value = '';
   };
 
   return {
@@ -641,6 +674,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       else if (m.t === 'ping') table.then(t => t.ping(m.x, m.y, colorOf(m.from)));
       else if (m.t === 'npcSay') { story.npcSay(m); speakNpc(m.name, m.text); }
       else if (m.t === 'copilot') copilot?.handle(m);
+      else if (m.t === 'draw' || m.t === 'cursor' || m.t === 'focus') drawApi?.handle(m);
+      else if (m.t === 'reactionPrompt') reactionPrompt(m, c2);
       else if (m.t === 'handout') showHandout(m.entry);
       else if (m.t === 'regionMsg') showRegionMsg(m.text);
       else if (m.t === 'transition') story.transition(m);

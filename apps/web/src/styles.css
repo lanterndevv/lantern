@@ -406,3 +406,64 @@ kbd { font: .7rem var(--mono); color: var(--ambar-claro); }
 .cop-card button { min-height: 44px; }
 .voces .chk { display: flex; align-items: center; gap: 8px; } .voces .chk input { width: auto; min-height: 0; }
 [aria-busy="true"] { opacity: .75; font-style: italic; }
+
+/* fase 9 B */
+.c2-pips { font-size: .8rem; letter-spacing: 1px; color: var(--ambar-claro); background: transparent; border: 0; padding: 2px 4px; min-height: 24px; cursor: pointer; }
+span.c2-pips { cursor: default; }
+.c2-extras { position: absolute; top: 96px; left: 50%; transform: translateX(-50%); z-index: 4; }
+.c2-react { position: absolute; z-index: 70; left: 50%; top: 20%; transform: translateX(-50%); padding: 14px 18px; display: grid; gap: 10px; border-color: var(--ambar); }
+.c2-react p { margin: 0; }
+.c2-cuenta { font-family: var(--mono); color: var(--ambar-claro); margin-left: 8px; }
+.sel-lazo { position: absolute; z-index: 3; pointer-events: none; border: 2px dashed var(--foco); background: rgba(232,163,61,.12); }
+.sel-aro { position: absolute; z-index: 3; pointer-events: none; border: 3px solid var(--foco); border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 0 1px #000; }
+.sel-bar { position: absolute; z-index: 5; left: 50%; bottom: 84px; transform: translateX(-50%); display: flex; gap: 8px; align-items: center; padding: 8px 12px; }
+.dock-btns { display: flex; gap: 4px; margin-left: auto; }
+.dock-btns button { background: transparent; border-color: transparent; }
+.mesa.dock-izq .lado { right: auto; left: 12px; }
+.mesa.dock-izq .tl { left: auto; right: 12px; }
+.mesa.dock-izq .hud { max-width: calc(100% - 380px); left: calc(50% + 176px); }
+.mesa.popout > :not(.lado):not(#toast):not(.c2-react) { display: none !important; }
+.mesa.popout .lado { inset: 0; width: auto; border-radius: 0; }
+.mesa.popout #plegar, .mesa.popout .dock-btns, .mesa.popout [role=tablist] { display: none; }
+.mesa.popout header { display: none; }
+@media (prefers-reduced-motion: reduce) { .c2-react { animation: none; } }
+/* fase 9 A */
+.cx-sel { display: flex; gap: 8px; flex-wrap: wrap; width: 100%; }
+.cx-sel label { display: grid; gap: 2px; font-size: .8rem; color: var(--txt2); flex: 1 1 120px; }
+.cx-sel select { min-height: 44px; background: var(--sombra); color: inherit; border: 1px solid var(--borde); border-radius: var(--r-btn); padding: 0 8px; }
+.msg.susurro { font-style: italic; opacity: .92; } .cx-susurro { color: var(--ambar-claro); font-size: .85em; }
+.msg.emote .cx-emote { font-style: italic; color: var(--ambar-claro); }
+.cx-ic { font-family: var(--serif); font-weight: 700; }
+.dr-box { display: flex; flex-direction: column; gap: 6px; position: relative; }
+.dr-box > button { width: 44px; height: 44px; padding: 0; font-size: 1.2rem; }
+.dr-box button[aria-pressed=true] { background: var(--ambar); color: var(--sobre-ambar); border-color: transparent; }
+.dr-panel { position: absolute; left: 52px; top: 0; z-index: 8; display: grid; gap: 8px; padding: 10px; width: 210px; }
+.dr-cols { display: flex; gap: 6px; flex-wrap: wrap; }
+.dr-col { position: relative; width: 44px; height: 44px; border-radius: 50%; background: var(--c); border: 2px solid var(--borde); cursor: pointer; display: grid; place-items: center; }
+.dr-col input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.dr-col:has(input:checked) { outline: 3px solid var(--txt); outline-offset: 2px; }
+.dr-col:has(input:focus-visible) { outline: 3px solid var(--ambar-claro); outline-offset: 3px; }
+.dr-cur { font-size: .75rem; min-height: 0; }
+.rl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rl-t { font-variant-numeric: tabular-nums; } .rl-i[data-sun=true] { color: var(--ambar-claro); }
+.rl-b, .rl-f { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; } .rl-f[hidden] { display: none; }
+.tb-ed, .tb-view { display: grid; gap: 8px; } .tb-view table { border-collapse: collapse; width: 100%; }
+.tb-view th, .tb-view td { padding: 4px 8px; border-bottom: 1px solid var(--borde); text-align: left; }
+.dms dt { font-weight: 700; margin-top: 8px; } .dms dd { margin: 0 0 4px; color: var(--txt2); }
+.ti-pick { display: grid; gap: 4px; }
+@media (prefers-reduced-motion: reduce) { .dr-panel { transition: none; } }
+/* fase 9: integración (orquestador) */
+.mesa > .dr-bar { position: absolute; left: 12px; bottom: 76px; z-index: 6; }
+.mesa > .ed-bar { max-height: calc(100% - 330px); }
+.dr-bar .dr-panel { top: auto; bottom: 0; }
+@media (max-width: 700px) {
+  .mesa > .dr-bar { bottom: calc(55vh + 12px); }
+  .mesa:has(.lado.plegado) > .dr-bar { bottom: 12px; }
+}
+#chat { flex-wrap: wrap; } #chat #txt { flex: 1 1 140px; min-width: 0; }
+#reloj:empty { display: none; }
+.dm-lista { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }
+.dm-lista li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 8px; border: 1px solid var(--borde); border-radius: var(--r-btn); background: var(--sombra); }
+.dm-lista li button { margin-left: auto; min-height: 44px; }
+.dm-lista small { color: var(--txt2); }
+#sh-img:empty { display: none; }

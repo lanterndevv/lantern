@@ -6,6 +6,7 @@
 //   // en cada estado: jr.update(state);
 //   // S2C 'handout':   showHandout(m.entry);      S2C 'regionMsg':   showRegionMsg(m.text);
 import type { C2S, ClientState, JournalEntry, Role } from '@lantern/protocol';
+import { tableEditor, tableView } from './tables.ts';
 
 export type JrCtx = { send(m: C2S): void; state(): ClientState; role: Role; memberId: string; toast(msg: string): void };
 
@@ -29,6 +30,7 @@ async function upload(code: string, f: File): Promise<string> {
 export function mountJournal(el: HTMLElement, ctx: JrCtx) {
   const staff = ctx.role === 'dm' || ctx.role === 'assistant';
   let selId: string | undefined, editing: JournalEntry | null = null, q = '', sig = '';
+  let tb: ReturnType<typeof tableEditor> | undefined;
   el.classList.add('dj');
   el.innerHTML = `<div class="dj-top"><label>Buscar<input type="search" id="dj-q" autocomplete="off"></label>${staff ? '<button type="button" class="primary" data-a="new">Nueva entrada</button>' : ''}</div>
     <nav aria-label="Entradas del diario" id="dj-list"></nav><section id="dj-main" class="dj-lector" aria-live="polite"></section>`;
@@ -56,6 +58,7 @@ export function mountJournal(el: HTMLElement, ctx: JrCtx) {
       (staff ? '<div class="ed-btns"><button type="button" data-a="edit">Editar</button><button type="button" class="primary" data-a="show">Mostrar a jugadores</button><button type="button" data-a="del">Borrar</button></div>' : '');
     main.querySelector('h3')!.textContent = e.title;
     main.querySelector('.dj-cuerpo')!.textContent = e.body; // nunca innerHTML con el cuerpo
+    if (e.table) main.querySelector('.dj-cuerpo')!.after(tableView(e, ctx));
     if (e.image) { const i = main.querySelector('img')!; i.src = e.image; i.className = 'dj-img'; }
   }
 
@@ -75,6 +78,8 @@ export function mountJournal(el: HTMLElement, ctx: JrCtx) {
         ${others.map(m => `<label class="chk"><input type="checkbox" data-m="${esc(m.id)}"${Array.isArray(vis) && vis.includes(m.id) ? ' checked' : ''}> ${esc(m.name)}</label>`).join('')}</fieldset>
       <p class="det" id="dj-st" role="status"></p>
       <div class="ed-btns"><button type="button" class="primary" data-a="save">Guardar</button><button type="button" data-a="cancel">Cancelar</button></div>`;
+    tb = tableEditor(e);
+    main.querySelector('#dj-st')!.before(tb.el);
     main.querySelector<HTMLElement>('#dj-t')!.focus();
   }
 
@@ -84,6 +89,8 @@ export function mountJournal(el: HTMLElement, ctx: JrCtx) {
     const st = (m: string) => { main.querySelector('#dj-st')!.textContent = m; };
     const title = v('dj-t').value.trim();
     if (!title) return st('Escribe un título');
+    const r = tb?.get();
+    if (r?.error) return st(r.error);
     let image = v('dj-iu').value.trim() || undefined;
     const f = v('dj-if').files?.[0];
     if (f) {
@@ -95,7 +102,7 @@ export function mountJournal(el: HTMLElement, ctx: JrCtx) {
     const mode = main.querySelector<HTMLInputElement>('input[name=dj-v]:checked')?.value;
     const visibleTo: JournalEntry['visibleTo'] = mode === 'all' ? 'all' : mode === 'some'
       ? [...main.querySelectorAll<HTMLInputElement>('[data-m]:checked')].map(c => c.dataset.m!) : 'dm';
-    const entry: JournalEntry = { id: editing.id, title, body: v('dj-b').value, visibleTo, ...(v('dj-f').value.trim() ? { folder: v('dj-f').value.trim() } : {}), ...(image ? { image } : {}) };
+    const entry: JournalEntry = { id: editing.id, title, body: v('dj-b').value, visibleTo, ...(v('dj-f').value.trim() ? { folder: v('dj-f').value.trim() } : {}), ...(image ? { image } : {}), ...(r?.table ? { table: r.table } : {}) };
     ctx.send({ t: 'journal', entry });
     selId = entry.id; editing = null; sig = ''; renderList(); renderMain();
   }

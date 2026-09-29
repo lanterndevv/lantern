@@ -1,6 +1,7 @@
 import type { Ability, C2S, Token } from '@lantern/protocol';
 import { CONDITIONS, SKILLS } from '@lantern/rules';
 import { openCreator } from './creator.ts';
+import { tokenImagePicker } from './draw.ts';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 const AB: Record<Ability, string> = { str: 'FUE', dex: 'DES', con: 'CON', int: 'INT', wis: 'SAB', cha: 'CAR' };
@@ -26,13 +27,14 @@ export const deathSavesHtml = (t: Token) => {
     <button type="button" class="primary" data-ds="${esc(t.id)}">Tirar salvación de muerte</button></div>`;
 };
 
-type Ctx = { role: string; token: () => Token | undefined; send: (m: C2S) => void };
+type Ctx = { role: string; memberId: string; token: () => Token | undefined; send: (m: C2S) => void; code: string; key: () => string | null };
 
 export function mountSheet(el: HTMLElement, cx: Ctx) {
   const dm = cx.role === 'dm';
   // Parte estática (formularios que no deben perder el foco al llegar estado) + parte dinámica
   el.innerHTML = `<div id="sh-vacio" class="det" hidden>No controlas ningún personaje. Selecciona un token.</div>
     <div id="sh-hp" class="sr" role="status" aria-live="polite"></div>
+    <div id="sh-img"></div>
     <div id="sh-dyn"></div>
     <div id="sh-forms" hidden>
       <form id="sh-cond" class="fila"><label>Condición<select id="sh-cid">${Object.entries(CONDITIONS).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</select></label>
@@ -44,11 +46,15 @@ export function mountSheet(el: HTMLElement, cx: Ctx) {
       <button type="button" id="sh-crear" class="secondary">Crear personaje</button>
     </div>`;
   const q = <T extends HTMLElement>(id: string) => el.querySelector<T>('#' + id)!;
-  let lastHp = '', lastId = '';
+  let lastHp = '', lastId = '', imgId = '';
   const render = () => {
     const t = cx.token();
     q('sh-vacio').hidden = !!t; q('sh-forms').hidden = !t;
-    if (!t) { q('sh-dyn').replaceChildren(); return; }
+    if (!t) { q('sh-dyn').replaceChildren(); q('sh-img').replaceChildren(); imgId = ''; return; }
+    if (t.id !== imgId) { // el selector de imagen es estático: solo se rehace al cambiar de token (si no, se pierde el estado de la subida)
+      imgId = t.id;
+      q('sh-img').replaceChildren(...(dm || t.owners.includes(cx.memberId) ? [tokenImagePicker(t, cx)] : []));
+    }
     const ab = t.abilities, prof = t.prof ?? 0;
     const hp = t.hp;
     const hpTxt = hp ? `PG ${hp.cur} de ${hp.max}${hp.temp ? `, más ${hp.temp} temporales` : ''}` : '';
