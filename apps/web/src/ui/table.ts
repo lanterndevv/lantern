@@ -95,12 +95,20 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   let tt: number;
   $('cod').onclick = async () => {
     const url = `${location.origin}${location.pathname}?code=${state.code}`;
-    try { await navigator.clipboard.writeText(url); } catch { /* ponytail: sin fallback si no hay portapapeles (http no seguro) */ }
+    let ok = false;
+    try { await navigator.clipboard.writeText(url); ok = true; } catch {
+      // Sin API de portapapeles (http no seguro, permisos): método clásico con selección.
+      const ta = document.createElement('textarea');
+      ta.value = url; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.append(ta); ta.select();
+      try { ok = document.execCommand('copy'); } catch { /* sin portapapeles */ }
+      ta.remove();
+    }
     const t = $('toast');
-    t.textContent = 'Enlace copiado';
-    t.classList.add('show');
+    t.textContent = ok ? `Enlace copiado · código ${state.code}` : `No se pudo copiar. Código: ${state.code} · ${url}`;
+    t.classList.add('show'); t.classList.toggle('sel', !ok);
     clearTimeout(tt);
-    tt = window.setTimeout(() => t.classList.remove('show'), 2000);
+    tt = window.setTimeout(() => t.classList.remove('show'), ok ? 2000 : 10000);
   };
 
   // Pestañas y plegado

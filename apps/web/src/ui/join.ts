@@ -2,7 +2,8 @@ import type { S2C } from '@lantern/protocol';
 import { CODE_ALPHABET } from '@lantern/protocol';
 import { net, savedName } from '../net.ts';
 
-const clean = (s: string) => [...s.toUpperCase()].filter(c => CODE_ALPHABET.includes(c)).join('').slice(0, 6);
+// Acepta el código suelto o el enlace de invitación entero (…?code=XXXXXX).
+const clean = (s: string) => [...(s.match(/code=([^&#\s]+)/i)?.[1] ?? s).toUpperCase()].filter(c => CODE_ALPHABET.includes(c)).join('').slice(0, 6);
 const fmt = (c: string) => c.length > 3 ? `${c.slice(0, 3)}-${c.slice(3)}` : c;
 
 export function mountJoin(app: HTMLElement) {
@@ -13,7 +14,7 @@ export function mountJoin(app: HTMLElement) {
       <h1>Únete a la mesa</h1>
       <p class="sub">Escribe el código que te dio tu DM.</p>
       <label>Código de la mesa
-        <input id="code" class="mono" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="7" placeholder="K7Q-4ZP" inputmode="text">
+        <input id="code" class="mono" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="K7Q-4ZP o enlace" inputmode="text">
       </label>
       <label>Tu nombre
         <input id="name" autocomplete="nickname" maxlength="24" required>

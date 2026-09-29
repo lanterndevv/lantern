@@ -72,6 +72,7 @@ label { display: grid; gap: 6px; color: var(--txt2); font-size: .9rem; }
 .dot.on { background: var(--exito); }
 .toast { position: absolute; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none; transition: .2s; background: var(--cristal); backdrop-filter: blur(18px); border: 1px solid var(--borde); border-radius: var(--r-btn); padding: 10px 16px; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast.sel { pointer-events: auto; user-select: all; }
 
 @media (max-width: 699px) {
   .lado { top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; height: 55vh; }
