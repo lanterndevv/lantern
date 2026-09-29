@@ -26,6 +26,8 @@ export type Table = {
   ping(x: number, y: number, color: string): void;
   floatText(tokenId: Id, text: string, color: string): void; // número flotante (daño/curación) sobre un token
   effect(e: import("./api.ts").Effect): void;       // VFX puntual; el clima sale de scene.weather en setState
+  setTool(t: import("./api.ts").EditTool): void;    // fase 5: herramientas de edición (solo DM)
+  onEdit(cb: (op: import("./api.ts").EditOp) => void): void;
   destroy(): void;
 };
 
@@ -40,3 +42,22 @@ export type Effect =
   | { kind: 'miss'; at: { x: number; y: number } };
 
 export type TableFx = { effect(e: Effect): void }; // Table también implementa esto (table.effect)
+
+// ---- Edición (fase 5): el renderer dibuja la capa de edición y emite operaciones; el shell las envía al servidor ----
+export type EditTool =
+  | { tool: 'none' }
+  | { tool: 'select' }                                    // clic elige muro/luz/región/token; Supr borra; arrastrar vértices
+  | { tool: 'wall'; kind: 'wall' | 'door' | 'window' | 'terrain' } // clics encadenados, imán a esquinas de casilla; doble clic/Esc termina
+  | { tool: 'light'; bright: number; dim: number; color: string }  // clic coloca; arrastrar fija el radio
+  | { tool: 'region'; kind: import('@lantern/protocol').Region['kind'] } // clics = polígono; doble clic cierra
+  | { tool: 'grid' };                                      // calibrar: arrastrar un recuadro sobre 2×2 casillas del dibujo
+
+export type EditOp =
+  | { op: 'upsert'; kind: 'wall'; item: import('@lantern/protocol').Wall }
+  | { op: 'upsert'; kind: 'light'; item: import('@lantern/protocol').Light }
+  | { op: 'upsert'; kind: 'region'; item: import('@lantern/protocol').Region }
+  | { op: 'remove'; kind: 'wall' | 'light' | 'region' | 'token'; id: string }
+  | { op: 'select'; kind: 'wall' | 'light' | 'region' | 'token' | null; id?: string } // para el inspector del shell
+  | { op: 'grid'; size: number; offsetX: number; offsetY: number };
+
+export type TableEdit = { setTool(t: EditTool): void; onEdit(cb: (op: EditOp) => void): void };

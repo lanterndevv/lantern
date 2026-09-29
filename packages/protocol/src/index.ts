@@ -8,7 +8,7 @@ export type Faction = 'ally' | 'enemy' | 'neutral';
 
 // wall: bloquea vista y paso · door: igual salvo abierta · window: deja ver, no pasar · terrain: deja ver, no pasar
 export type WallKind = 'wall' | 'door' | 'window' | 'terrain';
-export type Wall = { id: Id; a: Point; b: Point; kind: WallKind; open?: boolean; secret?: boolean };
+export type Wall = { id: Id; a: Point; b: Point; kind: WallKind; open?: boolean; secret?: boolean; locked?: boolean; note?: string }; // note: solo DM
 
 export type Light = {
   id: Id; x: number; y: number;
@@ -54,6 +54,7 @@ export type Token = {
   actions?: Action[];
   slots?: Record<number, { max: number; used: number }>; // espacios de conjuro por nivel
   srd?: string;                // id de la entrada del compendio SRD de la que sale
+  notes?: string;              // nota privada del DM (el servidor la quita para los demás)
   ddb?: { id: number; level: number; classes: string; syncedAt: number }; // vinculado a un personaje de D&D Beyond
   abilities?: Record<Ability, number>;        // puntuaciones (no modificadores)
   skills?: Record<string, number>;            // modificador total por habilidad (ids en inglés: 'perception', 'stealth'…)
@@ -123,8 +124,38 @@ export type Scene = {
   tokens: Token[];
   globalLight: number;         // 0 = oscuridad total, 1 = pleno día
   weather?: Weather;
+  regions?: Region[];
+  folder?: string;             // carpeta en la biblioteca
+  audioPreset?: AudioState;    // música/ambiente que se activan con la escena
+  dmNotes?: string;            // notas del DM de la escena (solo DM)
   story?: { image?: string; title?: string; subtitle?: string }; // ilustración del modo Historia
 };
+
+// Región del mapa con comportamiento. points = polígono en px de mundo.
+export type Region = {
+  id: Id; name: string; points: Point[];
+  kind: 'difficult' | 'trap' | 'teleport' | 'fog' | 'darkness' | 'sound' | 'message';
+  // difficult: el movimiento dentro cuesta el doble · fog: oculta a los jugadores lo que hay dentro hasta que el DM la quita
+  // darkness: sin luz dentro · trap/teleport/sound/message: se disparan al entrar un token
+  hidden: boolean;             // los jugadores no ven la región (las trampas suelen estarlo)
+  once?: boolean; fired?: boolean;
+  onlyAllies?: boolean;        // solo la disparan personajes
+  save?: { ability: Ability; dc: number };  // trap
+  damage?: string; damageType?: string;     // trap (mitad si supera la salvación)
+  condition?: string;                       // trap: condición si falla (p. ej. 'prone')
+  to?: Point;                               // teleport
+  sfx?: string;                             // sound/trap
+  text?: string;                            // message (lo ve quien entra) / descripción
+};
+
+export type JournalEntry = {
+  id: Id; title: string; body: string;      // body: texto plano con saltos de línea
+  image?: string;                            // URL https o /assets/…
+  visibleTo: 'dm' | 'all' | Id[];            // quién puede leerla
+  folder?: string;
+};
+
+export type LibraryItem = { id: Id; name: string; folder?: string; active: boolean; tokens: number; walls: number; background?: string };
 
 export type Weather = { kind: 'none' | 'rain' | 'snow' | 'fog' | 'ash' | 'storm' | 'leaves' | 'embers'; intensity: number; wind: number }; // intensity 0–1, wind −1…1
 
@@ -154,6 +185,8 @@ export type ClientState = {
   settings: TableSettings;
   view: 'tactical' | 'story';
   audio: AudioState;
+  journal: JournalEntry[];     // filtrado por visibleTo
+  library?: LibraryItem[];     // solo DM/asistente
 };
 
 export type ChatMsg = {
@@ -200,7 +233,17 @@ export type C2S =
   | { t: 'audio'; op: 'layer'; layer: AudioState['layers'][number] }  // añade/actualiza capa de ambiente
   | { t: 'audio'; op: 'unlayer'; id: Id }
   | { t: 'sfx'; name: string }                                         // DM/trusted: efecto puntual (nombre de efecto sintetizado)
-  | { t: 'rtc'; to: Id; data: unknown };                              // señalización WebRTC de voz, se reenvía tal cual al destinatario
+  | { t: 'rtc'; to: Id; data: unknown }                               // señalización WebRTC de voz, se reenvía tal cual al destinatario
+  | { t: 'upsert'; kind: 'region'; item: Region }                    // DM
+  | { t: 'remove'; kind: 'region'; id: Id }                          // DM
+  | { t: 'sceneNew'; name: string; from?: Id }                       // DM: escena vacía o duplicada de `from`
+  | { t: 'sceneActivate'; id: Id }                                   // DM: todos pasan a esa escena (se aplica su audioPreset)
+  | { t: 'sceneUpdate'; id: Id; name?: string; folder?: string }      // DM
+  | { t: 'sceneDelete'; id: Id }                                     // DM (no la activa)
+  | { t: 'journal'; entry: JournalEntry }                            // DM: crea/actualiza
+  | { t: 'journalDelete'; id: Id }                                   // DM
+  | { t: 'handout'; entryId: Id }                                    // DM: muestra la entrada a quienes pueden verla
+  | { t: 'spawnMany'; items: { srd: string; x: number; y: number }[]; hidden?: boolean }; // DM: encuentro
 
 // Servidor → cliente
 export type S2C =
@@ -213,6 +256,8 @@ export type S2C =
   | { t: 'sfx'; name: string }
   | { t: 'rtc'; from: Id; data: unknown }
   | { t: 'clock'; now: number }                                        // reloj del servidor (ms) para sincronizar audio; se envía tras welcome
+  | { t: 'handout'; entry: JournalEntry }
+  | { t: 'regionMsg'; text: string };                                  // mensaje de una región al token que entra
   | { t: 'error'; msg: string };
 
 export const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // sin 0/O/1/I/L
