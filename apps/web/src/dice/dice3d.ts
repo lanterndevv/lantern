@@ -10,7 +10,9 @@ type Face = { c: V3; n: V3; up: V3; r: number; pts: V3[] };
 type Shape = { faces: Face[]; geo: THREE.BufferGeometry; edges: THREE.BufferGeometry; cols: number; rows: number };
 export type Settled = { die: Die; shown: number }[];
 
-const MAX = 12, DUR = 1.5, HOLD = 2.5, FADE = 0.45, CELL = 160, CAM_Z = 9, FOV = 30;
+const MAX = 12, DUR = 1.5, HOLD = 2.5, FADE = 0.45, CELL = 160, FOV = 30;
+// Tamaño en pantalla fijo: 130 px por unidad de mundo ⇒ un dado mide ~50–65 px en cualquier monitor (antes crecía con la altura de la ventana).
+const PX_PER_UNIT = 100, GAP = 1.15; // GAP: separación entre dados en unidades
 const PHI = (1 + Math.sqrt(5)) / 2;
 const v3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
@@ -157,8 +159,7 @@ export function createDiceTray(parent: HTMLElement, onSettle?: (r: Settled) => v
   parent.append(canvas, etq);
 
   const scene = new THREE.Scene(), cam = new THREE.PerspectiveCamera(FOV, 1, 0.1, 100);
-  cam.position.set(0, 0, CAM_Z);
-  const worldH = 2 * CAM_Z * Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+  let worldH = 1;
   const pm = new THREE.PMREMGenerator(renderer), envTex = pm.fromScene(new RoomEnvironment(), 0.04).texture;
   scene.environment = envTex; scene.environmentIntensity = 0.35;
   const amber = new THREE.DirectionalLight(0xffb060, 2.6); amber.position.set(-4, 5, 8);
@@ -176,7 +177,10 @@ export function createDiceTray(parent: HTMLElement, onSettle?: (r: Settled) => v
 
   const resize = () => {
     const w = parent.clientWidth || 1, h = parent.clientHeight || 1;
-    renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix();
+    renderer.setSize(w, h, false); cam.aspect = w / h;
+    worldH = h / PX_PER_UNIT;
+    cam.position.set(0, 0, worldH / (2 * Math.tan(THREE.MathUtils.degToRad(FOV / 2))));
+    cam.updateProjectionMatrix();
   };
   resize();
   let bodies: Body[] = [], active = false, dead = false, raf = 0;
@@ -237,7 +241,7 @@ export function createDiceTray(parent: HTMLElement, onSettle?: (r: Settled) => v
     // Reparto en rejilla centrada, sin solapes.
     const aspect = cam.aspect, halfW = worldH * aspect / 2, n = specs.length;
     const cols = Math.min(n, 6), rows = Math.ceil(n / cols);
-    const k = Math.min(1, (2 * halfW * 0.9) / (cols * 1.4), 4.2 / (rows * 1.4)), sp = 1.4 * k, yc = 0.5;
+    const k = Math.min(1, (2 * halfW * 0.9) / (cols * GAP), 4.2 / (rows * GAP)), sp = GAP * k, yc = 0.5;
     const wSrc = Math.random;
     bodies = specs.map((sp_, i) => {
       const s = shape(sp_.key), labels = assignLabels(s.faces, sp_.L);
