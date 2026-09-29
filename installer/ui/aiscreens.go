@@ -2,6 +2,8 @@ package ui
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -24,17 +26,32 @@ type aiFlow struct {
 	key    string
 	models []string
 	model  string
+	sid    string // id de instalación para x-opencode-session
 	ep     ai.Endpoint
 	onDone func(a *App) tea.Cmd // qué hacer al terminar todo el flujo de IA
 }
 
+// headers copia las del proveedor y hace único por instalación el x-opencode-session.
+func (f *aiFlow) headers() map[string]string {
+	h := map[string]string{}
+	for k, v := range f.prov.Headers {
+		if k == "x-opencode-session" {
+			v = "lantern-" + f.sid
+		}
+		h[k] = v
+	}
+	return h
+}
+
 func (f *aiFlow) endpoint() ai.Endpoint {
-	return ai.Endpoint{Format: f.prov.Format, URL: f.prov.Resolve(f.params), Key: f.key, Headers: f.prov.Headers}
+	return ai.Endpoint{Format: f.prov.Format, URL: f.prov.Resolve(f.params), Key: f.key, Headers: f.headers()}
 }
 
 // toAI arranca el flujo de IA del asistente (después irá a Laya).
 func (a *App) toAI() tea.Cmd {
-	a.ai = aiFlow{onDone: func(a *App) tea.Cmd { return a.toLaya() }}
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	a.ai = aiFlow{sid: hex.EncodeToString(b), onDone: func(a *App) tea.Cmd { return a.toLaya() }}
 	a.cfg.LLM, a.cfg.LLM2 = nil, nil
 	return a.goTo(aiIntro(a))
 }
@@ -314,7 +331,7 @@ func (s *keyScreen) Update(a *App, msg tea.Msg) tea.Cmd {
 		}
 	case modelsMsg:
 		if m.err != nil {
-			s.state, s.err = 2, ai.Explain(m.err, a.es())
+			s.state, s.err = 2, ai.Explain(m.err, a.es(), a.ai.prov.KeyURL)
 			s.retry = newChoice([]item{{title: a.t("Reintentar con otra clave", "Retry with another key")}, {title: a.t("Elegir otro proveedor", "Choose another provider")}}, 0)
 			return nil
 		}
@@ -372,11 +389,14 @@ func (s *keyScreen) Help(a *App) string {
 // ---------- modelo ----------
 
 func newModelScreen(a *App) screen {
-	def := a.ai.prov.Model
+	def, warn := a.ai.prov.Model, ""
 	for _, m := range a.ai.models {
 		if m == def {
 			goto found
 		}
+	}
+	if def != "" { // el recomendado ya no existe en este proveedor: se avisa y se preselecciona otro
+		warn = a.t(" El recomendado ("+def+") ya no existe; he preseleccionado "+a.ai.models[0]+".", " The recommended one ("+def+") no longer exists; I preselected "+a.ai.models[0]+".")
 	}
 	def = a.ai.models[0]
 found:
@@ -392,7 +412,7 @@ found:
 	f := huh.NewForm(huh.NewGroup(huh.NewSelect[string]().Title(a.t("Elige el modelo", "Choose the model")).
 		Description(a.t("Escribe / para filtrar la lista.", "Type / to filter the list.")).
 		Options(opts...).Filtering(true).Height(12).Value(&a.ai.model)))
-	return newForm(a, 3, a.t("Clave correcta. Hay "+fmt.Sprint(len(a.ai.models))+" modelos disponibles.", "Key accepted. "+fmt.Sprint(len(a.ai.models))+" models available."), f,
+	return newForm(a, 3, a.t("Hay "+fmt.Sprint(len(a.ai.models))+" modelos disponibles. La clave se comprobará con una prueba.", fmt.Sprint(len(a.ai.models))+" models available. The key will be checked with a test.")+warn, f,
 		func(a *App) tea.Cmd { return a.replace(newTestScreen(a)) })
 }
 
@@ -441,7 +461,7 @@ func (s *testScreen) Update(a *App, msg tea.Msg) tea.Cmd {
 		if m.err != nil {
 			first = a.t("Guardar de todos modos", "Save anyway")
 		}
-		s.choice = newChoice([]item{{title: first}, {title: a.t("Elegir otro modelo", "Choose another model")}, {title: a.t("Elegir otro proveedor", "Choose another provider")}}, 0)
+		s.choice = newChoice([]item{{title: first}, {title: a.t("Elegir otro modelo", "Choose another model")}, {title: a.t("Probar con otra clave", "Try another key")}, {title: a.t("Elegir otro proveedor", "Choose another provider")}}, 0)
 		return nil
 	}
 	if s.done && s.choice.update(msg) {
@@ -450,6 +470,8 @@ func (s *testScreen) Update(a *App, msg tea.Msg) tea.Cmd {
 			return a.acceptLLM()
 		case 1:
 			return a.replace(newModelScreen(a))
+		case 2:
+			return a.replace(newKeyScreen(a))
 		default:
 			return a.replace(newProviderScreen(a))
 		}
@@ -463,7 +485,7 @@ func (s *testScreen) View(a *App, w, h int) string {
 	}
 	head := a.th.Good.Render("✓ " + a.t("Funciona. Respuesta: ", "It works. Reply: ") + clip(s.text, w-30))
 	if s.err != nil {
-		head = a.th.Bad.Render("✗ "+a.t("La prueba falló: ", "The test failed: ")) + wrap(ai.Explain(s.err, a.es()), w)
+		head = a.th.Bad.Render("✗ "+a.t("La prueba falló: ", "The test failed: ")) + wrap(ai.Explain(s.err, a.es(), a.ai.prov.KeyURL), w)
 	}
 	s.choice.Y0 = strings.Count(head, "\n") + 2
 	return head + "\n\n" + s.choice.view(a.th, w, 5, false)
@@ -471,7 +493,7 @@ func (s *testScreen) View(a *App, w, h int) string {
 
 // acceptLLM guarda el proveedor en la ranura actual y sigue con reserva o fin.
 func (a *App) acceptLLM() tea.Cmd {
-	l := &model.LLM{ID: a.ai.prov.ID, Format: a.ai.prov.Format, URL: a.ai.prov.Resolve(a.ai.params), Key: a.ai.key, Model: a.ai.model, Headers: a.ai.prov.Headers}
+	l := &model.LLM{ID: a.ai.prov.ID, Format: a.ai.prov.Format, URL: a.ai.prov.Resolve(a.ai.params), Key: a.ai.key, Model: a.ai.model, Headers: a.ai.headers()}
 	if a.ai.slot == 0 {
 		a.cfg.LLM = l
 		items := []item{{title: a.t("No, gracias", "No, thanks")}, {title: a.t("Sí, añadir un proveedor de reserva", "Yes, add a fallback provider"),

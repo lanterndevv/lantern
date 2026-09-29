@@ -205,6 +205,6 @@ test('reserva LANTERN_LLM2_*: se usa si el principal da 429 o no responde a tiem
     process.env.LANTERN_LLM_URL = `http://127.0.0.1:${(slow.address() as { port: number }).port}`; process.env.LANTERN_LLM_TIMEOUT_MS = '300';
     assert.match(await text(), /DE-RESERVA/); slow.closeAllConnections(); slow.close();
     delete process.env.LANTERN_LLM2_URL; process.env.LANTERN_LLM_URL = p429.url; // sin reserva el error se propaga
-    assert.match(await text(), /HTTP 429/);
+    assert.match(await text(), /límite/);
   } finally { clean(); back.s.close(); p429.s.close(); }
 });

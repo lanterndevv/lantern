@@ -73,7 +73,17 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
     timers.set(r.code, setTimeout(() => { timers.delete(r.code); db.save(r); }, 500).unref());
   };
   const signer = process.env.LANTERN_SIGNED_ASSETS === '1' ? createSigner() : undefined; // secreto por arranque: al reiniciar, los clientes reciben URLs nuevas al reconectar
-  const send = (ws: WebSocket, m: S2C) => ws.readyState === ws.OPEN && ws.send(signer ? signer.sign(JSON.stringify(m)) : JSON.stringify(m));
+  // Errores de protocolo a stdout: hora, tipo/op del C2S, texto y rol; sin contenido, claves ni nombres. Máx. 1 línea por (t,error) cada 10 s + contador.
+  const cur = new WeakMap<WebSocket, { t?: unknown; op?: unknown }>(), errLog = new Map<string, { at: number; skipped: number }>();
+  const tag = (v: unknown) => typeof v === 'string' && /^[\w-]{1,24}$/.test(v) ? v : '?';
+  const logErr = (ws: WebSocket, text: string) => {
+    const c = cur.get(ws), k = `${tag(c?.t)}|${text}`, now = Date.now(), e = errLog.get(k);
+    if (e && now - e.at < 10_000) { e.skipped++; return; }
+    if (errLog.size > 200) errLog.clear();
+    errLog.set(k, { at: now, skipped: 0 });
+    console.log(`${new Date(now).toISOString()} protocolo: error "${text}" t=${tag(c?.t)}${c?.op === undefined ? '' : ` op=${tag(c.op)}`} rol=${conns.get(ws)?.member.role ?? 'sin-join'}${e?.skipped ? ` (+${e.skipped} omitidos)` : ''}`);
+  };
+  const send = (ws: WebSocket, m: S2C) => (m.t === 'error' && (logErr(ws, m.msg), m = { ...m, re: tag(cur.get(ws)?.t) }), ws.readyState === ws.OPEN && ws.send(signer ? signer.sign(JSON.stringify(m)) : JSON.stringify(m)));
   const online = (r: Room) => new Set([...conns.values()].filter((c) => c.room === r).map((c) => c.member.id as Id));
   const broadcastState = (r: Room) => {
     const on = online(r);
@@ -311,8 +321,10 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
       }
       bucket--; excess = 0;
       let msg: any;
+      cur.delete(ws);
       try { msg = JSON.parse(signer ? signer.strip(raw.toString()) : raw.toString()); } catch { return send(ws, { t: 'error', msg: 'JSON inválido' }); }
       if (typeof msg !== 'object' || msg === null) return send(ws, { t: 'error', msg: 'mensaje inválido' });
+      cur.set(ws, { t: msg.t, op: msg.op });
       const conn = conns.get(ws);
 
       if (msg.t === 'join') {
@@ -349,7 +361,7 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
         seqs.set(k, msg.s);
       }
       if (msg.t === 'copilot') { // async: no bloquea el resto de la mesa; responde solo a quien preguntó
-        void copilot(room, member, msg).then((r) => { send(ws, r.msg); if (r.state) { broadcastState(room); dirty(room); } });
+        void copilot(room, member, msg).then((r) => { cur.set(ws, { t: msg.t, op: msg.op }); send(ws, r.msg); if (r.state) { broadcastState(room); dirty(room); } });
         return;
       }
       if (msg.t === 'asPlayer') { // vista «como jugador X» solo para el DM
@@ -360,6 +372,7 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
         if (member.role !== 'dm') return send(ws, { t: 'error', msg: 'no permitido' });
         if (!backups.enabled) return send(ws, { t: 'error', msg: 'copias desactivadas en este servidor' });
         void (async () => {
+          cur.set(ws, { t: msg.t, op: msg.op });
           if (msg.op === 'now') await backups.save(room);
           else if (msg.op === 'restore') {
             const err = restoreInto(room, backups.read(room.code, msg.name));

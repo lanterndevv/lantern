@@ -100,6 +100,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       <h1 id="escena"></h1><span id="reloj"></span><span class="chip simple" id="simple" hidden>${t('Modo Sencillo')}</span>
       <button class="chip" id="cod" type="button" title="${t('Copiar enlace')}"></button>
       <span class="conn" id="conn"></span>
+      <button class="chip" id="salir" type="button">${t('Salir de la mesa')}</button>
     </div>
     <aside class="panel lado" id="lado">
       <header>
@@ -623,6 +624,16 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   });
 
   // Copiar enlace
+  // Salir de la mesa (confirmación ligera: segundo clic en 4 s). La key sigue guardada; Atrás del navegador hace lo mismo.
+  let salirT: number | undefined;
+  $('salir').onclick = () => {
+    if (salirT === undefined) {
+      $('salir').textContent = t('¿Seguro? Pulsa otra vez');
+      salirT = window.setTimeout(() => { salirT = undefined; $('salir').textContent = t('Salir de la mesa'); }, 4000);
+      return;
+    }
+    if (history.state?.mesa) history.back(); else location.assign(location.pathname);
+  };
   $('cod').onclick = async () => {
     const url = `${location.origin}${location.pathname}?code=${state.code}`;
     let ok = false;
@@ -747,7 +758,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       else if (m.t === 'safety') handleSafety(m);
       else if (m.t === 'checkRequest') handleCheckRequest(m, { send: x => net.send(x), state: () => state, me: w.memberId });
       else if (m.t === 'sessionSummary') showSummary(m.summary, m2 => net.send(m2));
-      else if (m.t === 'error') { if (/llave/.test(m.msg)) sfx('locked'); const to = $('toast'); to.textContent = tsrv(m.msg); to.classList.add('show'); setTimeout(() => to.classList.remove('show'), 3000); }
+      else if (m.t === 'error') { if (/llave/.test(m.msg)) sfx('locked'); const to = $('toast'); to.textContent = tsrv(m.msg) + (m.re && m.msg === 'mensaje inválido' ? ` (${m.re})` : ''); to.classList.add('show'); setTimeout(() => to.classList.remove('show'), 3000); }
     },
   };
 }

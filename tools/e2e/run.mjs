@@ -210,6 +210,19 @@ async function main() {
     must(r === true, 'el menú Mover a… no movió/guardó/restableció la pestaña');
   });
 
+  await check('(h3) salir de la mesa vuelve a unirse, conserva la key y «Mesas recientes» reentra', async () => {
+    await player.eval(`document.getElementById('salir').click(); document.getElementById('salir').click()`); // 1.er clic pide confirmar
+    await player.waitFor(`!!document.querySelector('.unirse #code') && !document.querySelector('.mesa')`, 'pantalla de unirse tras salir', 15000);
+    must(await player.eval(`localStorage.getItem('lantern:key:${code}') !== null`), 'la key se borró al salir');
+    await player.waitFor(`[...document.querySelectorAll('#recl button')].some(b => b.textContent.includes('${code.slice(0, 3)}'))`, 'mesa en «Mesas recientes»', 3000);
+    await player.eval(`[...document.querySelectorAll('#recl button')].find(b => b.textContent.includes('${code.slice(0, 3)}')).click()`);
+    await player.waitFor(`!!document.querySelector('.mesa canvas')`, 'reentrada desde Mesas recientes', 40000);
+    await player.eval(`history.back()`); // Atrás del navegador también sale
+    await player.waitFor(`!!document.querySelector('.unirse #code') && !document.querySelector('.mesa')`, 'Atrás vuelve a unirse', 15000);
+    await player.eval(`history.forward()`); // Adelante reentra con la key guardada
+    await player.waitFor(`!!document.querySelector('.mesa canvas')`, 'Adelante reentra', 40000);
+  });
+
   await check('(i) un susurro del DM a Ana no lo recibe otro jugador', async () => {
     const [ana, bruno] = [wsClient(sp), wsClient(sp)];
     await Promise.all([ana.opened, bruno.opened]);

@@ -77,6 +77,10 @@ select { min-height: 44px; padding: 0 8px; }
     linear-gradient(rgba(154,130,98,.12) 1px, transparent 1px) 0 0 / 48px 48px, linear-gradient(90deg, rgba(154,130,98,.12) 1px, transparent 1px) 0 0 / 48px 48px, var(--noche); }
 .unirse form { width: min(440px, 100%); padding: 28px 32px; display: grid; gap: 16px; }
 .unirse h1 { font-size: 2rem; line-height: 1.05; padding-bottom: 10px; border-bottom: 3px double var(--filete); }
+#rec h2 { font-size: 1rem; margin: 0 0 6px; }
+#recl { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+#recl li { display: flex; gap: 6px; }
+#recl li button:first-child { flex: 1; }
 /* capitular (Cinzel Decorative, lapislázuli de día / oro de noche): título de la mesa y pantalla de unirse */
 .unirse h1::first-letter, .tl h1::first-letter { font-family: var(--cap); font-weight: 700; color: var(--capitular); font-size: 1.6em; line-height: .8; padding-right: 2px; }
 .sub { margin: 0; color: var(--txt2); }

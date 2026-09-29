@@ -414,7 +414,7 @@ export type S2C =
   | { t: 'sessionSummary'; summary: SessionSummary }
   | { t: 'copilot'; rid: string; ok: true; text?: string; turn?: CopilotTurn }
   | { t: 'copilot'; rid: string; ok: false; error: string }
-  | { t: 'error'; msg: string }
+  | { t: 'error'; msg: string; re?: string } // re: tipo del mensaje del cliente que falló
   | { t: 'livekit'; url: string; token: string }
   | { t: 'restRequest'; kind: 'short' | 'long' }
   | { t: 'asState'; memberId: Id | null; state: ClientState } // respuesta a asPlayer

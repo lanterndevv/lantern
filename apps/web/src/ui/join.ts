@@ -1,6 +1,6 @@
 import type { S2C } from '@lantern/protocol';
 import { CODE_ALPHABET } from '@lantern/protocol';
-import { net, savedName } from '../net.ts';
+import { net, savedName, savedKey, recentCodes, forgetKey } from '../net.ts';
 import { mountAccount } from './account.ts';
 import { PREGENS, CLASSES, pregenToImported } from '@lantern/srd';
 import { parseSheetJson } from './sheetx.ts';
@@ -33,6 +33,7 @@ export function mountJoin(app: HTMLElement) {
       <p id="err" role="alert" class="err" hidden></p>
       <button class="primary" type="submit">${t('Entrar')}</button>
       <button class="secondary" type="button" id="new">${t('Crear mesa nueva (serás DM)')}</button>
+      <section id="rec" aria-labelledby="rec-t" hidden><h2 id="rec-t">${t('Mesas recientes')}</h2><ul id="recl"></ul></section>
       <ul class="chips"><li>${t('Sin cuenta')}</li><li>${t('Sin instalar nada')}</li><li>${t('Gratis para jugadores')}</li></ul>
     </form>`;
   app.append(main);
@@ -71,6 +72,22 @@ export function mountJoin(app: HTMLElement) {
     try { sessionStorage.removeItem(PENDING_CHAR); } catch { /* sin almacenamiento */ }
     net.send({ t: 'join', name: name.value.trim() });
   };
+  // Mesas recientes: las keys guardadas; un clic vuelve a entrar y «Olvidar» borra la key.
+  const recientes = () => {
+    const cs = recentCodes(), ul = $('recl');
+    $('rec').hidden = !cs.length;
+    ul.replaceChildren(...cs.map(c => {
+      const li = document.createElement('li'), go = document.createElement('button'), del = document.createElement('button');
+      go.type = del.type = 'button'; go.className = 'secondary'; del.className = 'secondary';
+      go.textContent = `${t('Entrar')} ${fmt(c)}`;
+      go.onclick = () => { err.hidden = true; net.send({ t: 'join', code: c, name: name.value.trim() || savedName() || 'DM', key: savedKey(c) ?? undefined }); };
+      del.textContent = t('Olvidar'); del.setAttribute('aria-label', t('Olvidar la mesa {code}', { code: fmt(c) }));
+      del.onclick = () => { forgetKey(c); recientes(); };
+      li.append(go, del);
+      return li;
+    }));
+  };
+  recientes();
   mountAccount(main); // cuentas opcionales: «Mis mesas» en cualquier dispositivo
-  return { handle(m: S2C) { if (m.t === 'error') fail(tsrv(m.msg)); } };
+  return { handle(m: S2C) { if (m.t === 'error') fail(tsrv(m.msg) + (m.re && m.msg === 'mensaje inválido' ? ` (${m.re})` : '')); } };
 }

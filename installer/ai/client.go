@@ -25,9 +25,48 @@ type Endpoint struct {
 type HTTPError struct {
 	Status int
 	Body   string
+	Type   string // tipo de error del proveedor (AuthError, invalid_request_error, PERMISSION_DENIED…), si lo hay
+	Msg    string // mensaje del proveedor, si lo hay
 }
 
 func (h *HTTPError) Error() string { return fmt.Sprintf("HTTP %d: %s", h.Status, h.Body) }
+
+// NetError: no hubo respuesta (red caída, DNS, tiempo).
+type NetError struct{ Msg string }
+
+func (n *NetError) Error() string { return n.Msg }
+
+// parseErr extrae tipo y mensaje de los formatos de error de OpenAI ({error:{message,type,code}}), OpenCode y
+// Anthropic ({type:"error",error:{type,message}}) y Gemini ({error:{code,message,status}}); también {error:"texto"}.
+func parseErr(b []byte) (typ, msg string) {
+	var r struct {
+		Error json.RawMessage `json:"error"`
+	}
+	if json.Unmarshal(b, &r) != nil || len(r.Error) == 0 {
+		return
+	}
+	var s string
+	if json.Unmarshal(r.Error, &s) == nil {
+		return "", s
+	}
+	var e struct {
+		Type    string `json:"type"`
+		Status  string `json:"status"`
+		Code    any    `json:"code"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(r.Error, &e) != nil {
+		return
+	}
+	typ = e.Type
+	if typ == "" {
+		typ = e.Status
+	}
+	if c, ok := e.Code.(string); ok && typ == "" {
+		typ = c
+	}
+	return typ, e.Message
+}
 
 func (e Endpoint) call(ctx context.Context, method, path string, body any, out any) error {
 	var rd io.Reader
@@ -66,7 +105,7 @@ func (e Endpoint) call(ctx context.Context, method, path string, body any, out a
 		if e.Key != "" {
 			msg = strings.ReplaceAll(msg, e.Key, "***")
 		}
-		return errors.New("sin conexión con " + e.URL + ": " + msg)
+		return &NetError{"sin conexión con " + e.URL + ": " + msg}
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
@@ -78,7 +117,11 @@ func (e Endpoint) call(ctx context.Context, method, path string, body any, out a
 		if e.Key != "" {
 			msg = strings.ReplaceAll(msg, e.Key, "***")
 		}
-		return &HTTPError{Status: resp.StatusCode, Body: msg}
+		typ, pm := parseErr(b)
+		if e.Key != "" {
+			typ, pm = strings.ReplaceAll(typ, e.Key, "***"), strings.ReplaceAll(pm, e.Key, "***")
+		}
+		return &HTTPError{Status: resp.StatusCode, Body: msg, Type: typ, Msg: pm}
 	}
 	return json.Unmarshal(b, out)
 }
@@ -175,23 +218,37 @@ func (e Endpoint) Chat(ctx context.Context, model, prompt string) (string, error
 	return "", errors.New("respuesta vacía del modelo")
 }
 
-// Explain traduce un error de proveedor a una recomendación clara.
-func Explain(err error, es bool) string {
+// Explain traduce un error de proveedor a una recomendación clara. keyURL: dónde se copia la clave.
+func Explain(err error, es bool, keyURL string) string {
 	pick := func(a, b string) string {
 		if es {
 			return a
 		}
 		return b
 	}
+	var n *NetError
+	if errors.As(err, &n) {
+		return pick("Sin conexión con el proveedor: revisa tu Internet o la URL.", "No connection to the provider: check your Internet or the URL.")
+	}
 	var h *HTTPError
 	if errors.As(err, &h) {
-		switch h.Status {
-		case 400, 401, 403:
-			return pick("La clave no es válida o no tiene permiso. Vuelve a copiarla completa.", "The key is invalid or lacks permission. Copy it again in full.")
-		case 429:
+		t, m := strings.ToLower(h.Type), strings.ToLower(h.Msg)
+		switch {
+		case h.Status == 401 || h.Status == 403 || strings.Contains(t, "auth") || strings.Contains(t, "permission") || strings.Contains(t, "api_key") || strings.Contains(m, "api key"):
+			from := ""
+			if keyURL != "" {
+				from = pick(" desde ", " again from ") + keyURL
+			}
+			return pick("La clave no es válida: cópiala de nuevo", "The key is not valid: copy it") + from
+		case strings.Contains(t, "model") || (h.Status == 404 && strings.Contains(m, "model")):
+			return pick("Ese modelo no existe en este proveedor; elige otro de la lista.", "That model does not exist on this provider; pick another from the list.")
+		case h.Status == 429:
 			return pick("Has llegado al límite del plan. Espera un poco o elige otro proveedor.", "You hit the plan limit. Wait a bit or pick another provider.")
-		case 404:
+		case h.Status == 404:
 			return pick("No se encontró el recurso: revisa la URL base o el modelo.", "Resource not found: check the base URL or the model.")
+		}
+		if h.Msg != "" {
+			err = fmt.Errorf("HTTP %d: %s", h.Status, h.Msg)
 		}
 	}
 	// Un cuerpo JSON largo no ayuda a nadie: una sola línea y corta.

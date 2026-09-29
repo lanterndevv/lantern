@@ -24,6 +24,20 @@ const extraHeaders = (raw: string | undefined): Record<string, string> => {
   try { return Object.fromEntries(Object.entries(JSON.parse(raw ?? '{}')).filter(([, v]) => typeof v === 'string')) as Record<string, string>; } catch { return {}; }
 };
 
+// Error del proveedor → frase clara. Formatos OpenAI/OpenCode/Anthropic ({error:{type,message}}) y Gemini ({error:{status,message}}); nunca incluye la clave.
+async function explain(res: Response): Promise<string> {
+  let type = '', msg = '';
+  try {
+    const e = (await res.json() as any)?.error;
+    type = String(typeof e === 'object' ? e?.type ?? e?.status ?? e?.code ?? '' : ''); msg = String(typeof e === 'string' ? e : e?.message ?? '');
+  } catch { /* cuerpo no JSON */ }
+  const t = type.toLowerCase(), m = msg.toLowerCase();
+  if (res.status === 401 || res.status === 403 || t.includes('auth') || t.includes('permission') || t.includes('api_key') || m.includes('api key')) return 'La clave del proveedor de IA no es válida (revisa LANTERN_LLM_KEY)';
+  if (t.includes('model') || (res.status === 404 && m.includes('model'))) return 'El modelo configurado no existe en el proveedor (revisa LANTERN_LLM_MODEL)';
+  if (res.status === 429) return 'El proveedor de IA ha llegado a su límite; prueba en un rato';
+  return `El modelo devolvió un error (HTTP ${res.status}${msg ? `: ${msg.slice(0, 120)}` : ''})`;
+}
+
 // Un proveedor = LANTERN_LLM_* (principal) o LANTERN_LLM2_* (reserva). Formatos: openai (defecto), anthropic, gemini.
 async function ask1(pre: 'LANTERN_LLM' | 'LANTERN_LLM2', system: string, user: string, maxTokens: number, signal: AbortSignal): Promise<string> {
   const e = (k: string) => process.env[`${pre}_${k}`], base = e('URL')!.replace(/\/+$/, ''), key = e('KEY'), model = e('MODEL'), fmt = e('FORMAT');
@@ -41,7 +55,7 @@ async function ask1(pre: 'LANTERN_LLM' | 'LANTERN_LLM2', system: string, user: s
     pick = (j) => j.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? '').join('');
   }
   const res = await fetch(url, { method: 'POST', signal, headers: { 'content-type': 'application/json', ...extraHeaders(e('HEADERS')), ...auth }, body: JSON.stringify(body) });
-  if (!res.ok) return fail(`El modelo devolvió un error (HTTP ${res.status})`);
+  if (!res.ok) return fail(await explain(res));
   const text = pick(await res.json());
   if (typeof text !== 'string' || !text.trim()) return fail('El modelo devolvió una respuesta vacía');
   return text.trim().slice(0, MAX_OUT);

@@ -5,6 +5,9 @@ export type Conn = 'online' | 'reconnecting';
 const keyOf = (code: string, as?: 'spectator') => `lantern:key:${code}${as ? ':' + as : ''}`;
 export const savedKey = (code: string, as?: 'spectator') => localStorage.getItem(keyOf(code, as));
 export const saveKey = (code: string, key: string) => localStorage.setItem(keyOf(code), key);
+/** Mesas con key guardada (no las de espectador) para «Mesas recientes». */
+export const recentCodes = () => { try { return Object.keys(localStorage).map(k => /^lantern:key:([A-Z0-9]{6})$/.exec(k)?.[1]).filter((c): c is string => !!c); } catch { return []; } };
+export const forgetKey = (code: string) => localStorage.removeItem(keyOf(code));
 export const savedName = () => localStorage.getItem('lantern:name') ?? '';
 
 let ws: WebSocket | undefined;

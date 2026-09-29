@@ -14,11 +14,18 @@ let screen: { handle(m: S2C): void } = mountJoin(app);
 
 net.on(m => {
   if (m.t === 'welcome' && !app.querySelector('.mesa')) {
+    // Entrar en una mesa es una entrada del historial: Atrás vuelve a unirse (la key sigue guardada) y Adelante reentra.
+    if (displayModeFromUrl() === 'normal' && history.state?.mesa !== m.state.code) {
+      history.replaceState(null, '', location.pathname);
+      history.pushState({ mesa: m.state.code }, '', `${location.pathname}?code=${m.state.code}`);
+    }
     app.replaceChildren();
     screen = mountTable(app, m);
   }
   screen.handle(m);
 });
+
+addEventListener('popstate', () => location.reload()); // la URL decide: sin ?code → unirse; con ?code y key guardada → reentra
 
 const code = new URLSearchParams(location.search).get('code')?.toUpperCase().replace(/[^A-Z0-9]/g, '');
 

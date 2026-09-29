@@ -98,7 +98,7 @@ func TestOpenAIFormat(t *testing.T) {
 	}
 	bad.Key = "zzz"
 	_, err = bad.ListModels(ctx, "")
-	if err == nil || !strings.Contains(Explain(err, true), "clave") {
+	if err == nil || !strings.Contains(Explain(err, true, ""), "clave") {
 		t.Errorf("401 debe explicarse: %v", err)
 	}
 }
@@ -170,5 +170,38 @@ func TestUVAsset(t *testing.T) {
 		if a, err := UVAsset(c[0], c[1]); err != nil || a != c[2] {
 			t.Errorf("%v -> %q %v", c, a, err)
 		}
+	}
+}
+
+func TestExplainProviderErrors(t *testing.T) {
+	for _, c := range []struct {
+		status int
+		body   string
+		want   string
+	}{
+		{401, `{"type":"error","error":{"type":"AuthError","message":"Invalid API key."}}`, "La clave no es válida: cópiala de nuevo desde https://k"},
+		{400, `{"type":"error","error":{"type":"ModelError","message":"Model glm-4.6 is not supported"}}`, "Ese modelo no existe"},
+		{401, `{"error":{"message":"Incorrect API key provided: SECRET","type":"invalid_request_error","code":"invalid_api_key"}}`, "La clave no es válida"},
+		{404, `{"error":{"message":"The model gpt-x does not exist","type":"invalid_request_error","code":"model_not_found"}}`, "Ese modelo no existe"},
+		{401, `{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`, "La clave no es válida"},
+		{400, `{"error":{"code":400,"message":"API key not valid.","status":"INVALID_ARGUMENT"}}`, "La clave no es válida"},
+		{404, `{"error":{"code":404,"message":"models/x is not found","status":"NOT_FOUND"}}`, "Ese modelo no existe"},
+		{429, `{"error":{"message":"slow down","type":"rate_limit_error"}}`, "límite"},
+		{500, `{"error":{"message":"boom","type":"server_error"}}`, "HTTP 500: boom"},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(c.status)
+			w.Write([]byte(c.body))
+		}))
+		_, err := Endpoint{Format: "openai", URL: srv.URL, Key: "SECRET"}.Chat(context.Background(), "m", "hola")
+		srv.Close()
+		got := Explain(err, true, "https://k")
+		if !strings.Contains(got, c.want) || strings.Contains(got, "SECRET") {
+			t.Errorf("%s -> %q (quería %q)", c.body, got, c.want)
+		}
+	}
+	_, err := Endpoint{Format: "openai", URL: "http://127.0.0.1:1"}.Chat(context.Background(), "m", "hola")
+	if got := Explain(err, true, ""); !strings.Contains(got, "Sin conexión") {
+		t.Errorf("red: %q", got)
 	}
 }
