@@ -55,6 +55,28 @@ export type Token = {
   slots?: Record<number, { max: number; used: number }>; // espacios de conjuro por nivel
   srd?: string;                // id de la entrada del compendio SRD de la que sale
   ddb?: { id: number; level: number; classes: string; syncedAt: number }; // vinculado a un personaje de D&D Beyond
+  abilities?: Record<Ability, number>;        // puntuaciones (no modificadores)
+  skills?: Record<string, number>;            // modificador total por habilidad (ids en inglés: 'perception', 'stealth'…)
+  prof?: number;                              // bonificador de competencia
+  condRounds?: Record<string, number>;        // rondas restantes por condición (ausente = indefinida)
+  exhaustion?: number;                        // nivel de agotamiento 0–6
+  concentration?: string;                     // nombre del conjuro que mantiene
+  deathSaves?: { successes: number; failures: number };
+};
+
+// Ajustes de la mesa (los fija el DM).
+export type TableSettings = {
+  mode: 'simple' | 'full';                    // Sencillo: mapa, tokens, dados, chat. Completo: todas las capas activas.
+  layers: { lighting: boolean; initiative: boolean; automation: boolean; effects: boolean; story: boolean };
+  edition: '2014' | '2024';
+  optional: { flanking: boolean; heroPoints: boolean; brutalCrit: boolean; fumbles: boolean; sideInit: boolean };
+};
+
+export const DEFAULT_SETTINGS: TableSettings = {
+  mode: 'full',
+  layers: { lighting: true, initiative: true, automation: true, effects: true, story: true },
+  edition: '2024',
+  optional: { flanking: false, heroPoints: false, brutalCrit: false, fumbles: false, sideInit: false },
 };
 
 // Lo que el puente (extensión Lantern Link) extrae de un personaje de D&D Beyond.
@@ -119,6 +141,7 @@ export type ClientState = {
   visible?: Point[][];         // polígonos de visión del grupo (ausente para DM)
   combat?: Combat;             // filtrado: sin tokens que el miembro no pueda ver
   automation: 'assisted' | 'auto';
+  settings: TableSettings;
 };
 
 export type ChatMsg = {
@@ -148,7 +171,14 @@ export type C2S =
   | { t: 'spawn'; srd: string; x: number; y: number; hidden?: boolean } // DM añade monstruo del SRD
   | { t: 'automation'; value: 'assisted' | 'auto' }                   // DM
   | { t: 'diceTheme'; theme: DiceTheme }                              // cada miembro elige su set
-  | { t: 'importCharacter'; tokenId: Id; data: ImportedCharacter };  // dueño del token (o DM): aplica un personaje de DDB
+  | { t: 'importCharacter'; tokenId: Id; data: ImportedCharacter }   // dueño del token (o DM): aplica un personaje de DDB
+  | { t: 'settings'; patch: Partial<Omit<TableSettings, 'layers' | 'optional'>> & { layers?: Partial<TableSettings['layers']>; optional?: Partial<TableSettings['optional']> } } // DM
+  | { t: 'setRole'; memberId: Id; role: Role }                        // DM
+  | { t: 'condition'; tokenId: Id; condition: string; on: boolean; rounds?: number } // DM, o dueño sobre su token
+  | { t: 'hp'; tokenId: Id; delta: number; kind: 'damage' | 'heal' | 'temp'; damageType?: string } // DM, o dueño sobre su token
+  | { t: 'concentration'; tokenId: Id; spell: string | null }        // dueño o DM
+  | { t: 'deathSave'; tokenId: Id }                                   // dueño en su turno (o DM)
+  | { t: 'check'; tokenId: Id; kind: 'save' | 'skill' | 'ability'; key: string; secret?: boolean } // tirada desde la hoja: el servidor aplica mods, agotamiento y condiciones
 
 // Servidor → cliente
 export type S2C =
