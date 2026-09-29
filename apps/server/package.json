@@ -1,0 +1,6 @@
+{
+  "name": "@lantern/server",
+  "private": true,
+  "type": "module",
+  "dependencies": { "ws": "^8" }
+}

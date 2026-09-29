@@ -1,0 +1,8 @@
+{
+  "name": "@lantern/web",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "vite", "build": "vite build" },
+  "dependencies": { "pixi.js": "^8" },
+  "devDependencies": { "vite": "^7" }
+}

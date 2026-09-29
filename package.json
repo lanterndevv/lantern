@@ -1,0 +1,20 @@
+{
+  "name": "lantern",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "node --test 'packages/*/src/**/*.test.ts' 'apps/server/src/**/*.test.ts'",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "server": "node apps/server/src/main.ts",
+    "web": "npm run dev -w @lantern/web"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "@types/ws": "^8.18.1",
+    "typescript": "^7.0.2"
+  }
+}
