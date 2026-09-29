@@ -227,4 +227,9 @@ test('carry: montura, agarre, cadena y ciclos', () => {
   H(ana, { t: 'moveToken', id: 'a', x: 120, y: 360 });
   assert.equal(tk(room, 'gato').y, 300); // suelto: ya no se mueve
   assert.equal(H(ana, { t: 'carry', tokenId: 'gato', by: null }).error, 'no lo lleva nadie');
+  // un enemigo contiguo solo se arrastra si está apresado
+  put(tok('orco', 180, 360, { faction: 'enemy' }));
+  assert.equal(H(ana, { t: 'carry', tokenId: 'orco', by: 'a' }).error, 'no permitido');
+  tk(room, 'orco').conditions.push('grappled');
+  assert.equal(H(ana, { t: 'carry', tokenId: 'orco', by: 'a' }).state, true);
 });
