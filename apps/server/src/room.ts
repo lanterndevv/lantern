@@ -12,6 +12,7 @@ import { acOf, afterTurn, answerSave, areaError, breakConcentration, budget, com
 import { routeCost, speedFor } from '@lantern/protocol/move';
 import { demoScene } from '@lantern/protocol/demo';
 import { cover, perceives, pointInPolygon, sightSegments, visibility } from '@lantern/vision';
+import type { Light as VisionLight } from '@lantern/vision';
 import { canUndo, clockOf, handleWorld, hiddenWhisper } from './world.ts';
 import { handleExtras } from './extras.ts';
 import { handleJourney } from './journey.ts';
@@ -113,8 +114,24 @@ function filterBase(room: Room, member: MemberRec, online: ReadonlySet<Id> = new
     .map((t) => ({ t, f: flr(s, t.level), poly: visibility({ x: t.x, y: t.y }, sightSegments(wallsOf(flr(s, t.level)), t), s.width, s.height) }));
   const visible = vis.filter((v) => mine.has(v.f)).map((v) => v.poly);
   const seen = (p: Point, l?: Id) => vis.some((v) => v.f === flr(s, l) && pointInPolygon(p, v.poly));
-  // Un invisible solo lo ven quienes lo perciben por otros sentidos (truesight, blindsight, tremorsense); la luz no se modela aquí.
-  const seenTok = (t: Token) => !t.conditions.includes('invisible') ? seen(t, t.level) : vis.some((v) => v.f === flr(s, t.level) && pointInPolygon(t, v.poly) && perceives(v.t, t, { light: 'bright', los: true }));
+  // Luz sobre el token: oscuridad mágica > luces de la escena (con cono y sin muro en medio) > luz global.
+  // ponytail: umbrales fijos de globalLight (≥0,5 brillante, ≥0,25 tenue); si hace falta, que sean ajustes de la escena
+  const lightAt = (p: Token): VisionLight => {
+    const f = flr(s, p.level);
+    if ((s.regions ?? []).some((r) => r.kind === 'darkness' && flr(s, r.level) === f && inRegion(r, p))) return 'magic';
+    let best: VisionLight = s.globalLight >= 0.5 ? 'bright' : s.globalLight >= 0.25 ? 'dim' : 'dark';
+    for (const l of s.lights) {
+      if (best === 'bright' || flr(s, l.level) !== f) continue;
+      const d = Math.hypot(p.x - l.x, p.y - l.y);
+      if (d > Math.max(l.bright, l.dim)) continue;
+      if (l.cone && d > 0) { const a = Math.abs(((Math.atan2(p.y - l.y, p.x - l.x) * 180 / Math.PI - l.cone.dir) % 360 + 540) % 360 - 180); if (a > l.cone.angle / 2) continue; }
+      if (cover(l, p, 0, sightSegments(wallsOf(f), l)) === 'total') continue;
+      best = d <= l.bright ? 'bright' : 'dim';
+    }
+    return best;
+  };
+  // El jugador recibe una ficha ajena si algún aliado suyo la percibe: línea de visión + luz y sentidos (perceives).
+  const seenTok = (t: Token) => { const light = lightAt(t); return vis.some((v) => v.f === flr(s, t.level) && pointInPolygon(t, v.poly) && perceives(v.t, t, { light, los: true })); };
   const fogs = (s.regions ?? []).filter((r) => r.kind === 'fog');
   // Los aliados llegan siempre (la barra de grupo los necesita); el cliente solo los dibuja en el mapa si son de su misma planta (t.level).
   const tokens = s.tokens

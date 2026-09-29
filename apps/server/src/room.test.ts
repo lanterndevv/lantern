@@ -37,6 +37,22 @@ test('el estado del jugador no filtra ocultos, tokens tras muros ni hp/ac enemig
   assert.equal(d.scene.tokens.length, room.scene.tokens.length);
 });
 
+test('niebla: en la oscuridad solo llegan los enemigos que se perciben (luz, visión en la oscuridad)', () => {
+  const { room, player } = setup();
+  const s = room.scene, trasgo = tok(room, 'trasgo-a'), sees = () => filterFor(room, player).scene.tokens.some((t) => t.id === 'trasgo-a');
+  s.lights = []; s.globalLight = 0;
+  for (const t of s.tokens) if (t.faction === 'ally') { t.darkvision = 0; delete t.senses; }
+  assert.equal(sees(), false, 'a oscuras y sin visión en la oscuridad no se envía');
+  tok(room, 'kael').darkvision = 5000;
+  assert.equal(sees(), true, 'con visión en la oscuridad que llega');
+  tok(room, 'kael').darkvision = 0;
+  s.lights = [{ id: 'l', x: trasgo.x, y: trasgo.y, bright: 30, dim: 60, color: '#fff' }];
+  assert.equal(sees(), true, 'iluminado por una luz');
+  s.regions = [{ id: 'r', name: 'Oscuridad', kind: 'darkness', hidden: false, points: [{ x: trasgo.x - 50, y: trasgo.y - 50 }, { x: trasgo.x + 50, y: trasgo.y - 50 }, { x: trasgo.x + 50, y: trasgo.y + 50 }, { x: trasgo.x - 50, y: trasgo.y + 50 }] }];
+  tok(room, 'kael').darkvision = 5000;
+  assert.equal(sees(), false, 'la oscuridad mágica tapa luz y visión en la oscuridad');
+});
+
 test('la puerta secreta sale como muro', () => {
   const { room, player, dm } = setup();
   const w = filterFor(room, player).scene.walls.find((w) => w.id === 'd3')!;
