@@ -8,13 +8,14 @@ export type Faction = 'ally' | 'enemy' | 'neutral';
 
 // wall: bloquea vista y paso · door: igual salvo abierta · window: deja ver, no pasar · terrain: deja ver, no pasar
 export type WallKind = 'wall' | 'door' | 'window' | 'terrain';
-export type Wall = { id: Id; a: Point; b: Point; kind: WallKind; open?: boolean; secret?: boolean; locked?: boolean; note?: string }; // note: solo DM
+export type Wall = { id: Id; a: Point; b: Point; kind: WallKind; open?: boolean; secret?: boolean; locked?: boolean; note?: string; level?: Id }; // note: solo DM · level: planta (ausente = planta base)
 
 export type Light = {
   id: Id; x: number; y: number;
   bright: number; dim: number; // radios en px
   color: string;               // '#ffb85c'
   anim?: 'none' | 'torch' | 'pulse';
+  level?: Id;
 };
 
 export type Hp = { cur: number; max: number; temp: number };
@@ -55,6 +56,8 @@ export type Token = {
   slots?: Record<number, { max: number; used: number }>; // espacios de conjuro por nivel
   srd?: string;                // id de la entrada del compendio SRD de la que sale
   notes?: string;              // nota privada del DM (el servidor la quita para los demás)
+  level?: Id;                  // planta en la que está (ausente = planta base)
+  heroPoints?: number;         // regla opcional «puntos de héroe»
   ddb?: { id: number; level: number; classes: string; syncedAt: number }; // vinculado a un personaje de D&D Beyond
   abilities?: Record<Ability, number>;        // puntuaciones (no modificadores)
   skills?: Record<string, number>;            // modificador total por habilidad (ids en inglés: 'perception', 'stealth'…)
@@ -125,6 +128,7 @@ export type Scene = {
   globalLight: number;         // 0 = oscuridad total, 1 = pleno día
   weather?: Weather;
   regions?: Region[];
+  levels?: { id: Id; name: string }[];      // plantas de abajo arriba; la base es la primera (o la única si no hay lista)
   folder?: string;             // carpeta en la biblioteca
   audioPreset?: AudioState;    // música/ambiente que se activan con la escena
   dmNotes?: string;            // notas del DM de la escena (solo DM)
@@ -146,6 +150,8 @@ export type Region = {
   to?: Point;                               // teleport
   sfx?: string;                             // sound/trap
   text?: string;                            // message (lo ve quien entra) / descripción
+  level?: Id;                               // planta de la región
+  toLevel?: Id;                             // teleport/escalera: planta de destino (con `to` o misma posición)
 };
 
 export type JournalEntry = {
@@ -156,6 +162,13 @@ export type JournalEntry = {
 };
 
 export type LibraryItem = { id: Id; name: string; folder?: string; active: boolean; tokens: number; walls: number; background?: string };
+
+export type SessionSummary = {
+  started: number; ended: number; rounds: number;
+  highlights: { kind: 'crit' | 'fumble' | 'kill' | 'down' | 'highest'; text: string }[];
+  perToken: { tokenId: Id; name: string; damageDealt: number; damageTaken: number; healed: number; crits: number }[];
+  xp?: number;                 // PX de los enemigos derrotados (SRD)
+};
 
 export type Weather = { kind: 'none' | 'rain' | 'snow' | 'fog' | 'ash' | 'storm' | 'leaves' | 'embers'; intensity: number; wind: number }; // intensity 0–1, wind −1…1
 
@@ -188,12 +201,14 @@ export type ClientState = {
   journal: JournalEntry[];     // filtrado por visibleTo
   library?: LibraryItem[];     // solo DM/asistente
   extensions: ExtensionManifest[]; // instaladas en la mesa (todos las cargan)
+  safety: { lines: string[]; veils: string[] }; // líneas y velos de la mesa (anónimos)
+  sessionStart?: number;       // ms del servidor en que empezó la sesión actual
 };
 
 export type ChatMsg = {
   id: Id; from: Id; at: number;
   text?: string;
-  roll?: { expr: string; total: number; detail: string; secret: boolean; dice?: Die[] };
+  roll?: { expr: string; total: number; detail: string; secret: boolean; dice?: Die[]; blind?: boolean; external?: 'beyond20' }; // blind: ni quien tira lo ve · external: tirada hecha fuera (confianza del cliente)
   card?: ActionCard;
 };
 
@@ -246,7 +261,16 @@ export type C2S =
   | { t: 'handout'; entryId: Id }                                    // DM: muestra la entrada a quienes pueden verla
   | { t: 'spawnMany'; items: { srd: string; x: number; y: number }[]; hidden?: boolean } // DM: encuentro
   | { t: 'extInstall'; manifest: ExtensionManifest }                 // DM (el cliente descarga el manifiesto; el servidor lo valida)
-  | { t: 'extRemove'; id: string };                                  // DM
+  | { t: 'extRemove'; id: string }                                   // DM
+  | { t: 'upsert'; kind: 'level'; item: { id: Id; name: string } } | { t: 'remove'; kind: 'level'; id: Id } // DM
+  | { t: 'heroPoint'; tokenId: Id }                                   // dueño: gasta 1 punto de héroe → +1d6 a su última tirada/tarjeta
+  | { t: 'heroPoints'; tokenId: Id; value: number }                   // DM: fija los puntos
+  | { t: 'safety'; op: 'x' }                                         // cualquiera: tarjeta X anónima (pausa)
+  | { t: 'safety'; op: 'add' | 'remove'; list: 'lines' | 'veils'; text: string } // cualquiera, anónimo
+  | { t: 'requestCheck'; tokenIds: Id[]; kind: 'save' | 'skill' | 'ability'; key: string; dc?: number; blind?: boolean } // DM
+  | { t: 'answerCheck'; requestId: Id; tokenId: Id }                  // dueño responde a una prueba pedida
+  | { t: 'sessionEnd' }                                               // DM: cierra la sesión → resumen
+  | { t: 'externalRoll'; source: 'beyond20'; name: string; expr: string; total: number; dice: Die[]; kind?: string }; // tirada hecha en la hoja de DDB vía Beyond20
 
 // Servidor → cliente
 export type S2C =
@@ -261,6 +285,9 @@ export type S2C =
   | { t: 'clock'; now: number }                                        // reloj del servidor (ms) para sincronizar audio; se envía tras welcome
   | { t: 'handout'; entry: JournalEntry }
   | { t: 'regionMsg'; text: string }                                   // mensaje de una región al token que entra
+  | { t: 'safety'; op: 'x' }                                           // tarjeta X: todos ven la pausa (sin autor)
+  | { t: 'checkRequest'; id: Id; tokenIds: Id[]; kind: 'save' | 'skill' | 'ability'; key: string; label: string; dc?: number } // a los dueños
+  | { t: 'sessionSummary'; summary: SessionSummary }
   | { t: 'error'; msg: string };
 
 // Versión del protocolo: sube cuando un cambio rompe clientes viejos; el cliente ofrece recargar si no coincide.
