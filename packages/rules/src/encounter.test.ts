@@ -22,4 +22,10 @@ test('2014: umbrales y multiplicador', () => {
   assert.equal(encounterDifficulty(p, ['1'], '2014').rating, 'medium'); // 200 × 1
   assert.equal(encounterDifficulty(p, ['1/8'], '2014').rating, 'trivial');
   assert.throws(() => encounterDifficulty([0], ['1'], '2014'));
+  // grupo pequeño: 2 PJ nv1 (fácil 50, medio 100, difícil 150, mortal 200), 1 monstruo VD 1/2 = 100 × 1.5 = 150
+  assert.deepEqual(encounterDifficulty([1, 1], ['1/2'], '2014'), { xp: 100, adjusted: 150, rating: 'hard' });
+  // grupo grande: 6 PJ nv1 (medio 300), 1 monstruo VD 2 = 450 × 0.5 = 225 -> fácil (150) pero no medio
+  assert.deepEqual(encounterDifficulty([1, 1, 1, 1, 1, 1], ['2'], '2014'), { xp: 450, adjusted: 225, rating: 'easy' });
+  // 3 monstruos, grupo de 4 nv5 (medio 2000, difícil 3000): 3×700... VD 3 = 2100 × 2 = 4200 -> difícil
+  assert.equal(encounterDifficulty([5, 5, 5, 5], ['3', '3', '3'], '2014').rating, 'hard');
 });

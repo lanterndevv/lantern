@@ -1,3 +1,4 @@
+// Fuentes verificadas: PX por VD y presupuesto 2024 = SRD 5.2.1 (p. 201 y 255-256); umbrales/multiplicadores 2014 = Basic Rules 2014 (dndbeyond.com/sources/basic-rules/building-combat-encounters).
 // Dificultad de encuentros: PX por VD (SRD) y presupuestos de 2024 / umbrales de 2014.
 const XP: Record<string, number> = { '0': 10, '1/8': 25, '1/4': 50, '1/2': 100, '1': 200, '2': 450, '3': 700, '4': 1100, '5': 1800, '6': 2300, '7': 2900, '8': 3900, '9': 5000,
   '10': 5900, '11': 7200, '12': 8400, '13': 10000, '14': 11500, '15': 13000, '16': 15000, '17': 18000, '18': 20000, '19': 22000, '20': 25000,
@@ -16,13 +17,17 @@ export const encounterXP = (crs: string[]): number =>
   crs.reduce((n, cr) => { if (!Object.hasOwn(XP, cr)) throw new Error(`VD no válido: "${cr}"`); return n + XP[cr]; }, 0);
 
 const lvl = (l: number) => { if (!Number.isInteger(l) || l < 1 || l > 20) throw new Error(`Nivel no válido: ${l}`); return l - 1; };
-const mult = (n: number) => (n <= 1 ? 1 : n === 2 ? 1.5 : n <= 6 ? 2 : n <= 10 ? 2.5 : n <= 14 ? 3 : 4);
+// Multiplicadores 2014 (DMG p. 82 / Basic Rules 2014, "Building Combat Encounters"); el grupo <3 sube un escalón, >=6 baja uno.
+const MULTS = [0.5, 1, 1.5, 2, 2.5, 3, 4];
+const mult = (n: number, party: number) => {
+  const i = n <= 1 ? 1 : n === 2 ? 2 : n <= 6 ? 3 : n <= 10 ? 4 : n <= 14 ? 5 : 6;
+  return MULTS[Math.min(6, Math.max(0, i + (party < 3 ? 1 : party >= 6 ? -1 : 0)))];
+};
 
 export type Difficulty = { xp: number; adjusted?: number; rating: string };
 
 // 2024: rating = 'low' | 'moderate' | 'high' (por encima del presupuesto Alto también es 'high').
 // 2014: 'trivial' | 'easy' | 'medium' | 'hard' | 'deadly', con `adjusted` = PX × multiplicador por nº de monstruos.
-// ponytail: 2014 sin el ajuste por tamaño del grupo (<3 o >5 PJ)
 export function encounterDifficulty(partyLevels: number[], crs: string[], edition: '2014' | '2024'): Difficulty {
   const xp = encounterXP(crs);
   if (!partyLevels.length) throw new Error('Grupo vacío');
@@ -31,7 +36,7 @@ export function encounterDifficulty(partyLevels: number[], crs: string[], editio
     const rating = xp <= sum(BUDGET, 0) ? 'low' : xp <= sum(BUDGET, 1) ? 'moderate' : 'high';
     return { xp, rating };
   }
-  const adjusted = xp * mult(crs.length);
+  const adjusted = xp * mult(crs.length, partyLevels.length);
   const i = [3, 2, 1, 0].find((k) => adjusted >= sum(THRESH, k));
   return { xp, adjusted, rating: i === undefined ? 'trivial' : ['easy', 'medium', 'hard', 'deadly'][i] };
 }
