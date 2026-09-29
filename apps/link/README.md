@@ -14,7 +14,7 @@ Sin build de la extensión; solo hay que regenerar `ddb.js`/`srd.js` si cambia `
 - Monstruos (pestaña «Tu cuenta» del compendio, solo DM): `searchMonsters` consulta `monster-service.dndbeyond.com/v1/Monster?search=…&skip=0&take=100` y deja hasta 20 con `isReleased` o `isHomebrew` (lo que tu cuenta puede abrir); `getMonster` pide `?ids=<id>` y lo convierte con `mapMonster`. Solo salen estadísticas: nunca rasgos ni descripciones.
 - El token nunca sale de la extensión (ni a la página ni al servidor de Lantern).
 - A la página solo le entrega estadísticas de juego (`ImportedCharacter`): nada de texto de reglas ni descripciones.
-- El content script solo actúa en páginas con `<meta name="lantern" content="1">`.
+- El content script solo actúa en páginas con `<meta name="lantern" content="1">` y cuyo origen hayas autorizado: la primera vez pregunta «¿permitir que <origen> use tu sesión de D&D Beyond?». El background comprueba el origen real del remitente (`sender.url`) contra esa lista (`chrome.storage.local`); la etiqueta por sí sola no da acceso. Para revocar un origen, quita y vuelve a cargar la extensión.
 
 ## Relé al Game Log de D&D Beyond (opcional)
 - **Desactivado por defecto.** Cada jugador lo activa con la casilla «Enviar mis tiradas al Game Log de D&D Beyond» (pestaña Mesa, se guarda en el navegador). Solo aparece con Link conectado y un personaje tuyo vinculado a DDB.

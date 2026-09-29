@@ -100,7 +100,7 @@ for (const t of targets) {
 // --- extensión Lantern Link: zip plano (manifest.json en la raíz) para «Cargar descomprimida»; sin herramienta externa
 sh(process.execPath, [join(ROOT, 'apps/link/build.mjs')]);
 {
-  const names = ['manifest.json', 'background.js', 'content.js', 'ddb.js', 'gamelog.js', 'srd.js'], parts = [], central = [];
+  const names = ['manifest.json', 'background.js', 'content.js', 'ddb.js', 'gamelog.js', 'srd.js', 'origins.js'], parts = [], central = [];
   let off = 0;
   for (const n of names) {
     const data = readFileSync(join(ROOT, 'apps/link', n)), z = deflateRawSync(data), nm = Buffer.from(n), c = crc32(data);

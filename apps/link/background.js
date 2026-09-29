@@ -1,6 +1,7 @@
 // Service worker. El token Bearer vive solo aquí: nunca se envía a la página ni a Lantern.
 import { mapCharacter, mapMonster } from './ddb.js';
 import { buildGameLogRoll } from './gamelog.js';
+import { allowed, originOf } from './origins.js';
 
 const version = chrome.runtime.getManifest().version;
 let token, exp = 0;   // ponytail: caché en memoria; si el worker se duerme, se pide otro (barato)
@@ -94,8 +95,21 @@ async function handle(m) {
   throw new Error('Mensaje desconocido');
 }
 
+const origins = async () => (await chrome.storage.local.get('origins')).origins ?? [];
+// authorized/authorize solo los manda el content script (la página no puede: FORWARD en content.js); authorize, tras un confirm().
+async function gate(m, sender) {
+  const origin = originOf(sender), list = await origins();
+  if (m.t === 'authorized') return { t: 'authorized', ok: allowed(origin, list) };
+  if (m.t === 'authorize') {
+    if (origin && !list.includes(origin)) await chrome.storage.local.set({ origins: [...list, origin] });
+    return { t: 'authorized', ok: !!origin };
+  }
+  if (!allowed(origin, list)) throw new Error('Este sitio no está autorizado en Lantern Link');
+  return handle(m);
+}
+
 chrome.runtime.onMessage.addListener((m, sender, send) => {
   if (sender.id !== chrome.runtime.id) return;
-  handle(m).then(send, (e) => send({ t: 'error', msg: e.message }));
+  gate(m, sender).then(send, (e) => send({ t: 'error', msg: e.message }));
   return true;
 });
