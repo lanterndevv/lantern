@@ -19,6 +19,8 @@ import { maybeStartTutorial } from './tutorial.ts';
 import { openRadial, tokenRadialItems } from './radial.ts';
 import { mountExtensions, openInstaller } from '../ext/host.ts';
 import { mountLevels } from './levels.ts';
+import { mountCopilot } from './copilot.ts';
+import { mountVoicesToggle, speakNpc } from './voices.ts';
 import { mountBeyond20 } from '../beyond20.ts';
 import { showLobby } from './lobby.ts';
 import { mountSafety, handleSafety, checkProtocol } from './safety.ts';
@@ -76,6 +78,7 @@ function cardHtml(c: ActionCard, canConfirm: boolean) {
 export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) {
   me = w.memberId;
   let state = w.state;
+  let copilot: ReturnType<typeof mountCopilot> | undefined; // se monta más abajo; lo usan callbacks y render()
   const root = document.createElement('div');
   root.className = 'mesa';
   root.innerHTML = `
@@ -125,6 +128,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
           <ul id="miembros" class="miembros"></ul>
           <section id="voz" class="voz" aria-label="Voz"></section>
           <section id="mezcla" class="mezcla" aria-label="Mezclador de sonido"></section>
+          <section id="copiloto" aria-label="Copiloto"></section><section id="voces" aria-label="Voces de PNJ"></section>
           <section id="mios" aria-label="Tu personaje"></section>
           <section class="dados" aria-label="Dados">
             <h2 id="sets-t">Tus dados</h2>
@@ -213,7 +217,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     onPointer: (x, y) => { pointer = { x, y }; if (armed?.a.area) marks(); },
     onMoveToken: (id, x, y) => net.send({ t: 'moveToken', id, x, y }),
     onPing: (x, y) => net.send({ t: 'ping', x, y }),
-    onTokenContext: (id, x, y) => { const t = tok(id); if (t) openRadial(x, y, [...tokenRadialItems(t, radialCtx), ...(exts?.radialItems(id) ?? [])], t.name); },
+    onTokenContext: (id, x, y) => { const t = tok(id); if (t) openRadial(x, y, [...tokenRadialItems(t, radialCtx), ...(exts?.radialItems(id) ?? []), ...(copilot?.radialItems(id) ?? [])], t.name); },
     onDoor: (id, open) => net.send({ t: 'door', id, open }),
   });
 
@@ -235,6 +239,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   const settings = staff ? mountSettings($('p-aj'), m => net.send(m), w.memberId) : undefined;
   $('t-aj').hidden = !staff;
   mountMixer($('mezcla'));
+  mountVoicesToggle($('voces'));
+  copilot = mountCopilot($('copiloto'), { state: () => state, send: m => net.send(m), role: w.role, memberId: w.memberId, table, toast: m => say(m, 3500) });
   const voz = mountVoice($('voz'), { me: w.memberId, members: () => state.members, getVolume: () => getVolume('voz') });
   const audio = mountAudio(root, { own: () => mine()[0], send: m => net.send(m) });
   const story = mountStory(root, $('mapa'), { isDm: w.role === 'dm', send: m => net.send(m) });
@@ -244,7 +250,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   let exts: ReturnType<typeof mountExtensions> | undefined; // se monta más abajo; render() corre antes
   let lv: ReturnType<typeof mountLevels> | undefined, lobby: ReturnType<typeof showLobby> | undefined, cr: ReturnType<typeof mountCheckRequester> | undefined;
   const render = (s: ClientState) => {
-    voz.onState(s.members); exts?.update(s);
+    voz.onState(s.members); exts?.update(s); copilot?.update();
     ed?.update(s); jr.update(s); lib?.update(s); enc?.update(s); lv?.update(s); lobby?.update(); cr?.render();
     state = s;
     $('escena').textContent = s.scene.name;
@@ -633,7 +639,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       else if (m.t === 'state') render(m.state);
       else if (m.t === 'chat') addMsg(m.msg, true);
       else if (m.t === 'ping') table.then(t => t.ping(m.x, m.y, colorOf(m.from)));
-      else if (m.t === 'npcSay') story.npcSay(m);
+      else if (m.t === 'npcSay') { story.npcSay(m); speakNpc(m.name, m.text); }
+      else if (m.t === 'copilot') copilot?.handle(m);
       else if (m.t === 'handout') showHandout(m.entry);
       else if (m.t === 'regionMsg') showRegionMsg(m.text);
       else if (m.t === 'transition') story.transition(m);

@@ -84,7 +84,7 @@ export function filterFor(room: Room, member: MemberRec, online: ReadonlySet<Id>
   const extensions = structuredClone(room.extensions), automation = room.automation, settings = structuredClone(room.settings), view = room.view, audio = structuredClone(room.audio);
   const journal = structuredClone(room.journal.filter((e) => canRead(e, member)));
   const safety = structuredClone(room.safety), sessionStart = room.sessionStart;
-  if (isDM(member)) return { code: room.code, members, scene: structuredClone(s), automation, settings, view, audio, journal, extensions, safety, sessionStart, library: libraryOf(room), ...(room.combat && { combat: structuredClone(room.combat) }) };
+  if (isDM(member)) return { code: room.code, members, scene: structuredClone(s), automation, settings, view, audio, journal, extensions, safety, sessionStart, copilot: !!process.env.LANTERN_LLM_URL, library: libraryOf(room), ...(room.combat && { combat: structuredClone(room.combat) }) };
 
   // ponytail: las capas de audio posicionales NO se filtran por visión: el sonido atraviesa paredes (y el jugador ve x/y de capas ajenas)
   // Plantas: el jugador recibe las entidades de las plantas donde tiene algún token (o la base); la visión usa solo los muros de cada planta.
@@ -127,7 +127,7 @@ export function filterFor(room: Room, member: MemberRec, online: ReadonlySet<Id>
     combat = { round: c.round, turn, order, used: Object.fromEntries(Object.entries(c.used).filter(([id]) => ids.has(id))) };
   }
   const { dmNotes: _d, regions: _r, tokens: _t, walls: _w, lights: _l, ...pub } = structuredClone(s);
-  return { code: room.code, members, visible, scene: { ...pub, walls, lights, tokens, ...(regions.length && { regions }) }, automation, settings, view, audio, journal, extensions, safety, sessionStart, ...(combat && { combat }) };
+  return { code: room.code, members, visible, scene: { ...pub, walls, lights, tokens, ...(regions.length && { regions }) }, automation, settings, view, audio, journal, extensions, safety, sessionStart, copilot: !!process.env.LANTERN_LLM_URL, ...(combat && { combat }) };
 }
 
 export function chatFor(room: Room, m: MemberRec) {

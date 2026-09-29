@@ -34,6 +34,11 @@ Límites: 30 mensajes/s por conexión (ráfaga de 60), 20 conexiones por IP, 200
 ## Modo LAN
 Sin Internet: `npm start` (o Docker) en un equipo y los demás abren `http://<ip-del-equipo>:8787`. Cambia `HOST` si quieres limitarlo a una interfaz (`HOST=127.0.0.1`). Ojo: los navegadores solo permiten micrófono/cámara en `https` o `localhost`.
 
+## Copiloto IA (opcional)
+Se activa solo con variables de entorno del servidor (el cliente nunca elige el endpoint): `LANTERN_LLM_URL` (API compatible con OpenAI, p. ej. `http://localhost:8080/v1`), `LANTERN_LLM_KEY` (Bearer, opcional), `LANTERN_LLM_MODEL` (opcional) y `LANTERN_LLM_TIMEOUT_MS` (60000 por defecto).
+Operaciones: `monsterTurn` (propone movimiento, acción y objetivos de un monstruo; validado con visión, velocidad, muros y alcance), `npc` y `recap` (crónica en el diario), solo DM/asistente (recap solo DM), y `rules` (duda de reglas, cualquier miembro no espectador).
+Seguridad: a un miembro la IA solo le llega lo que ese miembro ve (estado y chat filtrados); el recap usa el chat como lo vería un jugador; las entradas van delimitadas como datos; las salidas se truncan a 4000 caracteres y nunca se ejecutan solas (el DM confirma); límite de 6 llamadas/min por mesa y 1 simultánea por miembro.
+
 ## Lantern Link
 Extensión de navegador (Chrome y Firefox) que importa tus personajes de D&D Beyond. Usa solo la sesión del propio usuario. Instalación y detalles en [apps/link/README.md](apps/link/README.md).
 

@@ -12,6 +12,7 @@ import { openDb } from './db.ts';
 import { createAccounts } from './accounts.ts';
 import { MAX_SCENES } from './validate.ts';
 import { MAX_ASSET, exportCampaign, importCampaign, parseUvtt, sha256 } from './campaign.ts';
+import { copilot } from './copilot.ts';
 import { canSee, chatFor, redact, createRoom, filterFor, genCode, handle, joinRoom, normCode, sha, type MemberRec, type Room, type RollFn } from './room.ts';
 
 const MAX_IMPORT = 250 * 1024 * 1024, MAX_UVTT = 60 * 1024 * 1024;
@@ -230,6 +231,10 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
 
       if (!conn) return send(ws, { t: 'error', msg: 'primero join' });
       const { room, member } = conn;
+      if (msg.t === 'copilot') { // async: no bloquea el resto de la mesa; responde solo a quien preguntó
+        void copilot(room, member, msg).then((r) => { send(ws, r.msg); if (r.state) { broadcastState(room); dirty(room); } });
+        return;
+      }
       const fx = handle(room, member, msg, rollFn);
       if (fx.error) return send(ws, { t: 'error', msg: fx.error });
       for (const cm of [fx.chat, ...(fx.chats ?? [])]) if (cm) for (const [w, c] of conns) if (c.room === room && canSee(cm, c.member)) send(w, { t: 'chat', msg: redact(room, cm, c.member) as ChatMsg });
