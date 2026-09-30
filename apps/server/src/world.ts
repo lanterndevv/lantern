@@ -268,6 +268,8 @@ const HANDLERS: Record<string, H> = {
     if (!b || b === t) return { error: 'token inexistente' };
     if (!dm) {
       if (!b.owners.includes(m.id)) return DENY;
+      // solo se carga lo propio, a un aliado o a quien ya está apresado (la condición la pone el DM o la tirada de agarre)
+      if (!t.owners.includes(m.id) && t.faction !== 'ally' && !t.conditions.includes('grappled')) return DENY;
       if (t.hidden || flr(s, t.level) !== flr(s, b.level)) return { error: 'token inexistente' };
       // contiguo a 5 pies o menos (bordes): distancia entre centros ≤ 5 × (tamaño medio) con la regla 5-5-5
       if (Math.max(Math.abs(t.x - b.x), Math.abs(t.y - b.y)) / s.grid.size * s.grid.feet > 5 * (t.size + b.size) / 2 + 1e-6) return { error: 'demasiado lejos' };

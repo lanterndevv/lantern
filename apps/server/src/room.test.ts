@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chatFor, createRoom, filterFor, handle, joinRoom, redact, type Room } from './room.ts';
+import { chatFor, createRoom, d20Test, filterFor, handle, joinRoom, redact, type Room } from './room.ts';
 
 const fakeRoll = (e: string) => { if (e === 'bad') throw new Error('x'); return { total: 7, detail: e }; };
 function setup() {
@@ -37,6 +37,22 @@ test('el estado del jugador no filtra ocultos, tokens tras muros ni hp/ac enemig
   assert.equal(d.scene.tokens.length, room.scene.tokens.length);
 });
 
+test('niebla: en la oscuridad solo llegan los enemigos que se perciben (luz, visión en la oscuridad)', () => {
+  const { room, player } = setup();
+  const s = room.scene, trasgo = tok(room, 'trasgo-a'), sees = () => filterFor(room, player).scene.tokens.some((t) => t.id === 'trasgo-a');
+  s.lights = []; s.globalLight = 0;
+  for (const t of s.tokens) if (t.faction === 'ally') { t.darkvision = 0; delete t.senses; }
+  assert.equal(sees(), false, 'a oscuras y sin visión en la oscuridad no se envía');
+  tok(room, 'kael').darkvision = 5000;
+  assert.equal(sees(), true, 'con visión en la oscuridad que llega');
+  tok(room, 'kael').darkvision = 0;
+  s.lights = [{ id: 'l', x: trasgo.x, y: trasgo.y, bright: 30, dim: 60, color: '#fff' }];
+  assert.equal(sees(), true, 'iluminado por una luz');
+  s.regions = [{ id: 'r', name: 'Oscuridad', kind: 'darkness', hidden: false, points: [{ x: trasgo.x - 50, y: trasgo.y - 50 }, { x: trasgo.x + 50, y: trasgo.y - 50 }, { x: trasgo.x + 50, y: trasgo.y + 50 }, { x: trasgo.x - 50, y: trasgo.y + 50 }] }];
+  tok(room, 'kael').darkvision = 5000;
+  assert.equal(sees(), false, 'la oscuridad mágica tapa luz y visión en la oscuridad');
+});
+
 test('la puerta secreta sale como muro', () => {
   const { room, player, dm } = setup();
   const w = filterFor(room, player).scene.walls.find((w) => w.id === 'd3')!;
@@ -64,6 +80,10 @@ test('puertas: solo con token cerca', () => {
   assert.ok(handle(room, player, { t: 'door', id: 'd1', open: true }, fakeRoll).error); // Kael lejos de d1
   tok(room, 'kael').x = 330; tok(room, 'kael').y = 270;
   assert.equal(handle(room, player, { t: 'door', id: 'd1', open: true }, fakeRoll).state, true);
+  // la puerta secreta le llega como muro: por protocolo tampoco se abre, aunque esté al lado
+  tok(room, 'kael').x = 1300; tok(room, 'kael').y = 570;
+  assert.equal(handle(room, player, { t: 'door', id: 'd3', open: true }, fakeRoll).error, 'puerta inexistente');
+  assert.equal(room.scene.walls.find((w) => w.id === 'd3')!.open, false);
 });
 
 test('reconectar con key y key inválida', () => {
@@ -642,4 +662,13 @@ test('unirse como espectador: ve lo del grupo, no controla tokens', () => {
   assert.ok(!room.scene.tokens.some((t) => t.owners.includes(r.member.id)), 'no se le asigna personaje');
   assert.ok(!filterFor(room, r.member).scene.tokens.some((t) => t.hidden));
   assert.ok('error' in joinRoom(room, 'X', undefined, 'dm'));
+});
+
+test('d20Test usa la edición de la criatura, no solo la de la mesa', () => {
+  const { room, dm } = setup();
+  const exprs: string[] = [], rollFn = (e: string) => { exprs.push(e); return { total: 10, detail: e, dice: [] }; };
+  const t = { ...tok(room, 'kael'), edition: '2014' as const, exhaustion: 3 };
+  const r = d20Test({ room, from: dm.id, now: 0, rollFn }, t, 'save', 'dex');
+  assert.deepEqual(exprs, ['2d20kl1']);
+  assert.equal(r.mod, d20Test({ room, from: dm.id, now: 0, rollFn }, { ...t, exhaustion: 0 }, 'save', 'dex').mod); // sin el −6 de 2024
 });

@@ -65,6 +65,34 @@ func TestScriptSyntax(t *testing.T) {
 	}
 }
 
+// El lantern.env y sus temporales nacen 600 aunque la umask heredada sea 022 (actualización), y la umask no se filtra al resto del script.
+func TestEnvPermisos(t *testing.T) {
+	var lines []string
+	for _, l := range strings.Split(InstallScript, "\n") {
+		if strings.HasPrefix(l, "[ -f \"$ENV\" ]") || strings.HasPrefix(l, "setenv() ") {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) != 2 {
+		t.Fatalf("no encuentro la creación de $ENV y setenv: %q", lines)
+	}
+	env := filepath.Join(t.TempDir(), "lantern.env")
+	script := "umask 022; ENV=" + env + "\n" + strings.Join(lines, "\n") + "\nsetenv A 1; setenv A 2; umask\n"
+	for i := 0; i < 2; i++ { // instalación nueva y actualización (el archivo ya existe)
+		out, err := exec.Command("bash", "-ec", script).CombinedOutput()
+		if err != nil {
+			t.Fatalf("bash: %v %s", err, out)
+		}
+		if strings.TrimSpace(string(out)) != "0022" {
+			t.Errorf("la umask se filtra al resto del script: %s", out)
+		}
+		st, _ := os.Stat(env)
+		if st.Mode().Perm() != 0o600 {
+			t.Errorf("pasada %d: permisos %v", i, st.Mode().Perm())
+		}
+	}
+}
+
 // servidor SSH de prueba: guarda lo subido con cat y captura el comando de instalación.
 type fakeSSH struct {
 	addr  string

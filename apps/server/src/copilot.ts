@@ -2,6 +2,7 @@
 // Aislamiento: a un miembro la IA solo le llega lo que ese miembro ve (filterFor + chatFor); monsterTurn/npc/recap son del DM.
 import { randomUUID } from 'node:crypto';
 import type { CopilotTurn, Id, JournalEntry, Point, S2C, Token } from '@lantern/protocol';
+import { speedFor } from '@lantern/protocol/move';
 import { cover, sightSegments, visibility, pointInPolygon } from '@lantern/vision';
 import { chatFor, filterFor, flr, pathBlocked, type MemberRec, type Room } from './room.ts';
 import { MAX_JOURNAL } from './validate.ts';
@@ -94,7 +95,7 @@ async function monsterTurn(room: Room, id: unknown): Promise<CopilotTurn> {
   const poly = visibility({ x: tk.x, y: tk.y }, segs, s.width, s.height);
   const seen = s.tokens.filter((t) => t.id !== tk.id && !t.hidden && flr(s, t.level) === fl && pointInPolygon(t, poly)); // visión del propio token
   const foes = seen.filter((t) => t.faction !== tk.faction && t.faction !== 'neutral' && tk.faction !== 'neutral' && (t.hp?.cur ?? 1) > 0);
-  const used = room.combat?.used[tk.id]?.moved ?? 0, speed = Math.max(0, (tk.speed ?? 30) - used);
+  const used = room.combat?.used[tk.id]?.moved ?? 0, speed = Math.max(0, (speedFor(tk, 'walk', room.settings.edition) ?? 0) - used);
   const cheb = (a: Point, b: Point) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
   const gap = (a: Token, p: Point, b: Token) => cheb(p, b) / gs * feet - (a.size + b.size - 2) / 2 * feet; // pies entre bordes
   const canGo = (p: Point) => p.x >= 0 && p.y >= 0 && p.x <= s.width && p.y <= s.height && cheb(p, tk) / gs * feet <= speed + 1e-6 && !pathBlocked(s, tk, p, tk.level);

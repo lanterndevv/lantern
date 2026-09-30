@@ -261,7 +261,7 @@ func writeDocker(c model.Config) (string, error) {
 	}
 	p := platform.Paths{Data: c.DataDir}
 	env := engine.BuildEnv(c, p, lantern.ReadEnv(filepath.Join(dir, "lantern.env")))
-	for _, k := range []string{"PORT", "HOST", "LANTERN_DB", "LANTERN_ASSETS", "LANTERN_BACKUP_DIR", "LANTERN_ORIGIN"} {
+	for _, k := range []string{"PORT", "HOST", "TRUST_PROXY", "LANTERN_DB", "LANTERN_ASSETS", "LANTERN_BACKUP_DIR", "LANTERN_ORIGIN"} {
 		delete(env, k) // rutas del anfitrión: dentro del contenedor las fija la imagen
 	}
 	if err := lantern.WriteEnv(filepath.Join(dir, "lantern.env"), env); err != nil {

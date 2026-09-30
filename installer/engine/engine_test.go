@@ -21,7 +21,7 @@ func TestBuildEnv(t *testing.T) {
 		LLM:  &model.LLM{Format: "gemini", URL: "https://g", Key: "K", Model: "m"},
 		LLM2: &model.LLM{Format: "openai", URL: "https://o", Key: "K2", Model: "m2", Headers: map[string]string{"x-a": "b"}}, Laya: true}
 	e := BuildEnv(c, p, map[string]string{"LANTERN_ADMIN_TOKEN": "keep"})
-	want := map[string]string{"PORT": "9000", "HOST": "127.0.0.1", "LANTERN_ORIGIN": "https://mesa.x.com", "LANTERN_ADMIN_TOKEN": "keep",
+	want := map[string]string{"PORT": "9000", "HOST": "127.0.0.1", "TRUST_PROXY": "1", "LANTERN_ORIGIN": "https://mesa.x.com", "LANTERN_ADMIN_TOKEN": "keep",
 		"LANTERN_LLM_FORMAT": "gemini", "LANTERN_LLM_KEY": "K", "LANTERN_LLM2_MODEL": "m2", "LANTERN_LLM2_HEADERS": `{"x-a":"b"}`, "LANTERN_LAYA": "1"}
 	for k, v := range want {
 		if e[k] != v {
@@ -30,7 +30,7 @@ func TestBuildEnv(t *testing.T) {
 	}
 	c.Mode = "lan"
 	c.LLM, c.LLM2 = nil, nil
-	if e2 := BuildEnv(c, p, e); e2["HOST"] != "0.0.0.0" || e2["LANTERN_LLM_KEY"] != "" {
+	if e2 := BuildEnv(c, p, e); e2["HOST"] != "0.0.0.0" || e2["TRUST_PROXY"] != "" || e2["LANTERN_LLM_KEY"] != "" {
 		t.Errorf("lan/quitar IA: %v", e2)
 	}
 }

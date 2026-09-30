@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import WebSocket from 'ws';
@@ -134,4 +135,27 @@ test('migraciones: una BD en la versión 5 (antes de «extra») arranca y guarda
   const cols = (new DatabaseSync(f).prepare('PRAGMA table_info(rooms)').all() as { name: string }[]).map((c) => c.name);
   assert.ok(cols.includes('extra'));
   void db;
+});
+
+test('la respuesta del copiloto llega al socket nuevo si la pestaña reconectó mientras tanto', async () => {
+  let answer!: () => void;
+  const llm = createServer((req, res) => { req.resume(); answer = () => res.end(JSON.stringify({ choices: [{ message: { content: 'respuesta' } }] })); });
+  await new Promise<void>((ok) => llm.listen(0, '127.0.0.1', ok));
+  process.env.LANTERN_LLM_URL = `http://127.0.0.1:${(llm.address() as { port: number }).port}/v1`;
+  const srv = start(0, ':memory:'); await srv.ready;
+  const base = `http://127.0.0.1:${srv.port()}`;
+  try {
+    const a = await ws(base, { t: 'join', name: 'DM', sid: 'pest' });
+    await sleep(100);
+    const w = a.msgs.find((m) => m.t === 'welcome');
+    a.w.send(JSON.stringify({ t: 'copilot', op: 'rules', question: '¿Qué es una reacción?', rid: 'r1', s: 1 }));
+    await sleep(150);
+    a.w.close(); await a.closed;
+    const b = await ws(base, { t: 'join', code: w.state.code, name: 'DM', key: w.key, sid: 'pest' });
+    await sleep(100);
+    assert.equal(b.msgs.find((m) => m.t === 'welcome').seq, 1); // el cliente no la va a reenviar
+    answer(); await sleep(200);
+    assert.equal(b.msgs.find((m) => m.t === 'copilot')?.rid, 'r1');
+    b.w.close();
+  } finally { await srv.close(); llm.closeAllConnections(); llm.close(); delete process.env.LANTERN_LLM_URL; }
 });

@@ -83,7 +83,8 @@ export function mapCharacter(json         )                    {
       ac = (armor.definition.armorClass ?? 10) + (t === 1 ? dex : t === 2 ? Math.min(dex, 2) : 0) + sum('bonus', 'armored-armor-class');
     } else {
       // Defensa sin armadura (bárbaro CON, monje SAB…): 'set' unarmored-armor-class con statId; ponytail: se coge la mejor
-      ac = Math.max(10 + dex, ...of('set', 'unarmored-armor-class').map(m => 10 + dex + (m.statId ? md[m.statId - 1] : 0))) + sum('bonus', 'unarmored-armor-class');
+      // La del monje (SAB, statId 5) no vale con escudo; la del bárbaro sí.
+      ac = Math.max(10 + dex, ...of('set', 'unarmored-armor-class').filter(m => !(shield && m.statId === 5)).map(m => 10 + dex + (m.statId ? md[m.statId - 1] : 0))) + sum('bonus', 'unarmored-armor-class');
     }
     if (shield) ac += shield.definition.armorClass ?? 2;
     ac += sum('bonus', 'armor-class');   // incluye bonus mágicos de armadura/escudo (grantedModifiers) y anillos/capas
@@ -97,11 +98,11 @@ export function mapCharacter(json         )                    {
   });
 
   // Velocidad (como ddb-importer): la mayor entre weightSpeeds y `set innate-speed-walking`, + bonus (Movimiento rápido solo sin armadura pesada),
-  // + movimiento sin armadura (monje) si no lleva armadura; customSpeeds (movementId 1 = caminar) manda.
+  // + movimiento sin armadura (monje) si no lleva armadura ni escudo; customSpeeds (movementId 1 = caminar) manda.
   const heavy = inv.some(i => i.equipped && i.definition?.type === 'Heavy Armor');
   let speed = Math.max(c.race?.weightSpeeds?.normal?.walk ?? 30, ...of('set', 'innate-speed-walking').map(val));
   speed += of('bonus', 'speed').filter(m => !m.restriction || (!heavy && /heavy armor/i.test(m.restriction))).reduce((a, m) => a + val(m), 0);
-  if (!armor) speed += sum('bonus', 'unarmored-movement');
+  if (!armor && !shield) speed += sum('bonus', 'unarmored-movement');
   speed = c.customSpeeds?.find((s   ) => s.movementId === 1 && s.distance)?.distance ?? speed;
 
   const feet = Math.max(0, ...of('set-base', 'darkvision').map(val), ...of('sense', 'darkvision').map(val),

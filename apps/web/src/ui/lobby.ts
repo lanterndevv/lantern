@@ -31,7 +31,7 @@ export function showLobby(ctx: { state(): ClientState; send(m: C2S): void; me: s
         ${(['lines', 'veils'] as const).map(l => `<div><h3 id="an-h-${l}">${l === 'lines' ? t('Líneas (no aparecen)') : t('Velos (pasan fuera de plano)')}</h3>
           <ul class="chips" data-l="${l}" aria-labelledby="an-h-${l}"></ul>
           <form data-l="${l}"><label class="sr" for="an-i-${l}">${t(l === 'lines' ? 'Añadir a líneas' : 'Añadir a velos')}</label>
-            <input id="an-i-${l}" maxlength="80" autocomplete="off" placeholder="${t('Añadir…')}"><button type="submit">${t('Añadir')}</button></form></div>`).join('')}
+            <input id="an-i-${l}" maxlength="60" autocomplete="off" placeholder="${t('Añadir…')}"><button type="submit">${t('Añadir')}</button></form></div>`).join('')}
         <p class="det">${t('La tarjeta X está activa durante la partida (tecla Alt+X o botón «X» abajo a la izquierda).')}</p></section>
       <button type="button" class="primary an-listo" id="an-ok">${t('Estoy listo')}</button>
     </div>`;

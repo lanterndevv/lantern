@@ -12,33 +12,47 @@ const inPoly = (p: Point, poly: Point[]) => {
 };
 const flr = (s: Scene, l?: Id) => l === s.levels?.[0]?.id ? undefined : l;
 
-/** Velocidad (pies) del token en ese modo; null = no puede moverse así. Nadar/trepar sin velocidad propia usan la de andar (cuesta el doble). */
-export function speedFor(t: Token, mode: MoveMode): number | null {
+// Condiciones que dejan la velocidad en 0 (en 2014 también aturdido; en 2024 aturdido no la cambia)
+const STILL = ['grappled', 'restrained', 'paralyzed', 'petrified', 'unconscious'];
+/**
+ * Velocidad (pies) del token en ese modo; null = no puede moverse así. Nadar/trepar sin velocidad propia usan la de andar (cuesta el doble).
+ * Aplica condiciones y agotamiento según la edición (la del token prevalece sobre la de la mesa).
+ */
+export function speedFor(t: Token, mode: MoveMode, edition: '2014' | '2024' = '2024'): number | null {
   const walk = t.speed ?? 30;
-  if (mode === 'walk') return walk;
-  return t.speeds?.[mode] ?? (mode === 'fly' ? null : walk);
+  const sp = mode === 'walk' ? walk : t.speeds?.[mode] ?? (mode === 'fly' ? null : walk);
+  if (sp === null) return null;
+  const ed = t.edition ?? edition, ex = t.exhaustion ?? 0;
+  if (t.conditions.some((c) => STILL.includes(c) || (ed === '2014' && c === 'stunned'))) return 0;
+  if (ed === '2014') return ex >= 5 ? 0 : ex >= 2 ? Math.floor(sp / 2) : sp;
+  return Math.max(0, sp - 5 * ex);
 }
 /** Coste extra por modo: nadar/trepar sin velocidad propia = ×2. */
 const modeMul = (t: Token, mode: MoveMode) => (mode === 'swim' || mode === 'climb') && !t.speeds?.[mode] ? 2 : 1;
 
 /**
  * Coste en pies de una ruta (inicio + puntos). El terreno difícil se evalúa casilla a casilla en cada tramo, no solo en el destino.
- * ponytail: los pasos se muestrean sobre la línea recta del tramo; volar ignora el terreno difícil.
+ * En hex se cuentan casillas hexagonales (sin regla de diagonales); sin cuadrícula, distancia euclídea.
+ * ponytail: los pasos se muestrean sobre la línea recta del tramo; volar ignora el terreno difícil. En hex, alcance y amenaza siguen siendo Chebyshev.
  */
 export function routeCost(s: Scene, t: Token, pts: Point[], o: { diagonal?: Diagonal; mode?: MoveMode } = {}): { feet: number; legs: Leg[] } {
-  const g = s.grid, mode = o.mode ?? 'walk', mul = modeMul(t, mode), lvl = flr(s, t.level);
+  const g = s.grid, mode = o.mode ?? 'walk', mul = modeMul(t, mode), lvl = flr(s, t.level), hex = g.type === 'hex';
+  const diagonal = g.type === 'none' ? 'euclid' : o.diagonal;
   const hard = mode === 'fly' ? [] : (s.regions ?? []).filter((r) => r.kind === 'difficult' && flr(s, r.level) === lvl);
   let alt = 0;
   const legs: Leg[] = [];
   for (let i = 1; i < pts.length; i++) {
     const a = pts[i - 1], b = pts[i], dx = Math.abs(b.x - a.x) / g.size, dy = Math.abs(b.y - a.y) / g.size;
-    const k = Math.ceil(Math.max(dx, dy) - 1e-6), diag = Math.round(Math.min(dx, dy));
-    const w = k ? Math.max(dx, dy) / k : 0; // la última casilla puede ser fraccionaria
+    // hex (filas, pointy-top): coordenadas axiales fraccionarias; alto de fila = size·√3/2
+    const hr = (b.y - a.y) / g.size / (Math.sqrt(3) / 2), hq = (b.x - a.x) / g.size - hr / 2;
+    const n = hex ? (Math.abs(hq) + Math.abs(hr) + Math.abs(hq + hr)) / 2 : Math.max(dx, dy);
+    const k = Math.ceil(n - 1e-6), diag = hex ? 0 : Math.round(Math.min(dx, dy));
+    const w = k ? n / k : 0; // la última casilla puede ser fraccionaria
     let feet = 0, difficult = false;
     for (let j = 0; j < k; j++) {
       const m = { x: a.x + (b.x - a.x) * (j + .5) / k, y: a.y + (b.y - a.y) * (j + .5) / k };
       const isDiag = j < diag;
-      const base = o.diagonal === 'euclid' ? Math.hypot(dx, dy) / k * g.feet : isDiag && o.diagonal === 'alt' ? (alt++ % 2 ? 2 : 1) * g.feet : g.feet;
+      const base = hex ? g.feet : diagonal === 'euclid' ? Math.hypot(dx, dy) / k * g.feet : isDiag && diagonal === 'alt' ? (alt++ % 2 ? 2 : 1) * g.feet : g.feet;
       const h = hard.some((r) => inPoly(m, r.points));
       if (h) difficult = true;
       feet += base * w * (h ? 2 : 1) * mul;

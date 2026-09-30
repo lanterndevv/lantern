@@ -1,7 +1,7 @@
 // Fase 9 B: combate 2 (legendarias, retrasar, reacciones, plantillas con forma, elevación, monturas).
 import type { Action, C2S, ClientState, Id, MoveMode, Point, Role, S2C, Token, TurnEffect } from '@lantern/protocol';
 import { opportunities, routeCost, speedFor } from '@lantern/protocol/move';
-import { ABILITY_ES, CONDITIONS, inArea } from '@lantern/rules';
+import { ABILITY_ES, CONDITIONS, inArea, tokenInArea } from '@lantern/rules';
 import { cover, sightSegments } from '@lantern/vision';
 import type { Marks, Table } from '../render/api.ts';
 import type { RadialItem } from './radial.ts';
@@ -216,7 +216,7 @@ export function templateTargeting(a: Action, c: TemplateCtx) {
     const s = c.state(), { origin, dir } = geom(p), o = caster(), g = s.scene.grid;
     const lv = (l?: Id) => l === s.scene.levels?.[0]?.id ? undefined : l;
     const segs = sightSegments(s.scene.walls.filter(w => lv(w.level) === lv(o?.level)), origin);
-    return s.scene.tokens.filter(tk => (!fromCaster || tk.id !== c.caster) && lv(tk.level) === lv(o?.level) && inArea(shape, origin, dir, area.size, g, tk)
+    return s.scene.tokens.filter(tk => (!fromCaster || tk.id !== c.caster) && lv(tk.level) === lv(o?.level) && tokenInArea(shape, origin, dir, area.size, g, tk)
       && cover(origin, tk, tk.size * g.size / 2, segs) !== 'total');
   };
   const paint = () => {
@@ -312,7 +312,7 @@ export function moveRuler(c: C2Ctx, table: () => Promise<Table>) {
   const paint = () => {
     const s = c.state(), tk = s.scene.tokens.find(x => x.id === id);
     if (!tk || pts.length < 2) return;
-    const sp = speedFor(tk, mode), u = s.combat?.used[tk.id], cb = !!s.combat && s.combat.order[s.combat.turn]?.tokenId === tk.id;
+    const sp = speedFor(tk, mode, s.settings.edition), u = s.combat?.used[tk.id], cb = !!s.combat && s.combat.order[s.combat.turn]?.tokenId === tk.id;
     const { feet, legs } = routeCost(s.scene, tk, pts, { diagonal: s.settings.diagonal, mode });
     const left = sp == null ? undefined : sp + (u?.dash ?? 0) - (u?.moved ?? 0); // pies que quedaban antes de este arrastre
     const foes = s.scene.tokens.filter(f => !f.hidden && f.id !== tk.id && !s.combat?.used[f.id]?.reaction);

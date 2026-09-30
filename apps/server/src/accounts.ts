@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Room } from './room.ts';
 import { sha } from './room.ts';
+import { clientIp } from './config.ts';
 import { verifyAssertion, verifyRegistration } from './webauthn.ts';
 
 const SESSION_MS = 30 * 24 * 3600 * 1000, WINDOW_MS = 15 * 60 * 1000, MAX_TRIES = 10, MAX_KEYS = 20;
@@ -139,7 +140,7 @@ export function createAccounts(db: DatabaseSync, host: { getRoom: (code: string)
     const sub = path.slice('/api/account'.length), post = req.method === 'POST';
     try {
       if (post && req.headers['x-lantern'] !== '1') return bad(res, 403, 'falta x-lantern'), true;
-      const ip = req.socket.remoteAddress ?? '?';
+      const ip = clientIp(req);
 
       if (req.method === 'GET' && sub === '/me') {
         const s = session(req);

@@ -120,9 +120,13 @@ func BuildEnv(c model.Config, p platform.Paths, old map[string]string) map[strin
 	for k, v := range old {
 		e[k] = v
 	}
+	// Fuera de la LAN se entra por un proxy local (cloudflared o Caddy): con TRUST_PROXY=1 los límites por IP usan
+	// X-Forwarded-For en vez de ver a todos como 127.0.0.1. El servidor solo la acepta en conexiones desde loopback.
 	host := "127.0.0.1"
+	e["TRUST_PROXY"] = "1"
 	if c.Mode == "lan" {
 		host = "0.0.0.0"
+		delete(e, "TRUST_PROXY")
 	}
 	e["PORT"], e["HOST"] = strconv.Itoa(port(c)), host
 	e["LANTERN_DB"], e["LANTERN_ASSETS"], e["LANTERN_BACKUP_DIR"] = p.DB(), p.Assets(), p.Backups()

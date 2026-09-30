@@ -104,6 +104,16 @@ test('acepta la respuesta envuelta {success, data}', () => {
   assert.equal(mapCharacter(j).name, mapCharacter(j.data).name);
 });
 
+test('Defensa y movimiento sin armadura: el monje los pierde con escudo, el bárbaro no', () => {
+  const shield = { equipped: true, definition: { id: 9, filterType: 'Armor', armorTypeId: 4, armorClass: 2 } };
+  const pj = (statId: number, inventory: object[]) => mapCharacter({ name: 'x', classes: [{ level: 5, isStartingClass: true }], inventory,
+    stats: [1, 2, 3, 4, 5, 6].map((id) => ({ id, value: 14 })), // +2 en todo
+    modifiers: { class: [{ type: 'set', subType: 'unarmored-armor-class', statId }, { type: 'bonus', subType: 'unarmored-movement', value: 10 }] } });
+  assert.deepEqual([pj(5, []).ac, pj(5, []).speed], [14, 40]);
+  assert.deepEqual([pj(5, [shield]).ac, pj(5, [shield]).speed], [14, 30]); // 10 + DES + escudo
+  assert.equal(pj(3, [shield]).ac, 16); // bárbaro: 10 + DES + CON + escudo
+});
+
 test('robustez', () => {
   for (const j of [undefined, null, {}, 'x', { classes: [], stats: [], name: 'a' }, { name: 'a', classes: [{}], stats: 5 }])
     assert.throws(() => mapCharacter(j), /no válido/);

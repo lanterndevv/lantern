@@ -810,4 +810,7 @@ export default {
   "Dragón blanco joven": "Young White Dragon",
   "Dragón blanco adulto": "Adult White Dragon",
   "Dragón blanco ancestral": "Ancient White Dragon",
+  "Objetivo: {name}": "Target: {name}",
+  "Hay un combate en curso. Cambiar de escena lo termina y descarta las tiradas pendientes. ¿Continuar?": "A combat is in progress. Changing scene ends it and discards pending rolls. Continue?",
+  "Escena creada: «{n}». ¿Abrirla ahora?": "Scene created: “{n}”. Open it now?",
 } as Record<string, string>;

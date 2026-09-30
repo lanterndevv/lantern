@@ -22,7 +22,4 @@ Beyond20 reenvía cada tirada a las pestañas registradas; no hay que «anunciar
 - Las tiradas en secreto de Beyond20 (whisper «sí» o «ocultar nombres») **no se envían**: `externalRoll` no tiene destinatario.
 - Solo se leen `rendered-roll`; HP, condiciones y combate de Beyond20 no se usan.
 - Beyond20 solo reenvía si tu navegador tiene ambas pestañas abiertas y tiene permiso para el dominio de Lantern.
-- El Game Log de D&D Beyond no recibe las tiradas de Lantern (ver más abajo).
-
-## Relé al Game Log de DDB: no implementado
-AboveVTT no publica por una API HTTP: coge el objeto message broker propio de la página de DDB (`window[key]`, `DiceRoller.js` líneas ~640-647) y envuelve su `dispatch`, sobre el websocket `game-log-api-live` que abre DDB. Eso exige inyectar código en la página de DDB y suplantar el formato interno (`userId`, `setId`, `entityId`, `dice/roll/fulfilled`). Desde el background de Lantern Link (fetch con el token `cobalt-token`) no hay un endpoint público documentado de escritura, y sería frágil (formato interno sin contrato) y a un paso de suplantar. Se deja fuera.
+- Las tiradas que llegan de Beyond20 no se reenvían al Game Log de D&D Beyond. Las hechas en Lantern sí pueden ir, con el relé opcional de Lantern Link: ver [lantern-link.md](lantern-link.md#relé-al-game-log-de-dd-beyond-opcional).

@@ -2,7 +2,7 @@
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { CODE_ALPHABET, DEFAULT_SETTINGS, DICE_THEMES, blocksMove } from '@lantern/protocol';
 import type { Ability, ActionCard, AudioState, C2S, ChatMsg, ClientState, Combat, DiceTheme, Die, ExtensionManifest, Hp, Id, JournalEntry, LibraryItem, Member, MoveMode, Point, Region, Role, S2C, Scene, SessionSummary, TableSettings, Token, Wall } from '@lantern/protocol';
-import { ABILITY_ES, CONDITIONS, SKILLS, abilityMod, applyCard, applyDamage, autoFailSave, concentrationDC, d20Penalty, deathSave, encounterXP, grantTemp, heal, inArea, resolveAction, roll as diceRoll } from '@lantern/rules';
+import { ABILITY_ES, CONDITIONS, SKILLS, abilityMod, applyCard, applyDamage, autoFailSave, concentrationDC, d20Penalty, deathSave, editionOf, encounterXP, grantTemp, heal, inArea, resolveAction, tokenInArea, roll as diceRoll } from '@lantern/rules';
 import { MONSTERS, SPELL_INDEX } from '@lantern/srd';
 import { spellRegions } from './areas.ts';
 import { livekitOn, livekitToken } from './livekit.ts';
@@ -12,6 +12,7 @@ import { acOf, afterTurn, answerSave, areaError, breakConcentration, budget, com
 import { routeCost, speedFor } from '@lantern/protocol/move';
 import { demoScene } from '@lantern/protocol/demo';
 import { cover, perceives, pointInPolygon, sightSegments, visibility } from '@lantern/vision';
+import type { Light as VisionLight } from '@lantern/vision';
 import { canUndo, clockOf, handleWorld, hiddenWhisper } from './world.ts';
 import { handleExtras } from './extras.ts';
 import { handleJourney } from './journey.ts';
@@ -113,8 +114,24 @@ function filterBase(room: Room, member: MemberRec, online: ReadonlySet<Id> = new
     .map((t) => ({ t, f: flr(s, t.level), poly: visibility({ x: t.x, y: t.y }, sightSegments(wallsOf(flr(s, t.level)), t), s.width, s.height) }));
   const visible = vis.filter((v) => mine.has(v.f)).map((v) => v.poly);
   const seen = (p: Point, l?: Id) => vis.some((v) => v.f === flr(s, l) && pointInPolygon(p, v.poly));
-  // Un invisible solo lo ven quienes lo perciben por otros sentidos (truesight, blindsight, tremorsense); la luz no se modela aquí.
-  const seenTok = (t: Token) => !t.conditions.includes('invisible') ? seen(t, t.level) : vis.some((v) => v.f === flr(s, t.level) && pointInPolygon(t, v.poly) && perceives(v.t, t, { light: 'bright', los: true }));
+  // Luz sobre el token: oscuridad mágica > luces de la escena (con cono y sin muro en medio) > luz global.
+  // ponytail: umbrales fijos de globalLight (≥0,5 brillante, ≥0,25 tenue); si hace falta, que sean ajustes de la escena
+  const lightAt = (p: Token): VisionLight => {
+    const f = flr(s, p.level);
+    if ((s.regions ?? []).some((r) => r.kind === 'darkness' && flr(s, r.level) === f && inRegion(r, p))) return 'magic';
+    let best: VisionLight = s.globalLight >= 0.5 ? 'bright' : s.globalLight >= 0.25 ? 'dim' : 'dark';
+    for (const l of s.lights) {
+      if (best === 'bright' || flr(s, l.level) !== f) continue;
+      const d = Math.hypot(p.x - l.x, p.y - l.y);
+      if (d > Math.max(l.bright, l.dim)) continue;
+      if (l.cone && d > 0) { const a = Math.abs(((Math.atan2(p.y - l.y, p.x - l.x) * 180 / Math.PI - l.cone.dir) % 360 + 540) % 360 - 180); if (a > l.cone.angle / 2) continue; }
+      if (cover(l, p, 0, sightSegments(wallsOf(f), l)) === 'total') continue;
+      best = d <= l.bright ? 'bright' : 'dim';
+    }
+    return best;
+  };
+  // El jugador recibe una ficha ajena si algún aliado suyo la percibe: línea de visión + luz y sentidos (perceives).
+  const seenTok = (t: Token) => { const light = lightAt(t); return vis.some((v) => v.f === flr(s, t.level) && pointInPolygon(t, v.poly) && perceives(v.t, t, { light, los: true })); };
   const fogs = (s.regions ?? []).filter((r) => r.kind === 'fog');
   // Los aliados llegan siempre (la barra de grupo los necesita); el cliente solo los dibuja en el mapa si son de su misma planta (t.level).
   const tokens = s.tokens
@@ -231,7 +248,7 @@ const say = (c: Ctx, text: string) => pushChat(c.room, { id: randomUUID(), from:
 
 // Tirada de d20 de un token con modificador, agotamiento (según edición) y condiciones.
 export function d20Test(c: Ctx, t: Token, kind: 'save' | 'skill' | 'ability', key: string) {
-  const ed = c.room.settings.edition, ex = t.exhaustion ?? 0;
+  const ed = editionOf(t, c.room.settings.edition), ex = t.exhaustion ?? 0;
   const ab = (kind === 'skill' ? SKILLS[key].ability : key) as Ability;
   const base = kind === 'save' ? t.saves?.[ab] : kind === 'skill' ? t.skills?.[key] : undefined;
   const mod = (base ?? abilityMod(t.abilities?.[ab] ?? 10)) + d20Penalty(ex, ed);
@@ -521,7 +538,7 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       const cb = room.combat;
       if (cb && !isDM(m)) {
         if (cb.order[cb.turn]?.tokenId !== t.id) return { error: 'no es su turno' };
-        const sp = speedFor(t, mode as MoveMode);
+        const sp = speedFor(t, mode as MoveMode, room.settings.edition);
         if (sp === null) return { error: 'no puede moverse así' };
         // coste por tramo: terreno difícil casilla a casilla, diagonales según la mesa (routeCost)
         const feet = routeCost(s, t, pts, { diagonal: room.settings.diagonal, mode: mode as MoveMode }).feet;
@@ -584,6 +601,7 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       const w = s.walls.find((w) => w.id === m2.id && w.kind === 'door');
       if (!w) return { error: 'puerta inexistente' };
       if (!isDM(m)) {
+        if (w.secret) return { error: 'puerta inexistente' }; // al jugador le llega como muro: no confirmar que hay algo
         if (w.locked && m2.open) return { error: 'cerrada con llave' };
         if (role !== 'player') return DENY;
         const mid = { x: (w.a.x + w.b.x) / 2, y: (w.a.y + w.b.y) / 2 };
@@ -710,10 +728,11 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
         const toward = fromCaster ? (aim ?? at) : shape === 'cube' ? (aim ?? { x: at.x + (at.x < tk.x ? -1 : 1), y: at.y + (at.y < tk.y ? -1 : 1) }) : at;
         if (!fromCaster && act.range > 0 && dist3d(s.grid, tk, { ...tk, x: at.x, y: at.y }) > act.range + 5 * (tk.size - 1) + 1e-6) return { error: 'fuera de alcance' };
         const so = sightSegments(lvlWalls, origin);
-        targets = s.tokens.filter((t) => flr(s, t.level) === flr(s, tk.level) && (!fromCaster || t.id !== tk.id) && inArea(shape, origin, toward, act.area!.size, s.grid, t)
+        targets = s.tokens.filter((t) => flr(s, t.level) === flr(s, tk.level) && (!fromCaster || t.id !== tk.id) && tokenInArea(shape, origin, toward, act.area!.size, s.grid, t)
           && cover(origin, t, t.size * s.grid.size / 2, so) !== 'total');
         from = origin;
       } else {
+        if (act.area && !isDM(m)) return { error: 'falta la plantilla' }; // un jugador no elige a mano quién queda en el área
         if (!m2.targets.length) return { error: 'mensaje inválido' };
         const vis = isDM(m) ? null : new Set(filterFor(room, m).scene.tokens.map((t) => t.id));
         for (const id of new Set(m2.targets as string[])) {
@@ -722,7 +741,7 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
           targets.push(t);
         }
         const reach = act.range + 5 * (tk.size - 1);
-        // ponytail: sin punto de plantilla (`at`) solo se comprueba el alcance al primer objetivo
+        // ponytail: sin plantilla (solo DM y copiloto) el alcance se mira en el primer objetivo y areaError no valida conos ni líneas
         if ((act.area ? targets.slice(0, 1) : targets).some((t) => dist(t) > reach + 1e-6)) return { error: 'fuera de alcance' };
         if (act.area) { const ae = areaError(s.grid, act.area, targets); if (ae) return { error: ae }; }
       }
@@ -747,13 +766,12 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       // resolveAction solo aplica la cobertura a la CA: en salvaciones de DES se suma al bono de la salvación del objetivo
       const manual = room.automation === 'manual';
       const sv = act.save?.ability;
-      // copias con la CA efectiva (Escudo), Esquivar (desventaja = «invisible» para el atacante) y, en manual, sin comparar CA ni CD
+      // copias con la CA efectiva (Escudo) y, en manual, sin comparar CA ni CD
       const rt = targets.map((t) => ({ ...t, ac: manual ? -999 : acOf(t),
-        ...(act.kind === 'attack' && cb?.used[t.id]?.dodge && { conditions: [...t.conditions, 'invisible'] }),
         ...((dexSave || (manual && sv)) && { saves: { ...t.saves, ...(dexSave && { dex: (t.saves?.dex ?? 0) + cov.get(t.id)! }), ...(manual && sv && { [sv]: (t.saves?.[sv] ?? 0) + (dexSave && sv === 'dex' ? cov.get(t.id)! : 0) - 999 }) } }) }));
       const opt = room.settings.optional;
       const card = resolveAction(tk, act, rt, undefined, { within5ft: (t) => dist(t) <= 5 + 5 * (tk.size - 1), cover: (t) => cov.get(t.id) ?? 0,
-        edition: room.settings.edition, brutalCrit: opt.brutalCrit, flank: opt.flanking && act.range <= 5 ? (t) => flanked(s, tk, t) : undefined });
+        edition: room.settings.edition, brutalCrit: opt.brutalCrit, dodge: (t) => !!cb?.used[t.id]?.dodge, flank: opt.flanking && act.range <= 5 ? (t) => flanked(s, tk, t) : undefined });
       if (act.kind === 'attack' || dexSave) for (const ct of card.targets) { const c = cov.get(ct.id); if (c) ct.cover = c; }
       if (manual) { card.manual = true; for (const ct of card.targets) if (ct.save) ct.save.total += 999; }
       const brk: ChatMsg[] = [];
@@ -953,13 +971,12 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       if (!isDM(m)) return DENY;
       if (!str(m2.id, 64) || (m2.name !== undefined && !str(m2.name, 60)) || (m2.folder !== undefined && !short(m2.folder, 40))) return { error: 'mensaje inválido' };
       if (!Object.hasOwn(room.scenes, m2.id)) return { error: 'escena inexistente' };
+      // visibleTo: null/[] = todos; solo miembros existentes. Se valida todo antes de tocar la escena.
+      if (m2.visibleTo !== undefined && m2.visibleTo !== null && !(Array.isArray(m2.visibleTo) && m2.visibleTo.length <= 50 && m2.visibleTo.every((id) => str(id, 64) && room.members.has(id)))) return { error: 'mensaje inválido' };
       const sc = room.scenes[m2.id];
       if (m2.name !== undefined) sc.name = m2.name;
       if (m2.folder !== undefined) { if (m2.folder) sc.folder = m2.folder; else delete sc.folder; } // '' quita la carpeta
-      if (m2.visibleTo !== undefined) { // null/[] = todos; solo miembros existentes
-        if (m2.visibleTo !== null && !(Array.isArray(m2.visibleTo) && m2.visibleTo.length <= 50 && m2.visibleTo.every((id) => str(id, 64) && room.members.has(id)))) return { error: 'mensaje inválido' };
-        if (m2.visibleTo?.length) sc.visibleTo = [...new Set(m2.visibleTo)]; else delete sc.visibleTo;
-      }
+      if (m2.visibleTo !== undefined) { if (m2.visibleTo?.length) sc.visibleTo = [...new Set(m2.visibleTo)]; else delete sc.visibleTo; }
       return { state: true };
     }
     case 'sceneDelete': {

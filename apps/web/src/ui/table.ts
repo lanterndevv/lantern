@@ -1,4 +1,5 @@
 import type { C2S, Action, ImportedCharacter, ActionCard, Ability, ChatMsg, ClientState, DiceTheme, Id, Member, MoveMode, Point, Role, S2C, Token } from '@lantern/protocol';
+import { speedFor } from '@lantern/protocol/move';
 import { MONSTERS } from '@lantern/srd';
 import type { Table, TableOptions } from '../render/api.ts';
 import { net } from '../net.ts';
@@ -184,7 +185,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   const tok = (id?: Id) => state.scene.tokens.find(t => t.id === id);
   const mine = () => state.scene.tokens.filter(t => t.owners.includes(w.memberId));
   const activeId = () => state.combat?.order[state.combat.turn]?.tokenId;
-  const hudTok = () => { const m = mine(); return m.find(t => t.id === selected) ?? m[0] ?? (w.role === 'dm' ? tok(selected) ?? tok(activeId()) : undefined); };
+  const hudTok = () => { const m = mine(); return m.find(t => t.id === selected) ?? m.find(t => t.id === activeId()) ?? m[0] ?? (w.role === 'dm' ? tok(selected) ?? tok(activeId()) : undefined); };
   const layerOn = (k: keyof ClientState['settings']['layers']) => state.settings.mode === 'full' && state.settings.layers[k];
   const canConfirm = w.role === 'dm' || w.role === 'assistant';
   const areaR = (a: Action) => a.area!.size / state.scene.grid.feet * state.scene.grid.size;
@@ -213,13 +214,14 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     onDrag: (id, pts) => ruler?.drag(id, pts),
     onTokenClick: (id, shift) => {
       if (pickToken(id)) return;
-      const t = tok(id); if (!t) return;
-      if (armed?.a.area) return atArea(t.x, t.y);
+      const tk = tok(id); if (!tk) return;
+      if (armed?.a.area) return atArea(tk.x, tk.y);
       if (armed) {
         if (shift) { targets = [...new Set([...targets, id])]; marks(); return; }
         return fire(armed.tok, armed.a.id, [...new Set([...targets, id])]);
       }
       selected = id; targets = shift ? [...new Set([...targets, id])] : [id]; sheet.render();
+      if (hudTok()?.id !== id) say(t('Objetivo: {name}', { name: tk.name }));
       renderHud(); marks(); renderBar();
     },
     onMapClick: (x, y) => {
@@ -245,7 +247,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   const table: Promise<Table> = popout ? new Promise(() => {}) : import('../render/table.ts').then(m => m.createTable($('mapa'), tableOpts));
 
   // ---- fase 5: edición, diario, biblioteca, encuentros, tutorial ----
-  const ctx: UiCtx = { send: m => net.send(m), state: () => state, code: w.state.code, key: () => localStorage.getItem(`lantern:key:${w.state.code}`), role: w.role, toast: m => say(m, 3500), onMapClick: cb => { mapCb = cb; }, setTool: t => void table.then(x => x.setTool({ tool: t })) };
+  const ctx: UiCtx = { send: m => net.send(m), state: () => state, code: w.state.code, key: () => net.key(w.state.code), role: w.role, toast: m => say(m, 3500), onMapClick: cb => { mapCb = cb; }, setTool: t => void table.then(x => x.setTool({ tool: t })) };
   const tableEd = { setTool: (t: Parameters<Awaited<typeof table>['setTool']>[0]) => void table.then(x => x.setTool(t)), onEdit: (cb: Parameters<Awaited<typeof table>['onEdit']>[0]) => void table.then(x => x.onEdit(cb)) };
   const staffEd = w.role === 'dm' || w.role === 'assistant';
   const ed = staffEd ? mountEditor($('ed-bar'), $('ed-insp'), { send: m => net.send(m), state: () => state, table: tableEd, role: w.role, memberId: w.memberId, toast: m => say(m, 3500) }) : undefined;
@@ -256,7 +258,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   $('t-biblioteca').hidden = $('t-encuentros').hidden = !staffEd;
   maybeStartTutorial(ctx);
 
-  const sheet = mountSheet($('p-hoja'), { role: w.role, memberId: w.memberId, code: w.state.code, key: () => localStorage.getItem(`lantern:key:${w.state.code}`), send: m => net.send(m), token: () => w.role === 'dm' ? tok(selected) ?? hudTok() : mine().find(t => t.id === selected) ?? mine()[0] });
+  const sheet = mountSheet($('p-hoja'), { role: w.role, memberId: w.memberId, code: w.state.code, key: () => net.key(w.state.code), send: m => net.send(m), token: () => w.role === 'dm' ? tok(selected) ?? hudTok() : mine().find(t => t.id === selected) ?? mine()[0] });
   const staff = w.role === 'dm' || w.role === 'assistant';
   const settings = staff ? mountSettings($('p-aj'), m => net.send(m), w.memberId) : undefined;
   $('t-aj').hidden = !staff;
@@ -290,11 +292,12 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   let exts: ReturnType<typeof mountExtensions> | undefined; // se monta más abajo; render() corre antes
   let lv: ReturnType<typeof mountLevels> | undefined, lobby: ReturnType<typeof showLobby> | undefined, cr: ReturnType<typeof mountCheckRequester> | undefined;
   const render = (s: ClientState) => {
-    voz.onState(s.members); exts?.update(s); copilot?.update(); chat2.update(s); drawApi?.update(s); clock.update(s); extras.update(); lasso?.update();
-    co?.update(s); ed?.update(s); jr.update(s); lib?.update(s); enc?.update(s); lv?.update(s); lobby?.update(); cr?.render();
     const was = new Map(state.scene.walls.filter(w => w.kind === 'door').map(w => [w.id, !!w.open]));
     for (const d of s.scene.walls) if (d.kind === 'door' && was.has(d.id) && was.get(d.id) !== !!d.open) { sfx(d.open ? 'door' : 'doorclose'); break; } // uno por cambio de estado
-    state = s; paintGl();
+    state = s; // antes de los paneles: varios leen state() en vez del argumento
+    voz.onState(s.members); exts?.update(s); copilot?.update(); chat2.update(s); drawApi?.update(s); clock.update(s); extras.update(); lasso?.update();
+    co?.update(s); ed?.update(s); jr.update(s); lib?.update(s); enc?.update(s); lv?.update(s); lobby?.update(); cr?.render();
+    paintGl();
     $('escena').textContent = s.scene.name;
     $('cod').textContent = `${s.code.slice(0, 3)}-${s.code.slice(3)}`;
     $('miembros').innerHTML = s.members.map((m: Member) =>
@@ -337,6 +340,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     if (key === turnKey) return;
     turnKey = key;
     const tk = tok(id);
+    if (tk && (w.role === 'dm' || tk.owners.includes(w.memberId))) { selected = tk.id; targets = []; if (armed) cancel(); } // el HUD sigue al token del turno
     if (!tk || !tk.owners.includes(w.memberId)) return;
     sfx('bell');
     if (camOn()) void table.then(tb => tb.focus(tk.x, tk.y));
@@ -351,7 +355,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     if (!tk || !a) return;
     if (armed?.a.id === a.id) return cancel();
     spawn = undefined; renderMonsters();
-    if (!a.area && targets.length) return fire(tk.id, a.id, targets);
+    const tg = targets.filter(id => id !== tk.id); // el actor no se apunta a sí mismo sin querer; para curarse: armar y pulsar su token
+    if (!a.area && tg.length) return fire(tk.id, a.id, tg);
     armed = { tok: tk.id, a };
     tpl = a.area ? templateTargeting(a, { caster: tk.id, state: () => state, table: { setMarks: m => void table.then(x => x.setMarks(m)) }, baseMarks, fire }) : undefined;
     renderHud(); marks();
@@ -382,7 +387,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       `<span class="slot" role="img" aria-label="${t('Nivel {lv}: {a} de {b} espacios', { lv, a: s.max - s.used, b: s.max })}">${t('N')}${lv} ${'◆'.repeat(Math.max(0, s.max - s.used))}${'◇'.repeat(Math.min(s.used, s.max))}</span>`).join('');
     // ponytail: hoy `combat` es solo del DM; si el servidor rechaza «next» se muestra su error (toast)
     const end = c && (activeId() === tk.id || w.role === 'dm') ? `<button type="button" class="primary" data-end>${t('Fin de turno')}</button>` : '';
-    const mv = c ? Math.min(u?.moved ?? 0, 9999) : 0, sp = (tk.speed ?? 30) + (u?.dash ?? 0);
+    const mv = c ? Math.min(u?.moved ?? 0, 9999) : 0, sp = (speedFor(tk, 'walk', state.settings.edition) ?? 0) + (u?.dash ?? 0);
     const move = c ? `<div class="mov"><span>${t('Movimiento {mv}/{sp} pies', { mv, sp })}</span><span class="hpbar" role="progressbar" aria-label="${t('Movimiento')}" aria-valuemin="0" aria-valuemax="${sp}" aria-valuenow="${Math.min(mv, sp)}"><i style="width:${Math.min(100, mv / sp * 100)}%"></i></span></div>` : '';
     const ddb = tk.ddb ? `<div class="det">${t('Vinculado · nivel {n}', { n: tk.ddb.level })} <button type="button" data-sync="${esc(tk.id)}">${t('Resincronizar')}</button></div>` : '';
     el.innerHTML = `${portrait(tk)}<div class="info"><strong>${esc(tk.name)}</strong>

@@ -54,4 +54,4 @@ Esto es lo que da la niebla y la visión dinámicas:
 
 ## 8. Antes de la próxima sesión
 
-Exporta la campaña como copia de seguridad. Lantern también guarda copias automáticas periódicas en la carpeta `backups/` junto a los datos.
+Exporta la campaña como copia de seguridad. Lantern también guarda copias automáticas periódicas en la carpeta `backups/` junto a los datos, pero **sin imágenes ni audios**: esos siguen en la carpeta de recursos (`LANTERN_ASSETS`). Para una copia completa, exporta la campaña o copia también esa carpeta.

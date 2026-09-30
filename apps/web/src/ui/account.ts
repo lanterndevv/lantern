@@ -1,4 +1,5 @@
 import { t, tsrv } from '../i18n.ts';
+import { saveName, savedName } from '../net.ts';
 // Cuentas opcionales (recuperar tus mesas en otro dispositivo).
 // Montaje: en la pantalla de unirse, `mountAccount(main)` (p. ej. al final de mountJoin, con el <main> ya creado).
 // Al entrar en una mesa con éxito (welcome), el orquestador llama `linkCurrentTable(code, key)`; sin sesión no hace nada.
@@ -118,6 +119,7 @@ export function mountAccount(el: HTMLElement, current?: { code: string; key: str
       const r = await send(`/tables/${code}/key`, {});
       if (r.status !== 200) return msg(r.data.error ? tsrv(r.data.error) : t('No se pudo obtener acceso.'));
       try { localStorage.setItem(`lantern:key:${code}`, r.data.key); } catch { return msg(t('El navegador no permite guardar la clave.')); }
+      if (!savedName()) saveName(me.name); // en un dispositivo nuevo, para que ?code= entre solo con la key
       location.search = '?code=' + code;
     });
     if (current) q('#vincular').onclick = async () => msg(await linkCurrentTable(current.code, current.key) ? t('Mesa vinculada.') : t('No se pudo vincular la mesa.'), true);

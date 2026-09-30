@@ -3,6 +3,7 @@
   "name": "Lantern Link",
   "version": "0.1.0",
   "description": "Importa tus personajes de D&D Beyond a Lantern usando tu propia sesión. Solo envía estadísticas de juego.",
+  "permissions": ["storage"],
   "host_permissions": ["https://*.dndbeyond.com/*", "https://game-log-api-live.dndbeyond.com/*", "wss://game-log-api-live.dndbeyond.com/*"],
   "background": { "service_worker": "background.js", "scripts": ["background.js"], "type": "module" },
   "content_scripts": [

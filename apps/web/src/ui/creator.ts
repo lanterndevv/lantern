@@ -74,7 +74,8 @@ export function openCreator(onDone: (c: ImportedCharacter) => void): void {
     },
     b => { // 2
       b.innerHTML = `<div class="fila"><label>${t('Clase')}<select id="f-cl">${opts(Object.entries(CLASSES).map(([k, v]) => [k, v.name]), st.cls)}</select></label>
-        <label>${t('Nivel (1–20)')}<input id="f-lv" type="number" min="1" max="20" inputmode="numeric" value="${st.level}"></label></div>
+        <label>${t('Nivel (1–20, ficha básica)')}<input id="f-lv" type="number" min="1" max="20" inputmode="numeric" value="${st.level}"></label></div>
+        <p class="sub">${t('Calcula PG, competencia, espacios y trucos; sin subclase, dotes, mejoras de característica ni conjuros de nivel 1+: complétalos a mano en la hoja.')}</p>
         <p id="f-info" class="sub" aria-live="polite"></p>`;
       const info = () => { const k = CLASSES[st.cls]; $('f-info').textContent = `${t('Dado de golpe d{n}', { n: k.hitDie })} · ${t('Salvaciones:')} ${k.saves.map(a => t(AB_ES[a])).join(', ')} · ${k.cast ? t('Lanzamiento:') + ' ' + t(AB_ES[k.cast]) : t('No lanza conjuros')}`; };
       info();

@@ -10,7 +10,8 @@ Todavía no está en las tiendas de Chrome ni de Firefox, así que se carga «de
 2. **Chrome / Edge / Brave:** abre `chrome://extensions`, activa **Modo desarrollador** y pulsa **Cargar descomprimida**; elige la carpeta.
 3. **Firefox:** abre `about:debugging#/runtime/this-firefox`, pulsa **Cargar complemento temporal** y elige `manifest.json` de la carpeta. (En Firefox, el complemento temporal se quita al cerrar el navegador.)
 4. Inicia sesión en dndbeyond.com en el mismo navegador.
-5. En tu mesa de Lantern, usa la opción de importar de D&D Beyond: Lantern detecta la extensión y muestra tus personajes.
+5. Abre tu mesa de Lantern. La primera vez, la extensión pregunta si ese sitio puede usar tu sesión de D&D Beyond: acepta solo si es tu servidor de Lantern.
+6. Usa la opción de importar de D&D Beyond: Lantern detecta la extensión y muestra tus personajes.
 
 Desde el código: `node apps/link/build.mjs` y carga la carpeta `apps/link`. Detalles técnicos: [apps/link/README.md](../apps/link/README.md).
 
@@ -19,8 +20,8 @@ Desde el código: `node apps/link/build.mjs` y carga la carpeta `apps/link`. Det
 - Usa **solo tu propia sesión** de dndbeyond.com. Pide un token de corta duración y lee tus personajes.
 - **El token nunca sale del navegador:** ni a la página de Lantern ni al servidor de Lantern.
 - A la mesa solo llegan **estadísticas de juego** (`ImportedCharacter`), sin textos de reglas ni descripciones.
-- El content script solo actúa en páginas de Lantern (las que llevan `<meta name="lantern" content="1">`).
-- Permisos: acceso a `dndbeyond.com` y a su servicio de Game Log.
+- Solo responde a los sitios que hayas autorizado (la pregunta del paso 5). Una página cualquiera no puede pedir tus personajes aunque imite a Lantern.
+- Permisos: acceso a `dndbeyond.com` y a su servicio de Game Log, y `storage` para recordar los sitios autorizados.
 
 ## Relé al Game Log de D&D Beyond (opcional)
 

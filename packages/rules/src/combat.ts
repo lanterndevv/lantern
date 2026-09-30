@@ -1,15 +1,19 @@
 // Resolución de acciones y aplicación de tarjetas (funciones puras).
 import type { Action, ActionCard, Die, Token } from '@lantern/protocol';
 import { applyDamage, d20Penalty, autoCrit, autoFailSave, attackMode, heal, roll, saveDamage } from './index.ts';
+import { editionOf } from './rest.ts';
 
 const d20 = (rng: () => number) => Math.floor(rng() * 20) + 1;
 // Duplica N en cada NdM: '2d6+3' → '4d6+3'
 const doubleDice = (expr: string) => expr.replace(/(\d*)d(\d+)/gi, (_, n, m) => `${(n === '' ? 1 : Number(n)) * 2}d${m}`);
+// Visión ciega o verdadera al alcance anulan la invisibilidad del otro. ponytail: no mira línea de visión (el servidor ya exige objetivos visibles)
+const sees = (v: Token, o: Token) => { const r = Math.max(v.senses?.blindsight ?? 0, v.senses?.truesight ?? 0); return r > 0 && Math.hypot(o.x - v.x, o.y - v.y) <= r; };
+const unseen = (conds: string[], seen: boolean) => seen ? conds.filter((c) => c !== 'invisible') : conds;
 
 export function resolveAction(
   actor: Token, action: Action, targets: Token[], rng: () => number = Math.random,
   opts: { within5ft?: (t: Token) => boolean; cover?: (t: Token) => number; edition?: '2014' | '2024'; exhaustionOf?: (t: Token) => number;
-    flank?: (t: Token) => boolean; brutalCrit?: boolean } = {},
+    flank?: (t: Token) => boolean; dodge?: (t: Token) => boolean; brutalCrit?: boolean } = {},
 ): ActionCard {
   const card: ActionCard = {
     actorId: actor.id, actorName: actor.name, actionName: action.name, kind: action.kind,
@@ -18,13 +22,16 @@ export function resolveAction(
   const details: string[] = [];
   const dice: Die[] = [];
   const dmg = action.damage ?? '0';
+  // la edición de cada criatura prevalece sobre la de la mesa: la del actor para su ataque, la del objetivo para su salvación
   const edition = opts.edition ?? '2024', exOf = opts.exhaustionOf ?? ((t: Token) => t.exhaustion ?? 0);
-  const ex = exOf(actor), pen = d20Penalty(ex, edition);
+  const edA = editionOf(actor, edition), ex = exOf(actor), pen = d20Penalty(ex, edA);
 
   if (action.kind === 'attack') {
     for (const t of targets) {
       const near = opts.within5ft ? opts.within5ft(t) : action.range <= 5;
-      const mode = attackMode(actor.conditions, t.conditions, { ranged: action.range > 5, within5ft: near, adv: opts.flank?.(t), dis: edition === '2014' && ex >= 3 });
+      // ponytail: asustado da desventaja aunque la fuente no esté a la vista (no se guarda la fuente del miedo); haría falta condSource.frightened + perceives()
+      const mode = attackMode(unseen(actor.conditions, sees(t, actor)), unseen(t.conditions, sees(actor, t)), { ranged: action.range > 5, within5ft: near, adv: opts.flank?.(t),
+        dis: (edA === '2014' && ex >= 3) || opts.dodge?.(t) });
       const a = d20(rng);
       const b = mode === 'normal' ? a : d20(rng);
       const die = mode === 'adv' ? Math.max(a, b) : mode === 'dis' ? Math.min(a, b) : a;
@@ -46,9 +53,11 @@ export function resolveAction(
     details.push(r.detail);
     dice.push(...r.dice);
     for (const t of targets) {
-      const v = d20(rng);
-      dice.push({ sides: 20, value: v, kept: true });
-      const total = v + (t.saves?.[save.ability] ?? 0) + d20Penalty(exOf(t), edition); // ponytail: 2014 (desventaja en salvaciones desde nv. 3) solo en check
+      const edT = editionOf(t, edition), exT = exOf(t), dis = edT === '2014' && exT >= 3; // 2014: desventaja en salvaciones desde agotamiento 3
+      const a = d20(rng), b = dis ? d20(rng) : a, v = Math.min(a, b);
+      dice.push({ sides: 20, value: a, kept: a === v });
+      if (dis) dice.push({ sides: 20, value: b, kept: a !== v });
+      const total = v + (t.saves?.[save.ability] ?? 0) + d20Penalty(exT, edT);
       const success = !autoFailSave(t.conditions, save.ability) && total >= save.dc;
       card.targets.push({
         id: t.id, name: t.name, save: { total, success, ability: save.ability, dc: save.dc },
