@@ -701,3 +701,15 @@ test('encuentros guardados: solo el DM los guarda y los ve', () => {
   assert.equal(handle(room, dm, { t: 'encounterDelete', id: 'e1' }, fakeRoll).state, true);
   assert.deepEqual(filterFor(room, dm).encounters, []);
 });
+
+test('precarga: el acuse de un jugador solo llega al DM', () => {
+  const { room, dm, player } = setup();
+  const prep = handle(room, dm, { t: 'scenePrepare', id: room.activeId }, fakeRoll);
+  assert.equal((prep.all as { id: string }).id, room.activeId);
+  assert.equal(handle(room, player, { t: 'prepared', id: 'nada' }, fakeRoll).error, 'mensaje inválido');
+  const fx = handle(room, player, { t: 'prepared', id: room.activeId }, fakeRoll);
+  assert.equal(fx.sends!.length, 1);
+  assert.deepEqual(fx.sends![0].msg, { t: 'prepared', id: room.activeId, memberId: player.id });
+  assert.equal(fx.sends![0].who(dm), true);
+  assert.equal(fx.sends![0].who(player), false);
+});

@@ -764,7 +764,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       else if (m.t === 'handout') showHandout(m.entry);
       else if (m.t === 'regionMsg') showRegionMsg(m.text);
       else if (m.t === 'transition') story.transition(m);
-      else if (m.t === 'prepare') preload(m.urls);
+      else if (m.t === 'prepare') void preload(m.urls).then(() => { if (!staff) net.send({ t: 'prepared', id: m.id }); });
+      else if (m.t === 'prepared') lib?.prepared(m.id, m.memberId);
       else if (m.t === 'sfx') sfx(m.name);
       else if (m.t === 'clock') audio.clock(m.now);
       else if (m.t === 'safety') handleSafety(m);

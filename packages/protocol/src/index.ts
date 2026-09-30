@@ -390,6 +390,7 @@ export type C2S =
   | { t: 'pin'; op: 'add'; x: number; y: number; entryId: Id } | { t: 'pin'; op: 'remove'; id: Id } // DM
   | { t: 'backup'; op: 'list' | 'now' } | { t: 'backup'; op: 'restore'; name: string } // DM
   | { t: 'scenePrepare'; id: Id }                                    // DM: los clientes precargan las imágenes de esa escena antes de activarla
+  | { t: 'prepared'; id: Id }                                        // un cliente terminó de precargar esa escena (se reenvía al DM)
   | { t: 'travel'; points: Point[]; pace: TravelPace; tableId?: Id; dc?: number } // DM: viaje medido con la regla (mapa del mundo): avanza el reloj y tira encuentros (1d20 ≥ dc por jornada; tableId = tabla del diario)
   | { t: 'tokenOwners'; tokenId: Id; owners: Id[] }; // DM: quién controla (mueve/actúa) el token; // DM                                                 // miembro: pide token de voz SFU (solo si state.livekit)                       // DM: resumen narrativo de la sesión → diario
 
@@ -401,7 +402,8 @@ export type S2C =
   | { t: 'ping'; from: Id; x: number; y: number }
   | { t: 'npcSay'; name: string; text: string; portrait?: string }
   | { t: 'transition'; title: string; subtitle?: string; kind?: TransitionKind; ms?: number }
-  | { t: 'prepare'; urls: string[] }                                   // precarga de la escena que el DM va a activar (solo imágenes)
+  | { t: 'prepare'; id: Id; urls: string[] }                          // precarga de la escena que el DM va a activar (solo imágenes)
+  | { t: 'prepared'; id: Id; memberId: Id }                          // (solo DM/asistente) ese miembro ya tiene la escena precargada
   | { t: 'sfx'; name: string }
   | { t: 'rtc'; from: Id; data: unknown }
   | { t: 'clock'; now: number }                                        // reloj del servidor (ms) para sincronizar audio; se envía tras welcome

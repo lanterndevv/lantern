@@ -21,10 +21,11 @@ export function playTransition(m: { title: string; subtitle?: string; kind: Tran
 }
 
 const held: HTMLImageElement[] = []; // se retienen para que el navegador no cancele la descarga
-/** Precarga las imágenes de la escena que el DM va a activar. */
+/** Precarga las imágenes de la escena que el DM va a activar; resuelve cuando todas han cargado (o fallado). */
 export function preload(urls: string[]) {
   held.length = 0;
   for (const u of urls.slice(0, 20)) { const i = new Image(); i.src = u; held.push(i); }
+  return Promise.allSettled(held.map(i => i.decode()));
 }
 
 /** Selector «Transición al activar» (tipo y duración); `get()` devuelve lo elegido o undefined si no hay transición. */

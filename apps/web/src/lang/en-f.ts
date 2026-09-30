@@ -830,4 +830,5 @@ export default {
   "encuentro inválido": "invalid encounter",
   "demasiados encuentros": "too many encounters",
   "encuentros inválidos": "invalid encounters",
+  "Precargada en {a}/{b}": "Preloaded on {a}/{b}",
 } as Record<string, string>;
