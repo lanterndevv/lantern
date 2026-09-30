@@ -16,7 +16,7 @@ import { mountEditor } from './editor.ts';
 import { mountJournal, showHandout, showRegionMsg } from './journal.ts';
 import { mountLibrary, type UiCtx } from './library.ts';
 import { mountEncounter } from './encounter.ts';
-import { maybeStartTutorial } from './tutorial.ts';
+import { startTutorial } from './tutorial.ts';
 import { openRadial, tokenRadialItems, type RadialItem } from './radial.ts';
 import { mountChat2, chatSendFromInput, renderChatExtras } from './chat2.ts';
 import { mountDraw, bindUndo } from './draw.ts';
@@ -256,7 +256,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   const lib = staffEd ? mountLibrary($('p-biblioteca'), ctx) : undefined;
   const enc = staffEd ? mountEncounter($('p-encuentros'), ctx) : undefined;
   $('t-biblioteca').hidden = $('t-encuentros').hidden = !staffEd;
-  maybeStartTutorial(ctx);
+  startTutorial(ctx);
 
   const sheet = mountSheet($('p-hoja'), { role: w.role, memberId: w.memberId, code: w.state.code, key: () => net.key(w.state.code), send: m => net.send(m), token: () => w.role === 'dm' ? tok(selected) ?? hudTok() : mine().find(t => t.id === selected) ?? mine()[0] });
   const staff = w.role === 'dm' || w.role === 'assistant';
@@ -702,7 +702,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   mountPalette({ commands: q => defaultCommands({
     role: w.role, memberId: w.memberId, send: m => net.send(m), state: () => state,
     center: () => ({ x: state.scene.width / 2, y: state.scene.height / 2 }), // ponytail: centro de la escena, no de la vista
-    mine: () => hudTok(), tab, focus: (x, y) => void table.then(t => t.focus(x, y)),
+    mine: () => hudTok(), tab, focus: (x, y) => void table.then(t => t.focus(x, y)), tutorial: () => startTutorial(ctx, true),
   }, q) });
   applyDisplayMode(displayModeFromUrl(), { table, root, state: w.state });
   // ---- fase 7b: plantas, antesala, tarjeta X, pruebas pedidas, cierre de sesión ----

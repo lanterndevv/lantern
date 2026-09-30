@@ -80,6 +80,7 @@ export type PaletteCtx = {
   mine(): Token | undefined;             // token propio (o el seleccionado si eres DM)
   tab(id: 'reg' | 'hoja' | 'mesa' | 'esc' | 'aj' | 'dia' | 'biblioteca' | 'encuentros'): void;
   focus(x: number, y: number): void;
+  tutorial?(): void;                     // vuelve a abrir la guía de bienvenida
 };
 
 const DICE = /^\s*\d*d\d+(\s*[+-]\s*\d+)?(\s*[+-]\s*\d*d\d+)*\s*$/i;
@@ -95,6 +96,7 @@ export function defaultCommands(x: PaletteCtx, q = ''): Cmd[] {
 
   if (DICE.test(q)) add('Dados', t('Tirar {expr}', { expr: q.replace(/\s+/g, '') }), () => x.send({ t: 'roll', expr: q.replace(/\s+/g, '') }));
   add('Dados', t('Tirar d20'), () => x.send({ t: 'roll', expr: 'd20' }));
+  if (x.tutorial) add('Ayuda', t('Repetir la guía'), x.tutorial);
   const me = x.mine();
   if (me) for (const [id, sk] of Object.entries(SKILLS))
     add('Tiradas', t('Tirar {name}', { name: t(sk.name) }), () => x.send({ t: 'check', tokenId: me.id, kind: 'skill', key: id }), me.skills?.[id] != null ? `${me.skills[id] >= 0 ? '+' : ''}${me.skills[id]}` : undefined);
