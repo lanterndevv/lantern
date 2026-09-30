@@ -170,7 +170,6 @@ export default {
   'Tarjeta X (Alt+X)': 'X-Card (Alt+X)',
   'Pausa': 'Pause',
   'Alguien ha usado la tarjeta X. Seguimos cuando estemos listos.': 'Someone has used the X-Card. We will continue when we are ready.',
-  'Continuar': 'Continue',
   'Hay una versión nueva de Lantern. Recarga para continuar.': 'There is a new version of Lantern. Reload to continue.',
   'Recargar': 'Reload',
   // tutorial.ts

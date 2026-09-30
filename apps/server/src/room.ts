@@ -344,6 +344,7 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
   }
   if (msg.t === 'clockReq' || msg.t === 'clock') return { clock: true }; // ponytail: una sola muestra, sin NTP
   if (m2.t === 'safety') { // cualquier miembro, espectadores incluidos; nunca se registra quién
+    if (m2.op === 'resume') return isDM(m) ? { all: { t: 'safety', op: 'resume' } } : DENY; // levantar la pausa de la X es del DM
     if (m2.op === 'x') {
       if (room.xAt !== undefined && now - room.xAt < 10_000) return { error: 'espera unos segundos antes de otra tarjeta X' };
       room.xAt = now; // ponytail: solo el aviso a todos; el combate no se congela en servidor

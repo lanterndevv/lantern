@@ -870,4 +870,9 @@ export default {
   "Ayuda": "Help",
   "Durante la sesión": "During the session",
   "Administrar campaña": "Manage campaign",
+  "Líneas y velos": "Lines and veils",
+  "Se añaden y quitan en la antesala, de forma anónima.": "They are added and removed anonymously in the lobby.",
+  "Reanudar para todos": "Resume for everyone",
+  "El DM reanudará la partida para todos.": "The DM will resume the game for everyone.",
+  "Cerrar solo para mí": "Close just for me",
 } as Record<string, string>;

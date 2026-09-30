@@ -364,6 +364,7 @@ export type C2S =
   | { t: 'heroPoint'; tokenId: Id }                                   // dueño: gasta 1 punto de héroe → +1d6 a su última tirada/tarjeta
   | { t: 'heroPoints'; tokenId: Id; value: number }                   // DM: fija los puntos
   | { t: 'safety'; op: 'x' }                                         // cualquiera: tarjeta X anónima (pausa)
+  | { t: 'safety'; op: 'resume' }                                    // DM/asistente: levanta la pausa para todos
   | { t: 'safety'; op: 'add' | 'remove'; list: 'lines' | 'veils'; text: string } // cualquiera, anónimo
   | { t: 'requestCheck'; tokenIds: Id[]; kind: 'save' | 'skill' | 'ability'; key: string; dc?: number; blind?: boolean } // DM
   | { t: 'answerCheck'; requestId: Id; tokenId: Id }                  // dueño responde a una prueba pedida
@@ -413,7 +414,7 @@ export type S2C =
   | { t: 'cursor'; from: Id; x: number; y: number }
   | { t: 'focus'; x: number; y: number }                                // el DM mueve la cámara de todos
   | { t: 'reactionPrompt'; pending: Id; tokenId: Id; actionId: Id; text: string; expires: number } // «¿Usas Escudo?»
-  | { t: 'safety'; op: 'x' }                                           // tarjeta X: todos ven la pausa (sin autor)
+  | { t: 'safety'; op: 'x' | 'resume' }                                // tarjeta X: todos ven la pausa (sin autor) · resume: el DM la levanta
   | { t: 'route'; tokenId: Id; points: Point[] }                        // ruta planificada por otro jugador
   | { t: 'turnReminder'; tokenId: Id; phase: 'start' | 'end'; effects: TurnEffect[] } // al dueño y al DM
   | { t: 'saveRequest'; pending: Id; tokenId: Id; ability: Ability; dc: number; text: string; expires: number } // al dueño: tira tu salvación

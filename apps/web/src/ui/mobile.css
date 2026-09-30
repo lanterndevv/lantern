@@ -73,6 +73,7 @@ dialog.pal::backdrop { background: rgba(12,10,8,.6); }
   .mesa .lado.plegado .dock-btns { display: none; } /* plegado en el móvil: solo el botón, no tapa el título */
   .mesa .init button { flex: none; white-space: nowrap; }
   body .tarjeta-x { left: auto; right: calc(var(--sa-r) + 8px); bottom: auto; top: calc(var(--sa-t) + 148px); } /* fuera de la hoja inferior del HUD */
+  body .lineas-velos { left: auto; right: calc(var(--sa-r) + 8px); bottom: auto; top: calc(var(--sa-t) + 200px); }
   .mesa .lado.plegado header { padding: 4px; }
   .mesa #plegar { min-width: 44px; }
   .mesa [role=tab] { padding: 0 12px; }

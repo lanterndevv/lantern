@@ -709,7 +709,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   checkProtocol(w.v);
   if (w.role !== 'spectator') mountBeyond20(m => net.send(m)); // tiradas hechas en la hoja de DDB con Beyond20 (dominio propio en sus opciones)
   const normalView = displayModeFromUrl() === 'normal';
-  if (normalView) mountSafety({ send: m => net.send(m) }); // botón X y Alt+X
+  const safetyCtx = { send: (m: C2S) => net.send(m), state: () => state, staff };
+  if (normalView) mountSafety(safetyCtx); // botón X, Alt+X y líneas/velos
   const chkCtx = { send: (m: C2S) => net.send(m), state: () => state, me: w.memberId };
   lobby = normalView && w.role !== 'spectator' ? showLobby({ state: () => state, send: m => net.send(m), me: w.memberId, role: w.role, onReady() {} }) : undefined;
   lv = mountLevels($('lv'), { state: () => state, send: m => net.send(m), role: w.role,
@@ -768,7 +769,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       else if (m.t === 'prepared') lib?.prepared(m.id, m.memberId);
       else if (m.t === 'sfx') sfx(m.name);
       else if (m.t === 'clock') audio.clock(m.now);
-      else if (m.t === 'safety') handleSafety(m);
+      else if (m.t === 'safety') handleSafety(m, safetyCtx);
       else if (m.t === 'checkRequest') handleCheckRequest(m, { send: x => net.send(x), state: () => state, me: w.memberId });
       else if (m.t === 'sessionSummary') showSummary(m.summary, m2 => net.send(m2));
       else if (m.t === 'error') { if (/llave/.test(m.msg)) sfx('locked'); const to = $('toast'); to.textContent = tsrv(m.msg) + (m.re && m.msg === 'mensaje inválido' ? ` (${m.re})` : ''); to.classList.add('show'); setTimeout(() => to.classList.remove('show'), 3000); }

@@ -149,6 +149,8 @@ test('seguridad: tarjeta X anónima con límite, líneas y velos', () => {
   assert.deepEqual(x.all, { t: 'safety', op: 'x' }); assert.equal(JSON.stringify(x).includes(spec.id), false);
   assert.ok(H(p, { t: 'safety', op: 'x' }, 9000).error); // menos de 10 s
   assert.deepEqual(H(p, { t: 'safety', op: 'x' }, 15001).all, { t: 'safety', op: 'x' });
+  assert.equal(H(p, { t: 'safety', op: 'resume' }).error, 'no permitido'); // levantar la pausa es del DM
+  assert.deepEqual(H(dm, { t: 'safety', op: 'resume' }).all, { t: 'safety', op: 'resume' });
   assert.equal(H(spec, { t: 'safety', op: 'add', list: 'lines', text: ' Arañas ' }).state, true);
   assert.ok(H(p, { t: 'safety', op: 'add', list: 'lines', text: 'arañas' }).error); // duplicado
   assert.ok(H(p, { t: 'safety', op: 'add', list: 'veils', text: '' }).error && H(p, { t: 'safety', op: 'add', list: 'veils', text: 'x'.repeat(61) }).error && H(p, { t: 'safety', op: 'add', list: 'otra', text: 'a' }).error);
