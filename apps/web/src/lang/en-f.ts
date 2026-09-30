@@ -834,4 +834,8 @@ export default {
   "Cambios sin guardar": "Unsaved changes",
   "Hay cambios sin guardar en el inspector. ¿Descartarlos?": "The inspector has unsaved changes. Discard them?",
   "El elemento se ha borrado; cambios descartados": "The item was deleted; changes discarded",
+  "Texto oficial del SRD (en inglés)": "Official SRD text",
+  "A niveles superiores.": "At Higher Levels.",
+  "Cargando descripción…": "Loading description…",
+  "Rasgos y acciones legendarias: texto oficial del SRD (en inglés)": "Traits and legendary actions: official SRD text",
 } as Record<string, string>;

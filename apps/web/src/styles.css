@@ -609,6 +609,7 @@ hr.sb-taper, .msg.tarjeta > .cab::after { display: block; height: 5px; margin: 6
 .sb .hpbar.grande { margin: 4px 0; }
 .cp-lista .sb { margin: 8px 0; }
 .cp-lista details[open] > summary { color: var(--sb-rojo); }
+.cp-txt { margin-top: 8px; } .cp-txt p { margin: 0 0 6px; }
 /* tarjeta de ataque */
 .msg.tarjeta .cab { font-size: 1rem; }
 .msg.tarjeta .quien { font-size: 1.15rem; }

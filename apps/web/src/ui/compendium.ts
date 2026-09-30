@@ -19,6 +19,11 @@ const cls = (c: string) => lang === 'en' ? c : CLASS[c] ?? c;
 const crNum = (cr: string) => cr.includes('/') ? Number(cr.split('/')[0]) / Number(cr.split('/')[1]) : Number(cr);
 const debounce = (f: () => void) => { let t = 0; return () => { clearTimeout(t); t = window.setTimeout(f, 120); }; };
 
+// Texto de los conjuros (~250 kB): se carga al abrir el compendio, no con la mesa
+// ponytail: el SRD 5.2.1 solo está en inglés en formato importable; sin traducción automática
+let spellText: Record<string, { d: string; h?: string }> | undefined;
+const para = (s: string) => s.split(/\n+/).map(x => `<p>${esc(x.trim())}</p>`).join('');
+
 /** Búsqueda de conjuros (todos los roles). */
 export function spellSearch(el: HTMLElement) {
   const levels = [t('Todos los niveles'), t('Trucos'), ...Array.from({ length: 9 }, (_, i) => t('Nivel {n}', { n: i + 1 }))];
@@ -31,13 +36,16 @@ export function spellSearch(el: HTMLElement) {
   const out = el.querySelector<HTMLElement>('[data-out]')!, n = el.querySelector('[data-n]')!;
   const draw = () => {
     const k = q.value.trim().toLowerCase(), lv = +l.value;
-    const all = Object.entries(SPELL_INDEX).filter(([id, s]) => (!k || id.includes(k.replace(/\s+/g, '-')) || s.name.toLowerCase().includes(k)) && (lv === -1 || s.level === lv) && (!c.value || s.classes.includes(c.value)))
+    const inText = (id: string) => k.length >= 3 && !!spellText?.[id] && (spellText[id].d + (spellText[id].h ?? '')).toLowerCase().includes(k);
+    const all = Object.entries(SPELL_INDEX).filter(([id, s]) => (!k || id.includes(k.replace(/\s+/g, '-')) || s.name.toLowerCase().includes(k) || inText(id)) && (lv === -1 || s.level === lv) && (!c.value || s.classes.includes(c.value)))
       .sort((a, b) => a[1].level - b[1].level || a[1].name.localeCompare(b[1].name));
     n.textContent = t('{n} conjuros', { n: all.length }) + (all.length > 40 ? t(' (se muestran 40: afina la búsqueda)') : '');
-    out.innerHTML = all.slice(0, 40).map(([, s]) => `<li><details><summary>${esc(s.name)} <small class="det">${s.level ? t('nivel {n}', { n: s.level }) : t('truco')} · ${esc(lang === 'en' ? s.school : SCHOOL[s.school] ?? s.school)}${s.concentration ? t(' · concentración') : ''}${s.ritual ? t(' · ritual') : ''}</small></summary>
+    out.innerHTML = all.slice(0, 40).map(([id, s]) => `<li><details><summary>${esc(s.name)} <small class="det">${s.level ? t('nivel {n}', { n: s.level }) : t('truco')} · ${esc(lang === 'en' ? s.school : SCHOOL[s.school] ?? s.school)}${s.concentration ? t(' · concentración') : ''}${s.ritual ? t(' · ritual') : ''}</small></summary>
       <dl><dt>${t('Clases')}</dt><dd>${esc(s.classes.map(cls).join(', '))}</dd><dt>${t('Lanzamiento')}</dt><dd>${esc(s.time)}</dd><dt>${t('Alcance')}</dt><dd>${esc(s.range)}</dd>
-      <dt>${t('Componentes')}</dt><dd>${esc(s.components)}</dd><dt>${t('Duración')}</dt><dd>${esc(s.duration)}</dd></dl></details></li>`).join('');
+      <dt>${t('Componentes')}</dt><dd>${esc(s.components)}</dd><dt>${t('Duración')}</dt><dd>${esc(s.duration)}</dd></dl>
+      ${spellText?.[id] ? `<div class="cp-txt" lang="en">${lang === 'en' ? '' : `<p class="det" lang="${lang}">${t('Texto oficial del SRD (en inglés)')}</p>`}${para(spellText[id].d)}${spellText[id].h ? `<p><b><i>${t('A niveles superiores.')}</i></b> ${esc(spellText[id].h)}</p>` : ''}</div>` : `<p class="det">${t('Cargando descripción…')}</p>`}</details></li>`).join('');
   };
+  if (!spellText) void import('@lantern/srd/spelltext').then(m => { spellText = m.SPELL_TEXT; draw(); }, () => {});
   el.addEventListener('input', debounce(draw)); el.addEventListener('change', draw);
   draw();
 }
@@ -62,7 +70,7 @@ function statBlock(m: (typeof MONSTERS)[string], name: string) {
     <p class="sb-tipo">${esc([m.sizeName && rev(SIZE_ES, m.sizeName), rev(TYPE_ES, m.type)].filter(Boolean).join(' '))}${m.align ? `, ${esc(alignT(m.align))}` : ''}</p><hr class="sb-taper">
     <p><b>${t('CA')}</b> ${m.ac ?? '—'} &#160; <b>${t('Iniciativa')}</b> ${sg(m.initMod ?? 0)}</p><p><b>${t('PG')}</b> ${m.hp?.max ?? '—'} &#160; <b>${t('Velocidad')}</b> ${t('{n} pies', { n: m.speed ?? 30 })}</p><hr class="sb-taper">${car}
     ${row(t('Resistencias'), dmg(m.defenses?.resist))}${row(t('Inmunidades'), dmg(m.defenses?.immune))}${row(t('Vulnerabilidades'), dmg(m.defenses?.vuln))}${row(t('Inmune a condiciones'), (m.condImm ?? []).map(c => t(CONDITIONS[c] ?? c)).join(', '))}
-    <p><b>${t('Desafío')}</b> ${esc(m.cr)}</p>${text('', m.traits)}${acc}${text(t('Acciones legendarias'), m.legend)}</article>`;
+    <p><b>${t('Desafío')}</b> ${esc(m.cr)}</p>${(m.traits?.length || m.legend?.length) && lang !== 'en' ? `<p class="det">${t('Rasgos y acciones legendarias: texto oficial del SRD (en inglés)')}</p>` : ''}<div lang="en">${text('', m.traits)}</div>${acc}${m.legend?.length ? `<h5 class="sb-sec">${t('Acciones legendarias')}</h5>` : ''}<div lang="en">${text('', m.legend)}</div></article>`;
 }
 
 /** Búsqueda de monstruos del SRD; con `onAdd` cada resultado tiene botón para añadirlo a la escena. */
