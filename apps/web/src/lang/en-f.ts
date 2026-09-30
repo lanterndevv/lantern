@@ -813,4 +813,7 @@ export default {
   "Objetivo: {name}": "Target: {name}",
   "Hay un combate en curso. Cambiar de escena lo termina y descarta las tiradas pendientes. ¿Continuar?": "A combat is in progress. Changing scene ends it and discards pending rolls. Continue?",
   "Escena creada: «{n}». ¿Abrirla ahora?": "Scene created: “{n}”. Open it now?",
+  "sin espacios de ese nivel": "no slots of that level",
+  "{name}: elige nivel y objetivo": "{name}: choose level and target",
+  "Lanzar a nivel {lv}": "Cast at level {lv}",
 } as Record<string, string>;

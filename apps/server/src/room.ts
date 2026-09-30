@@ -3,7 +3,7 @@ import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { CODE_ALPHABET, DEFAULT_SETTINGS, DICE_THEMES, blocksMove } from '@lantern/protocol';
 import type { Ability, ActionCard, AudioState, C2S, ChatMsg, ClientState, Combat, DiceTheme, Die, ExtensionManifest, Hp, Id, JournalEntry, LibraryItem, Member, MoveMode, Point, Region, Role, S2C, Scene, SessionSummary, TableSettings, Token, Wall } from '@lantern/protocol';
 import { ABILITY_ES, CONDITIONS, SKILLS, abilityMod, applyCard, applyDamage, autoFailSave, concentrationDC, d20Penalty, deathSave, editionOf, encounterXP, grantTemp, heal, inArea, resolveAction, tokenInArea, roll as diceRoll } from '@lantern/rules';
-import { MONSTERS, SPELL_INDEX } from '@lantern/srd';
+import { MONSTERS, SPELL_INDEX, upcast } from '@lantern/srd';
 import { spellRegions } from './areas.ts';
 import { livekitOn, livekitToken } from './livekit.ts';
 import { copilotOn } from './laya.ts';
@@ -695,7 +695,7 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
     case 'act': {
       const at = m2.at === undefined ? undefined : pt(s, m2.at), aim = m2.dir === undefined ? undefined : pt(s, m2.dir);
       if (!str(m2.tokenId, 64) || !str(m2.actionId, 64) || !Array.isArray(m2.targets) || (m2.targets.length < 1 && !at) || m2.targets.length > 20 || !m2.targets.every((x) => str(x, 64))
-        || (m2.at !== undefined && !at) || (m2.dir !== undefined && !aim))
+        || (m2.at !== undefined && !at) || (m2.dir !== undefined && !aim) || (m2.slot !== undefined && !(Number.isInteger(m2.slot) && m2.slot >= 1 && m2.slot <= 9)))
         return { error: 'mensaje inválido' };
       const tk = s.tokens.find((t) => t.id === m2.tokenId);
       if (!tk) return { error: 'token inexistente' };
@@ -758,10 +758,15 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
         if (cb.used[tk.id]?.[act.cost]) return { error: 'ya usada' };
       }
       let lvl = 0;
-      if (act.slot) {
+      if (act.slot && m2.slot !== undefined) { // nivel elegido: tiene que ser ≥ el del conjuro y quedar alguno libre
+        const sl = tk.slots?.[m2.slot as number];
+        if (m2.slot < act.slot || !sl || sl.used >= sl.max) return { error: 'sin espacios de ese nivel' };
+        lvl = m2.slot as number;
+      } else if (act.slot) {
         lvl = Object.keys(tk.slots ?? {}).map(Number).sort((a, b) => a - b).find((l) => l >= act.slot! && tk.slots![l].used < tk.slots![l].max) ?? 0;
         if (!lvl) return { error: 'sin espacios de conjuro' };
       }
+      const act2 = lvl > (act.slot ?? 0) ? upcast(act, lvl) : act; // daño/curación escalados al nivel del espacio
       const dexSave = act.kind === 'save' && act.save?.ability === 'dex';
       // resolveAction solo aplica la cobertura a la CA: en salvaciones de DES se suma al bono de la salvación del objetivo
       const manual = room.automation === 'manual';
@@ -770,14 +775,14 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       const rt = targets.map((t) => ({ ...t, ac: manual ? -999 : acOf(t),
         ...((dexSave || (manual && sv)) && { saves: { ...t.saves, ...(dexSave && { dex: (t.saves?.dex ?? 0) + cov.get(t.id)! }), ...(manual && sv && { [sv]: (t.saves?.[sv] ?? 0) + (dexSave && sv === 'dex' ? cov.get(t.id)! : 0) - 999 }) } }) }));
       const opt = room.settings.optional;
-      const card = resolveAction(tk, act, rt, undefined, { within5ft: (t) => dist(t) <= 5 + 5 * (tk.size - 1), cover: (t) => cov.get(t.id) ?? 0,
+      const card = resolveAction(tk, act2, rt, undefined, { within5ft: (t) => dist(t) <= 5 + 5 * (tk.size - 1), cover: (t) => cov.get(t.id) ?? 0,
         edition: room.settings.edition, brutalCrit: opt.brutalCrit, dodge: (t) => !!cb?.used[t.id]?.dodge, flank: opt.flanking && act.range <= 5 ? (t) => flanked(s, tk, t) : undefined });
       if (act.kind === 'attack' || dexSave) for (const ct of card.targets) { const c = cov.get(ct.id); if (c) ct.cover = c; }
       if (manual) { card.manual = true; for (const ct of card.targets) if (ct.save) ct.save.total += 999; }
       const brk: ChatMsg[] = [];
       if (lvl) { tk.slots![lvl].used++; if (CONC.has(act.name.toLowerCase()) || SPELL_INDEX[act.id]?.concentration) { if (tk.concentration) brk.push(...breakConcentration(ctx, tk)); tk.concentration = act.name; } } // reemplaza a la anterior
       if (lvl) { // área persistente del conjuro: región con su comportamiento, duración y (si concentra) sourceId para que se borre al romperse
-        const rs = spellRegions(s, tk, act, { at: at ?? undefined, aim: aim ?? undefined, targets, round: cb?.round, conc: tk.concentration === act.name });
+        const rs = spellRegions(s, tk, act2, { at: at ?? undefined, aim: aim ?? undefined, targets, round: cb?.round, conc: tk.concentration === act.name });
         if (rs.length && (s.regions?.length ?? 0) + rs.length <= MAX_REGIONS) (s.regions ??= []).push(...rs);
       }
       if (cb) (cb.used[tk.id] ??= { action: false, bonus: false, reaction: false, moved: 0 })[act.cost] = true;
@@ -793,7 +798,7 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       const chats = [...brk, ...(now2 ? applyCardFx(ctx, card, 'full') : [])];
       if (opt.fumbles && card.targets.some((x) => x.attack?.d20 === 1)) chats.push(say(ctx, `¡Pifia! ${tk.name} falla estrepitosamente`)); // ponytail: sin tabla de pifias
       const sends = [...hold, ...reactionPrompts(room, card, now)];
-      if (act.slot !== undefined) sends.push({ who: seenBy(room, tk.id), msg: { t: 'spellBanner', name: act.name, school: act.school ?? SPELL_INDEX[act.id]?.school, level: act.slot, caster: tk.name } }); // rótulo del conjuro
+      if (act.slot !== undefined) sends.push({ who: seenBy(room, tk.id), msg: { t: 'spellBanner', name: act.name, school: act.school ?? SPELL_INDEX[act.id]?.school, level: lvl || act.slot, caster: tk.name } }); // rótulo del conjuro
       return { state: true, chat: cardMsg, chats, sends };
     }
     case 'route': { // ruta planificada mientras se arrastra: fantasma para quien ve el token (opción de mesa)

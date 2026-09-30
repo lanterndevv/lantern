@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { roll } from '@lantern/rules';
-import { MONSTERS, SPELLS } from './index.ts';
+import { MONSTERS, SPELLS, upcast } from './index.ts';
 
 test('todas las acciones tienen daño válido para roll', () => {
   for (const [id, m] of Object.entries(MONSTERS)) {
@@ -78,4 +78,11 @@ test('monstruos generados: Multiataque, rasgos, legendarias y campos fijos en es
   const d = MONSTERS['adult-red-dragon'];
   assert.equal(d.name, 'Dragón rojo adulto');
   assert.ok(d.legend!.length && d.legendary!.max === 3);
+});
+
+test('upcast: suma los dados por nivel de espacio de más', () => {
+  assert.equal(upcast(SPELLS.fireball, 5).damage, '8d6+2d6');
+  assert.equal(upcast(SPELLS['cure-wounds'], 2).damage, '2d8+3+2d8');
+  assert.equal(upcast(SPELLS.fireball, 3), SPELLS.fireball); // mismo nivel: igual
+  assert.equal(upcast(SPELLS['fire-bolt'], 3), SPELLS['fire-bolt']); // sin progresión por espacio
 });

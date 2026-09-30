@@ -148,6 +148,21 @@ test('act: espacios agotados', () => {
   assert.equal(act(room, dm, 'kael', 'bola-fuego', ['trasgo-a']).error, 'sin espacios de conjuro');
 });
 
+test('act: subir de nivel gasta ese espacio y escala el daño', () => {
+  const { room, dm } = setup();
+  const k = tok(room, 'kael'); k.actions!.find((a) => a.id === 'bola-fuego')!.id = 'fireball'; // id del SRD, con progresión
+  k.slots![5] = { max: 1, used: 0 };
+  const up = (slot: number) => fixed(() => handle(room, dm, { t: 'act', tokenId: 'kael', actionId: 'fireball', targets: ['trasgo-a'], slot }, fakeRoll));
+  assert.equal(up(2).error, 'sin espacios de ese nivel'); // por debajo del conjuro
+  const fx = up(5);
+  assert.equal(fx.state, true);
+  assert.ok(JSON.stringify(fx.chat!.card).includes('8d6+2d6'));
+  assert.equal(k.slots![5].used, 1);
+  assert.equal(k.slots![3].used, 1); // el de nivel 3 no se toca
+  assert.equal(up(5).error, 'sin espacios de ese nivel'); // agotado
+  assert.equal(up(12).error, 'mensaje inválido');
+});
+
 test('assisted deja pendiente y confirm aplica; auto aplica al momento', () => {
   const { room, dm, player } = setup();
   const before = tok(room, 'trasgo-a').hp!.cur;

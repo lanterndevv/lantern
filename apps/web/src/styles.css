@@ -186,6 +186,8 @@ label { display: grid; gap: 6px; color: var(--txt2); font-size: .9rem; }
 .acc[aria-pressed=true] b { color: var(--sobre-ambar); }
 .acc:disabled { opacity: .4; cursor: not-allowed; }
 .slots { display: flex; gap: 10px; font: .9rem var(--mono); color: var(--aliado); flex-wrap: wrap; }
+.slots button.slot { font: inherit; color: inherit; background: none; border: 1px dashed currentColor; border-radius: 6px; padding: 0 6px; cursor: pointer; }
+.slots button.slot[aria-pressed="true"] { border-style: solid; background: color-mix(in srgb, currentColor 18%, transparent); }
 .hud .ret { width: 48px; height: 48px; }
 .tarjeta { background: var(--relieve); border: 1px solid var(--borde); border-radius: var(--r-card); padding: 10px 12px; }
 .filas { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 4px; }

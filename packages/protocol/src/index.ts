@@ -319,7 +319,7 @@ export type C2S =
   | { t: 'moveMany'; moves: { id: Id; x: number; y: number }[] }     // mover un grupo en formación (mismas reglas que moveToken)
   | { t: 'carry'; tokenId: Id; by: Id | null }                       // montura/agarre: tokenId pasa a moverse con `by`
   | { t: 'spawnCustom'; monster: ImportedCharacter & { cr?: string; size?: number; srdLike?: true }; x: number; y: number; hidden?: boolean } // DM: monstruo traído de su cuenta DDB
-  | { t: 'act'; tokenId: Id; actionId: Id; targets: Id[]; at?: Point; dir?: Point } // resolver una acción · at/dir: punto y dirección de la plantilla (el servidor calcula los objetivos)
+  | { t: 'act'; tokenId: Id; actionId: Id; targets: Id[]; at?: Point; dir?: Point; slot?: number } // resolver una acción · at/dir: punto y dirección de la plantilla (el servidor calcula los objetivos) · slot: nivel del espacio (≥ el del conjuro; sin él, el menor libre)
   | { t: 'confirm'; pending: Id; mode: 'full' | 'half' | 'none' | 'heal' } // heal: solo tarjetas manuales     // DM confirma daño pendiente
   | { t: 'spawn'; srd: string; x: number; y: number; hidden?: boolean } // DM añade monstruo del SRD
   | { t: 'automation'; value: 'assisted' | 'auto' | 'manual' }                   // DM
@@ -422,7 +422,7 @@ export type S2C =
   | { t: 'backups'; list: { name: string; at: number; size: number }[] };                    // respuesta a C2S livekit: URL del SFU y JWT de acceso
 
 // Versión del protocolo: sube cuando un cambio rompe clientes viejos; el cliente ofrece recargar si no coincide.
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 // Extensión de terceros: página en un iframe sandbox que habla con la mesa por postMessage (ver packages/sdk).
 export type ExtensionPermission = 'state' | 'chat' | 'roll' | 'contextMenu' | 'panel' | 'tokens';
