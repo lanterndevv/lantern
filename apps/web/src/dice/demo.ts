@@ -5,9 +5,9 @@ import { createDiceTray } from './dice3d.ts';
 import { DICE } from './themes.ts';
 
 const themes = Object.keys(DICE) as DiceTheme[];
-let ti = 0;
-// ?v=7 fija el valor (verificación visual) · ?d=20 tira solo ese tipo de dado
+// ?v=7 fija el valor (verificación visual) · ?d=20 tira solo ese tipo de dado · ?set=obsidiana elige set
 const q = new URLSearchParams(location.search), fixed = Number(q.get('v')) || 0, only = Number(q.get('d')) || 0;
+let ti = Math.max(0, themes.indexOf(q.get('set') as DiceTheme));
 const rnd = (s: number) => fixed ? Math.min(fixed, s) : 1 + Math.floor(Math.random() * s);
 const many = (n: number, s: number, dropFirst = false): Die[] => Array.from({ length: n }, (_, i) => ({ sides: s, value: rnd(s), kept: !(dropFirst && i === 0) }));
 const battery: [string, () => Die[]][] = [
