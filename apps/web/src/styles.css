@@ -283,6 +283,9 @@ dialog h2 { font: 500 1.35rem var(--serif); margin: 0 0 12px; padding-bottom: 6p
 /* voz */
 .voz { display: grid; gap: 8px; }
 .voz h3 { margin: 0; font-family: var(--serif); }
+.voz-key { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.voz-ptt { touch-action: none; user-select: none; -webkit-user-select: none; min-height: 52px; flex: 1 1 100%; }
+.voz-ptt[aria-pressed="true"] { background: var(--oro-fondo); color: var(--sobre-ambar); border-color: var(--oro-borde); }
 .voz-st { margin: 0; color: var(--txt2); min-height: 1.4em; }
 .voz-bar { display: flex; gap: 8px; flex-wrap: wrap; }
 .voz-modo { grid-template-columns: 1fr 1fr; }

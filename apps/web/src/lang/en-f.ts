@@ -875,4 +875,5 @@ export default {
   "Reanudar para todos": "Resume for everyone",
   "El DM reanudará la partida para todos.": "The DM will resume the game for everyone.",
   "Cerrar solo para mí": "Close just for me",
+  "Mantén pulsado para hablar": "Hold to talk",
 } as Record<string, string>;
