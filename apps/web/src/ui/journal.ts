@@ -158,7 +158,16 @@ export function mountJournal(el: HTMLElement, ctx: JrCtx) {
     else if (a === 'save') void save();
     else if (a === 'cancel') { editing = null; renderList(); renderMain(); }
     else if (a === 'pin' && cur) document.dispatchEvent(new CustomEvent('lantern:pin', { detail: { entryId: cur.id } }));
-    else if (a === 'show' && cur) { ctx.send({ t: 'handout', entryId: cur.id }); ctx.toast(t('Mostrado a los jugadores')); }
+    else if (a === 'show' && cur) { // el servidor solo la entrega a quien puede leerla: si nadie puede, se ofrece abrirla antes
+      const vt = cur.visibleTo, open = vt === 'all' || (Array.isArray(vt) && vt.length > 0);
+      if (!open) {
+        if (!confirm(t('«{n}» solo la ves tú. ¿Hacerla visible para todos y mostrarla?', { n: cur.title }))) return;
+        ctx.send({ t: 'journal', entry: { ...cur, visibleTo: 'all' } }); // mismo socket: llega antes que el handout
+      }
+      ctx.send({ t: 'handout', entryId: cur.id });
+      const names = Array.isArray(vt) && open ? ctx.state().members.filter(m => vt.includes(m.id)).map(m => m.name).join(', ') : '';
+      ctx.toast(names ? t('Mostrado a: {names}', { names }) : t('Mostrado a todos los jugadores'));
+    }
     else if (a === 'del' && cur && confirm(t('¿Borrar «{n}»?', { n: cur.title }))) { ctx.send({ t: 'journalDelete', id: cur.id }); selId = undefined; }
   });
   el.querySelector('[data-a=new]')?.addEventListener('click', () => {

@@ -39,10 +39,10 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
     <div class="voz-bar"><button type="button" class="voz-join"></button><button type="button" class="voz-mute" aria-pressed="false" hidden>${t('Silenciar')}</button></div>
     <div class="voz-modo seg" role="radiogroup" aria-label="${t('Modo de micrófono')}">
       <button type="button" role="radio" data-m="ptt">${t('Pulsar para hablar')}</button><button type="button" role="radio" data-m="vad">${t('Detectar voz')}</button></div>
-    <p class="voz-key det"><button type="button" class="voz-cfg"></button></p>
+    <p class="voz-key det"><button type="button" class="voz-ptt" aria-pressed="false" hidden>${t('Mantén pulsado para hablar')}</button><button type="button" class="voz-cfg"></button></p>
     <ul class="voz-list" aria-label="${t('Participantes en voz')}"></ul></section>`;
   const $ = <T extends HTMLElement>(s: string) => el.querySelector<T>(s)!;
-  const st = $('.voz-st'), joinB = $<HTMLButtonElement>('.voz-join'), muteB = $<HTMLButtonElement>('.voz-mute'), list = $('.voz-list'), cfg = $<HTMLButtonElement>('.voz-cfg');
+  const st = $('.voz-st'), joinB = $<HTMLButtonElement>('.voz-join'), muteB = $<HTMLButtonElement>('.voz-mute'), list = $('.voz-list'), cfg = $<HTMLButtonElement>('.voz-cfg'), pttB = $<HTMLButtonElement>('.voz-ptt');
   const say = (t: string) => { st.textContent = t; };
   const nameOf = (id: string) => mems.find(m => m.id === id)?.name ?? t('Jugador');
 
@@ -60,6 +60,7 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
     muteB.textContent = muted ? t('Activar micrófono') : t('Silenciar');
     el.querySelectorAll<HTMLButtonElement>('[data-m]').forEach(b => b.setAttribute('aria-checked', String(b.dataset.m === mode)));
     $('.voz-key').hidden = mode !== 'ptt';
+    pttB.hidden = !joined;
     cfg.textContent = capturing ? t('Pulsa la nueva tecla…') : t('Tecla para hablar: {k} (cambiar)', { k: key.toUpperCase() });
     list.replaceChildren();
     const row = (id: string, name: string, p?: { vol: number }) => {
@@ -193,6 +194,11 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
     mode = b.dataset.m as 'ptt' | 'vad'; store('lantern:voice:mode', mode); ptt = vadOn = false; gate(); paint();
   });
   cfg.onclick = () => { capturing = true; paint(); };
+  // pulsar y mantener (táctil o ratón): mismo estado que la tecla
+  const hold = (on: boolean) => { if (ptt === on) return; ptt = on; gate(); pttB.setAttribute('aria-pressed', String(on)); };
+  pttB.onpointerdown = e => { e.preventDefault(); pttB.setPointerCapture(e.pointerId); hold(true); };
+  pttB.onpointerup = pttB.onpointercancel = pttB.onlostpointercapture = () => hold(false);
+  pttB.oncontextmenu = e => e.preventDefault(); // pulsación larga en móvil
 
   const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
   const kd = (e: KeyboardEvent) => {
@@ -202,10 +208,10 @@ export function mountVoice(el: HTMLElement, opts: { me: string; members: () => M
       capturing = false; paint(); cfg.focus(); return;
     }
     if (typing(e.target) || e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.key.toLowerCase() !== key) return;
-    ptt = true; gate();
+    hold(true);
   };
-  const ku = (e: KeyboardEvent) => { if (e.key.toLowerCase() === key && ptt) { ptt = false; gate(); } };
-  const blur = () => { ptt = false; gate(); };
+  const ku = (e: KeyboardEvent) => { if (e.key.toLowerCase() === key && ptt) hold(false); };
+  const blur = () => { hold(false); };
   addEventListener('keydown', kd); addEventListener('keyup', ku); addEventListener('blur', blur);
 
   const tick = setInterval(() => {

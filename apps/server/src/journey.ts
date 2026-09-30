@@ -60,7 +60,11 @@ export function handleJourney(room: Room, m: MemberRec, msg: unknown, rollFn: Ro
       const sc = str(msg.id, 64) && Object.hasOwn(room.scenes, msg.id) ? room.scenes[msg.id] : undefined;
       if (!sc) return { error: 'escena inexistente' };
       const urls = [...new Set([sc.background, sc.story?.image, ...(sc.story?.layers ?? []).map((l) => l.image)].filter((u): u is string => !!u))];
-      return { all: { t: 'prepare', urls } as S2C };
+      return { all: { t: 'prepare', id: sc.id, urls } as S2C };
+    }
+    case 'prepared': { // acuse de precarga: solo se reenvía al DM, sin estado en el servidor
+      if (!str(msg.id, 64) || !Object.hasOwn(room.scenes, msg.id)) return BAD;
+      return { sends: [{ who: isDM, msg: { t: 'prepared', id: msg.id, memberId: m.id } }] };
     }
     case 'travel': return dm ? travel(room, m, msg, rollFn, now, next) : DENY;
     case 'handout': { // tarjeta en el chat solo para quienes lo reciben

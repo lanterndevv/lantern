@@ -130,7 +130,6 @@ export function tokenRadialItems(tk: Token, c: RadialCtx): RadialItem[] {
   const atk = acts.find(a => a.kind === 'attack');
   // ponytail: «conjuro» = acción con slot definido (0 = truco) o que no es ataque; sin campo explícito de conjuro en Action
   const spells = acts.filter(a => a.slot != null || a.kind !== 'attack');
-  const say = (verb: string) => () => c.send({ t: 'chat', text: `${tk.name} ${verb}.` });
   const turn = (op: 'dodge' | 'dash' | 'disengage' | 'hide' | 'useObject') => c.send({ t: 'turnAction', tokenId: tk.id, op });
   const luz = `luz-${tk.id}`, lit = c.lit?.(tk.id) ?? false, g = c.grid ?? 70;
   const it: RadialItem[] = [
@@ -145,7 +144,6 @@ export function tokenRadialItems(tk: Token, c: RadialCtx): RadialItem[] {
       { id: 'disengage', label: t('Destrabarse'), icon: 'disengage', run: () => turn('disengage') },
       { id: 'hide', label: t('Esconderse'), icon: 'hide', run: () => turn('hide') },
       { id: 'object', label: t('Usar objeto'), icon: 'notes', run: () => turn('useObject') },
-      { id: 'help', label: t('Ayudar'), icon: 'help', run: say(t('ayuda (Ayudar)')) },
     ], tk.name) },
     { id: 'conds', label: t('Condiciones…'), icon: 'status', disabled: !(dm || own), run: () => openRadial(last.x, last.y, Object.entries(CONDITIONS).filter(([k]) => k !== 'dead').map(([k, n]) => {
       const on = tk.conditions.includes(k);

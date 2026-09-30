@@ -122,7 +122,7 @@ async function main() {
     const pl = wsClient(sp); await pl.opened; pl.send({ t: 'join', code, name: 'Ana' });
     plW = await pl.wait('welcome'); pl.ws.close();
     must(plW.role === 'player', 'rol jugador');
-    await player.eval(`localStorage.setItem('lantern:key:${code}', ${JSON.stringify(plW.key)}); localStorage.setItem('lantern:name', 'Ana'); localStorage.setItem('lantern:tutorial:done', '1')`);
+    await player.eval(`localStorage.setItem('lantern:key:${code}', ${JSON.stringify(plW.key)}); localStorage.setItem('lantern:name', 'Ana'); localStorage.setItem('lantern:tutorial:done', '1'); localStorage.setItem('lantern:tutorial:player', '1')`);
     await player.goto(`${base}/?code=${code}`);
     await player.waitFor(`!!document.querySelector('.mesa canvas')`, 'la mesa con su canvas', 40000);
     // Antesala (fase 7): se muestra al entrar; «Estoy listo» la cierra y da paso a la mesa

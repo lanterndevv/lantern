@@ -26,9 +26,11 @@ export function activateScene(c: { send(m: C2S): void; state(): ClientState }, i
 
 export function mountLibrary(el: HTMLElement, ctx: UiCtx) {
   const staff = ctx.role === 'dm' || ctx.role === 'assistant';
-  if (!staff) { el.textContent = t('Solo el DM y los asistentes ven la biblioteca.'); return { update() {} }; }
+  if (!staff) { el.textContent = t('Solo el DM y los asistentes ven la biblioteca.'); return { update() {}, prepared() {} }; }
   let items: LibraryItem[] = ctx.state().library ?? [];
   let watch: { ids: Set<string>; cb(it: LibraryItem): void } | null = null;
+  const ready = new Map<string, Set<string>>(); // escena → miembros que ya la precargaron (ponytail: solo en esta pestaña; se pierde al recargar)
+  const players = () => ctx.state().members.filter(m => m.online && m.role !== 'dm' && m.role !== 'assistant').map(m => m.id);
 
   el.classList.add('bib');
   el.innerHTML = `
@@ -74,8 +76,9 @@ export function mountLibrary(el: HTMLElement, ctx: UiCtx) {
     q('bib-lista').innerHTML = [...groups].sort(([a], [b]) => a === NOFOLDER ? -1 : b === NOFOLDER ? 1 : a.localeCompare(b, lang)).map(([k, list], n) => `
       <section aria-labelledby="bib-f${n}"><h3 id="bib-f${n}">${esc(k)}</h3><ul class="bib-ul">${list.map(it => `
         <li class="${it.active ? 'activa' : ''}" data-id="${esc(it.id)}">
+          ${it.background && !/\.(webm|mp4)(\?|$)/i.test(it.background) ? `<img class="bib-min" loading="lazy" alt="" src="${esc(it.background)}">` : ''}
           <div class="bib-cab"><strong>${esc(it.name)}</strong>${it.active ? `<span class="chip en-juego">${t('EN JUEGO')}</span>` : ''}</div>
-          <div class="det">${t('{a} tokens · {b} muros', { a: it.tokens, b: it.walls })}</div>
+          <div class="det">${t('{a} tokens · {b} muros', { a: it.tokens, b: it.walls })}${!it.active && ready.has(it.id) ? ` · <span role="status">${t('Precargada en {a}/{b}', { a: players().filter(id => ready.get(it.id)!.has(id)).length, b: players().length })}</span>` : ''}</div>
           <div class="bib-acc">
             ${it.active ? '' : `<button type="button" class="primary" data-a="act" aria-label="${t('Activar {n}', { n: esc(it.name) })}">${t('Activar')}</button><button type="button" data-a="prep" aria-label="${t('Preparar {n}', { n: esc(it.name) })}" title="${t('Descarga el mapa en todos los clientes para que el cambio sea instantáneo')}">${t('Preparar')}</button>`}
             <button type="button" data-a="dup" aria-label="${t('Duplicar {n}', { n: esc(it.name) })}">${t('Duplicar')}</button>
@@ -93,7 +96,7 @@ export function mountLibrary(el: HTMLElement, ctx: UiCtx) {
     if (!b || !it) return;
     const a = b.dataset.a;
     if (a === 'act') activateScene(ctx, it.id, tx.get());
-    else if (a === 'prep') { ctx.send({ t: 'scenePrepare', id: it.id }); ctx.toast(t('Precargando la escena en todos los clientes')); }
+    else if (a === 'prep') { ready.set(it.id, new Set()); ctx.send({ t: 'scenePrepare', id: it.id }); ctx.toast(t('Precargando la escena en todos los clientes')); render(); }
     else if (a === 'dup') ctx.send({ t: 'sceneNew', name: t('{n} (copia)', { n: it.name }), from: it.id });
     else if (a === 'ren') { const n = prompt(t('Nuevo nombre'), it.name)?.trim(); if (n) ctx.send({ t: 'sceneUpdate', id: it.id, name: n }); }
     else if (a === 'mov') { const n = prompt(t('Carpeta (vacía = sin carpeta)'), it.folder ?? ''); if (n !== null) ctx.send({ t: 'sceneUpdate', id: it.id, folder: n.trim() }); }
@@ -173,8 +176,11 @@ export function mountLibrary(el: HTMLElement, ctx: UiCtx) {
   return {
     update(state: ClientState) {
       items = state.library ?? [];
+      for (const it of items) if (it.active) ready.delete(it.id); // al activarla deja de importar
       if (watch) { const n = items.find(i => !watch!.ids.has(i.id)); if (n) { const w = watch; watch = null; w.cb(n); } }
       render();
     },
+    /** Acuse de precarga de un jugador (S2C prepared). */
+    prepared(id: string, memberId: string) { if (!ready.has(id)) return; ready.get(id)!.add(memberId); render(); },
   };
 }

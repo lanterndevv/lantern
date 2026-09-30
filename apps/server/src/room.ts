@@ -1,9 +1,9 @@
 // Lógica pura de una mesa: sin sockets ni BD. Todo lo que llega de un cliente se valida aquí.
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { CODE_ALPHABET, DEFAULT_SETTINGS, DICE_THEMES, blocksMove } from '@lantern/protocol';
-import type { Ability, ActionCard, AudioState, C2S, ChatMsg, ClientState, Combat, DiceTheme, Die, ExtensionManifest, Hp, Id, JournalEntry, LibraryItem, Member, MoveMode, Point, Region, Role, S2C, Scene, SessionSummary, TableSettings, Token, Wall } from '@lantern/protocol';
+import type { Ability, ActionCard, AudioState, C2S, ChatMsg, ClientState, Combat, DiceTheme, Die, Encounter, ExtensionManifest, Hp, Id, JournalEntry, LibraryItem, Member, MoveMode, Point, Region, Role, S2C, Scene, SessionSummary, TableSettings, Token, Wall } from '@lantern/protocol';
 import { ABILITY_ES, CONDITIONS, SKILLS, abilityMod, applyCard, applyDamage, autoFailSave, concentrationDC, d20Penalty, deathSave, editionOf, encounterXP, grantTemp, heal, inArea, resolveAction, tokenInArea, roll as diceRoll } from '@lantern/rules';
-import { MONSTERS, SPELL_INDEX } from '@lantern/srd';
+import { MONSTERS, SPELL_INDEX, upcast } from '@lantern/srd';
 import { spellRegions } from './areas.ts';
 import { livekitOn, livekitToken } from './livekit.ts';
 import { copilotOn } from './laya.ts';
@@ -17,13 +17,13 @@ import { canUndo, clockOf, handleWorld, hiddenWhisper } from './world.ts';
 import { handleExtras } from './extras.ts';
 import { handleJourney } from './journey.ts';
 import { canReadDoc, canSeeScene } from './perms.ts';
-import { MAX_EXTENSIONS, MAX_ITEMS, MAX_JOURNAL, MAX_LAYERS, MAX_LEVELS, MAX_REGIONS, MAX_SCENES, MAX_WALLS, SFX, inScene, inr, num, obj, parseAudio, parseJournal, parseLayer, parseLight, parseManifest, parseRegion, parseToken, parseWall, parseWeather, patchScene, pt, short, str, urlOk } from './validate.ts';
+import { MAX_ENCOUNTERS, MAX_EXTENSIONS, MAX_ITEMS, MAX_JOURNAL, MAX_LAYERS, MAX_LEVELS, MAX_REGIONS, MAX_SCENES, MAX_WALLS, SFX, inScene, inr, num, obj, parseAudio, parseEncounter, parseJournal, parseLayer, parseLight, parseManifest, parseRegion, parseToken, parseWall, parseWeather, patchScene, pt, short, str, urlOk } from './validate.ts';
 
 /** Salvaciones tiradas por el servidor y ocultas hasta que el dueño pulse (o caduquen), por tarjeta pendiente. */
 export type SaveHold = { until: number; res: Record<Id, { save: NonNullable<ActionCard['targets'][number]['save']>; amount?: number; die?: Die }> };
 export type MemberRec = { id: Id; name: string; role: Role; keyHashes: string[]; dice: DiceTheme };
 export type Room = { code: string; scene: Scene; scenes: Record<Id, Scene>; activeId: Id; journal: JournalEntry[]; members: Map<Id, MemberRec>; chat: ChatMsg[]; automation: 'assisted' | 'auto' | 'manual'; combat?: Combat; pending: ActionCard[]; settings: TableSettings; view: 'tactical' | 'story'; audio: AudioState; extensions: ExtensionManifest[];
-  safety: { lines: string[]; veils: string[] }; sessionStart: number; maxRound: number; clock?: number; holds?: Record<Id, SaveHold>; // persistidos (clock: minutos del mundo, 480 por defecto; holds: salvaciones de jugadores ya tiradas y ocultas)
+  safety: { lines: string[]; veils: string[] }; sessionStart: number; maxRound: number; clock?: number; holds?: Record<Id, SaveHold>; encounters?: Encounter[]; // persistidos (clock: minutos del mundo, 480 por defecto; holds: salvaciones de jugadores ya tiradas y ocultas)
   checks?: Map<Id, CheckReq>; xAt?: number; extLog?: Map<Id, number[]> }; // solo en memoria
 type CheckReq = { id: Id; tokenIds: Id[]; kind: 'save' | 'skill' | 'ability'; key: string; dc?: number; blind: boolean; label: string; answers: Map<Id, { name: string; total: number; ok?: boolean }> };
 export type RollFn = (expr: string) => { total: number; detail: string; dice?: Die[] };
@@ -97,7 +97,7 @@ function filterBase(room: Room, member: MemberRec, online: ReadonlySet<Id> = new
   const extensions = structuredClone(room.extensions), automation = room.automation, settings = structuredClone(room.settings), view = room.view, audio = structuredClone(room.audio);
   const journal = structuredClone(room.journal.filter((e) => canRead(e, member)));
   const safety = structuredClone(room.safety), sessionStart = room.sessionStart;
-  if (isDM(member)) return { code: room.code, members, scene: structuredClone(s), automation, settings, view, audio, journal, extensions, safety, sessionStart, copilot: copilotOn(), copilotLlm: !!process.env.LANTERN_LLM_URL, livekit: livekitOn(), library: libraryOf(room), ...(room.combat && { combat: structuredClone(room.combat) }) };
+  if (isDM(member)) return { code: room.code, members, scene: structuredClone(s), automation, settings, view, audio, journal, extensions, safety, sessionStart, copilot: copilotOn(), copilotLlm: !!process.env.LANTERN_LLM_URL, livekit: livekitOn(), library: libraryOf(room), encounters: structuredClone(room.encounters ?? []), ...(room.combat && { combat: structuredClone(room.combat) }) };
 
   if (!canSeeScene(s, member)) { // escena reservada a otros: mapa en blanco, sin fichas, paredes ni historia
     const blank: Scene = { id: s.id, name: '', width: s.width, height: s.height, grid: structuredClone(s.grid), walls: [], lights: [], tokens: [], globalLight: 0 };
@@ -344,6 +344,7 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
   }
   if (msg.t === 'clockReq' || msg.t === 'clock') return { clock: true }; // ponytail: una sola muestra, sin NTP
   if (m2.t === 'safety') { // cualquier miembro, espectadores incluidos; nunca se registra quién
+    if (m2.op === 'resume') return isDM(m) ? { all: { t: 'safety', op: 'resume' } } : DENY; // levantar la pausa de la X es del DM
     if (m2.op === 'x') {
       if (room.xAt !== undefined && now - room.xAt < 10_000) return { error: 'espera unos segundos antes de otra tarjeta X' };
       room.xAt = now; // ponytail: solo el aviso a todos; el combate no se congela en servidor
@@ -695,7 +696,7 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
     case 'act': {
       const at = m2.at === undefined ? undefined : pt(s, m2.at), aim = m2.dir === undefined ? undefined : pt(s, m2.dir);
       if (!str(m2.tokenId, 64) || !str(m2.actionId, 64) || !Array.isArray(m2.targets) || (m2.targets.length < 1 && !at) || m2.targets.length > 20 || !m2.targets.every((x) => str(x, 64))
-        || (m2.at !== undefined && !at) || (m2.dir !== undefined && !aim))
+        || (m2.at !== undefined && !at) || (m2.dir !== undefined && !aim) || (m2.slot !== undefined && !(Number.isInteger(m2.slot) && m2.slot >= 1 && m2.slot <= 9)))
         return { error: 'mensaje inválido' };
       const tk = s.tokens.find((t) => t.id === m2.tokenId);
       if (!tk) return { error: 'token inexistente' };
@@ -758,10 +759,15 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
         if (cb.used[tk.id]?.[act.cost]) return { error: 'ya usada' };
       }
       let lvl = 0;
-      if (act.slot) {
+      if (act.slot && m2.slot !== undefined) { // nivel elegido: tiene que ser ≥ el del conjuro y quedar alguno libre
+        const sl = tk.slots?.[m2.slot as number];
+        if (m2.slot < act.slot || !sl || sl.used >= sl.max) return { error: 'sin espacios de ese nivel' };
+        lvl = m2.slot as number;
+      } else if (act.slot) {
         lvl = Object.keys(tk.slots ?? {}).map(Number).sort((a, b) => a - b).find((l) => l >= act.slot! && tk.slots![l].used < tk.slots![l].max) ?? 0;
         if (!lvl) return { error: 'sin espacios de conjuro' };
       }
+      const act2 = lvl > (act.slot ?? 0) ? upcast(act, lvl) : act; // daño/curación escalados al nivel del espacio
       const dexSave = act.kind === 'save' && act.save?.ability === 'dex';
       // resolveAction solo aplica la cobertura a la CA: en salvaciones de DES se suma al bono de la salvación del objetivo
       const manual = room.automation === 'manual';
@@ -770,14 +776,19 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       const rt = targets.map((t) => ({ ...t, ac: manual ? -999 : acOf(t),
         ...((dexSave || (manual && sv)) && { saves: { ...t.saves, ...(dexSave && { dex: (t.saves?.dex ?? 0) + cov.get(t.id)! }), ...(manual && sv && { [sv]: (t.saves?.[sv] ?? 0) + (dexSave && sv === 'dex' ? cov.get(t.id)! : 0) - 999 }) } }) }));
       const opt = room.settings.optional;
-      const card = resolveAction(tk, act, rt, undefined, { within5ft: (t) => dist(t) <= 5 + 5 * (tk.size - 1), cover: (t) => cov.get(t.id) ?? 0,
-        edition: room.settings.edition, brutalCrit: opt.brutalCrit, dodge: (t) => !!cb?.used[t.id]?.dodge, flank: opt.flanking && act.range <= 5 ? (t) => flanked(s, tk, t) : undefined });
+      // Ayudar: un aliado del atacante (misma facción) ayudó contra este objetivo → ventaja en el primer ataque
+      const helpers = cb && act.kind === 'attack' ? Object.entries(cb.used).filter(([h, u]) => u?.helped && h !== tk.id && s.tokens.find((x) => x.id === h)?.faction === tk.faction) : [];
+      const helped = new Set(helpers.map(([, u]) => u.helped));
+      const flankOn = opt.flanking && act.range <= 5;
+      const card = resolveAction(tk, act2, rt, undefined, { within5ft: (t) => dist(t) <= 5 + 5 * (tk.size - 1), cover: (t) => cov.get(t.id) ?? 0,
+        edition: room.settings.edition, brutalCrit: opt.brutalCrit, dodge: (t) => !!cb?.used[t.id]?.dodge, flank: (t) => (flankOn && flanked(s, tk, t)) || helped.has(t.id) });
+      for (const [, u] of helpers) if (targets.some((t) => t.id === u.helped)) delete u.helped; // se gasta con el primer ataque
       if (act.kind === 'attack' || dexSave) for (const ct of card.targets) { const c = cov.get(ct.id); if (c) ct.cover = c; }
       if (manual) { card.manual = true; for (const ct of card.targets) if (ct.save) ct.save.total += 999; }
       const brk: ChatMsg[] = [];
       if (lvl) { tk.slots![lvl].used++; if (CONC.has(act.name.toLowerCase()) || SPELL_INDEX[act.id]?.concentration) { if (tk.concentration) brk.push(...breakConcentration(ctx, tk)); tk.concentration = act.name; } } // reemplaza a la anterior
       if (lvl) { // área persistente del conjuro: región con su comportamiento, duración y (si concentra) sourceId para que se borre al romperse
-        const rs = spellRegions(s, tk, act, { at: at ?? undefined, aim: aim ?? undefined, targets, round: cb?.round, conc: tk.concentration === act.name });
+        const rs = spellRegions(s, tk, act2, { at: at ?? undefined, aim: aim ?? undefined, targets, round: cb?.round, conc: tk.concentration === act.name });
         if (rs.length && (s.regions?.length ?? 0) + rs.length <= MAX_REGIONS) (s.regions ??= []).push(...rs);
       }
       if (cb) (cb.used[tk.id] ??= { action: false, bonus: false, reaction: false, moved: 0 })[act.cost] = true;
@@ -793,7 +804,7 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       const chats = [...brk, ...(now2 ? applyCardFx(ctx, card, 'full') : [])];
       if (opt.fumbles && card.targets.some((x) => x.attack?.d20 === 1)) chats.push(say(ctx, `¡Pifia! ${tk.name} falla estrepitosamente`)); // ponytail: sin tabla de pifias
       const sends = [...hold, ...reactionPrompts(room, card, now)];
-      if (act.slot !== undefined) sends.push({ who: seenBy(room, tk.id), msg: { t: 'spellBanner', name: act.name, school: act.school ?? SPELL_INDEX[act.id]?.school, level: act.slot, caster: tk.name } }); // rótulo del conjuro
+      if (act.slot !== undefined) sends.push({ who: seenBy(room, tk.id), msg: { t: 'spellBanner', name: act.name, school: act.school ?? SPELL_INDEX[act.id]?.school, level: lvl || act.slot, caster: tk.name } }); // rótulo del conjuro
       return { state: true, chat: cardMsg, chats, sends };
     }
     case 'route': { // ruta planificada mientras se arrastra: fantasma para quien ve el token (opción de mesa)
@@ -995,6 +1006,23 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       if (i >= 0) room.journal[i] = e;
       else if (room.journal.length >= MAX_JOURNAL) return { error: 'demasiadas entradas' };
       else room.journal.push(e);
+      return { state: true };
+    }
+    case 'encounter': {
+      if (!isDM(m)) return DENY;
+      const e = parseEncounter(m2.entry);
+      if (!e) return { error: 'encuentro inválido' };
+      const list = (room.encounters ??= []), i = list.findIndex((x) => x.id === e.id);
+      if (i >= 0) list[i] = e;
+      else if (list.length >= MAX_ENCOUNTERS) return { error: 'demasiados encuentros' };
+      else list.push(e);
+      return { state: true };
+    }
+    case 'encounterDelete': {
+      if (!isDM(m)) return DENY;
+      const i = str(m2.id, 64) ? room.encounters?.findIndex((x) => x.id === m2.id) ?? -1 : -1;
+      if (i < 0) return { error: 'no existe' };
+      room.encounters!.splice(i, 1);
       return { state: true };
     }
     case 'journalDelete': {

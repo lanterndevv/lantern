@@ -1,7 +1,7 @@
 // This work includes material from the System Reference Document 5.2 by Wizards of the Coast LLC, licensed under CC BY 4.0
 import type { Action, Token } from '@lantern/protocol';
 import { GEN_MONSTERS } from './monsters.gen.ts';
-import { GEN_SPELLS, SPELL_INDEX } from './spells.gen.ts';
+import { GEN_SPELLS, SPELL_INDEX, SPELL_UP } from './spells.gen.ts';
 
 type Text = { name: string; text: string };
 // traits/legend: textos del SRD en inglés · sizeName/align/condImm: campos fijos ya traducidos (condImm = ids de condición)
@@ -66,6 +66,14 @@ const HAND_SPELLS: Record<string, Action> = {
   'burning-hands': spell({ id: 'burning-hands', name: 'Manos ardientes', kind: 'save', range: 15, save: dexHalf, damage: '3d6',
     damageType: 'fire', area: { shape: 'cone', size: 15 }, slot: 1 }),
 };
+
+/** Conjuro lanzado con un espacio de nivel `lvl`: suma los dados de SPELL_UP por cada nivel por encima del base. Sin progresión conocida, igual. */
+export function upcast(a: Action, lvl: number): Action {
+  const up = SPELL_UP[a.id], n = lvl - (a.slot ?? lvl);
+  if (!up || n <= 0 || !a.damage) return a;
+  const [c, d] = up.split('d');
+  return { ...a, damage: `${a.damage}+${Number(c) * n}d${d}` };
+}
 
 export const MONSTERS: Record<string, SrdMonster> = { ...GEN_MONSTERS, ...HAND_MONSTERS };
 // la escuela sale del catálogo (SPELL_INDEX) para el rótulo del conjuro; el import de DDB hereda la acción tal cual

@@ -148,6 +148,21 @@ test('act: espacios agotados', () => {
   assert.equal(act(room, dm, 'kael', 'bola-fuego', ['trasgo-a']).error, 'sin espacios de conjuro');
 });
 
+test('act: subir de nivel gasta ese espacio y escala el daño', () => {
+  const { room, dm } = setup();
+  const k = tok(room, 'kael'); k.actions!.find((a) => a.id === 'bola-fuego')!.id = 'fireball'; // id del SRD, con progresión
+  k.slots![5] = { max: 1, used: 0 };
+  const up = (slot: number) => fixed(() => handle(room, dm, { t: 'act', tokenId: 'kael', actionId: 'fireball', targets: ['trasgo-a'], slot }, fakeRoll));
+  assert.equal(up(2).error, 'sin espacios de ese nivel'); // por debajo del conjuro
+  const fx = up(5);
+  assert.equal(fx.state, true);
+  assert.ok(JSON.stringify(fx.chat!.card).includes('8d6+2d6'));
+  assert.equal(k.slots![5].used, 1);
+  assert.equal(k.slots![3].used, 1); // el de nivel 3 no se toca
+  assert.equal(up(5).error, 'sin espacios de ese nivel'); // agotado
+  assert.equal(up(12).error, 'mensaje inválido');
+});
+
 test('assisted deja pendiente y confirm aplica; auto aplica al momento', () => {
   const { room, dm, player } = setup();
   const before = tok(room, 'trasgo-a').hp!.cur;
@@ -671,4 +686,30 @@ test('d20Test usa la edición de la criatura, no solo la de la mesa', () => {
   const r = d20Test({ room, from: dm.id, now: 0, rollFn }, t, 'save', 'dex');
   assert.deepEqual(exprs, ['2d20kl1']);
   assert.equal(r.mod, d20Test({ room, from: dm.id, now: 0, rollFn }, { ...t, exhaustion: 0 }, 'save', 'dex').mod); // sin el −6 de 2024
+});
+
+test('encuentros guardados: solo el DM los guarda y los ve', () => {
+  const { room, dm, player } = setup();
+  const e = { id: 'e1', name: 'Emboscada', monsters: [{ srd: 'goblin-warrior', n: 3 }] };
+  assert.equal(handle(room, player, { t: 'encounter', entry: e }, fakeRoll).error, 'no permitido');
+  assert.equal(handle(room, dm, { t: 'encounter', entry: { ...e, monsters: [{ srd: 'no-existe', n: 1 }] } }, fakeRoll).error, 'encuentro inválido');
+  assert.equal(handle(room, dm, { t: 'encounter', entry: { ...e, monsters: [{ srd: 'goblin-warrior', n: 31 }] } }, fakeRoll).error, 'encuentro inválido');
+  assert.equal(handle(room, dm, { t: 'encounter', entry: e }, fakeRoll).state, true);
+  handle(room, dm, { t: 'encounter', entry: { ...e, name: 'Emboscada 2' } }, fakeRoll); // mismo id: sustituye
+  assert.deepEqual(filterFor(room, dm).encounters!.map((x) => x.name), ['Emboscada 2']);
+  assert.equal(filterFor(room, player).encounters, undefined);
+  assert.equal(handle(room, dm, { t: 'encounterDelete', id: 'e1' }, fakeRoll).state, true);
+  assert.deepEqual(filterFor(room, dm).encounters, []);
+});
+
+test('precarga: el acuse de un jugador solo llega al DM', () => {
+  const { room, dm, player } = setup();
+  const prep = handle(room, dm, { t: 'scenePrepare', id: room.activeId }, fakeRoll);
+  assert.equal((prep.all as { id: string }).id, room.activeId);
+  assert.equal(handle(room, player, { t: 'prepared', id: 'nada' }, fakeRoll).error, 'mensaje inválido');
+  const fx = handle(room, player, { t: 'prepared', id: room.activeId }, fakeRoll);
+  assert.equal(fx.sends!.length, 1);
+  assert.deepEqual(fx.sends![0].msg, { t: 'prepared', id: room.activeId, memberId: player.id });
+  assert.equal(fx.sends![0].who(dm), true);
+  assert.equal(fx.sends![0].who(player), false);
 });

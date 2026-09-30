@@ -287,7 +287,6 @@ export default {
   'Daño': 'Damage',
   'Curar': 'Heal',
   'Temp': 'Temp',
-  'Crear personaje': 'Create character',
   'Puntos de golpe': 'Hit Points',
   'temp': 'temp',
   'Vel.': 'Speed',
@@ -343,7 +342,6 @@ export default {
 
   // ui/creator.ts
   'Nombre y especie': 'Name and species',
-  'Clase y nivel': 'Class and level',
   'Competencias': 'Proficiencies',
   'Resumen': 'Summary',
   'Anterior': 'Back',
@@ -351,8 +349,6 @@ export default {
   'Especie': 'Species',
   'Velocidad {sp} pies · Visión en la oscuridad {dv} pies · Resistencias: {r}': 'Speed {sp} ft · Darkvision {dv} ft · Resistances: {r}',
   'ninguna': 'none',
-  'Nivel (1–20, ficha básica)': 'Level (1–20, basic sheet)',
-  'Calcula PG, competencia, espacios y trucos; sin subclase, dotes, mejoras de característica ni conjuros de nivel 1+: complétalos a mano en la hoja.': 'Works out HP, proficiency, slots and cantrips; no subclass, feats, ability score improvements or 1st-level+ spells: add them by hand on the sheet.',
   'Dado de golpe d{n}': 'Hit Die d{n}',
   'Salvaciones:': 'Saving Throws:',
   'Lanzamiento:': 'Spellcasting:',

@@ -21,7 +21,7 @@ export function mountEncounter(el: HTMLElement, ctx: UiCtx) {
   const list = Object.entries(MONSTERS).map(([id, m]) => ({ id, name: m.name, cr: m.cr, size: m.size }));
   const qty = new Map<string, number>();
   let levels: number[] | null = null; // null = automático
-  let hidden = false, placing = false;
+  let hidden = false, placing = false, loaded: { id: string; name: string } | undefined, gsig = ''; // loaded: el guardado que se está editando
   const auto = (s: ClientState) => {
     const l = s.scene.tokens.filter(k => k.faction === 'ally' && k.owners.length).map(k => k.ddb?.level ?? 5);
     return l.length ? l : [5];
@@ -32,6 +32,8 @@ export function mountEncounter(el: HTMLElement, ctx: UiCtx) {
     <label>${t('Niveles del grupo (separados por comas)')}<input id="en-niv" inputmode="numeric" autocomplete="off"></label>
     <label>${t('Buscar monstruo')}<input id="en-q" type="search" autocomplete="off"></label>
     <ul class="enc-res" id="en-res" aria-label="${t('Resultados')}"></ul>
+    <div class="bib-acc enc-guard"><select id="en-gs" aria-label="${t('Encuentros guardados')}"></select>
+      <button type="button" id="en-load">${t('Cargar')}</button><button type="button" id="en-save">${t('Guardar')}</button><button type="button" class="secondary" id="en-del">${t('Borrar')}</button></div>
     <h3>${t('Encuentro')}</h3>
     <ul class="enc-sel" id="en-sel" aria-label="${t('Monstruos del encuentro')}"></ul>
     <div id="en-dif" class="enc-dif" role="status" aria-live="polite"></div>
@@ -61,6 +63,15 @@ export function mountEncounter(el: HTMLElement, ctx: UiCtx) {
     q<HTMLButtonElement>('en-col').disabled = !crs.length && !placing;
   }
   const stop = () => { placing = false; ctx.onMapClick(null); renderSel(); };
+  const saved = () => ctx.state().encounters ?? [];
+  function renderSaved() {
+    const list = saved(), k = JSON.stringify(list.map(e => [e.id, e.name]));
+    if (k === gsig) return; gsig = k;
+    const gs = q<HTMLSelectElement>('en-gs'), v = gs.value;
+    gs.innerHTML = list.length ? list.map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('') : `<option value="">${t('Sin encuentros guardados')}</option>`;
+    gs.value = list.some(e => e.id === v) ? v : list[0]?.id ?? '';
+    q<HTMLButtonElement>('en-load').disabled = q<HTMLButtonElement>('en-del').disabled = !list.length;
+  }
 
   q('en-q').addEventListener('input', renderRes);
   q('en-res').addEventListener('click', e => {
@@ -76,7 +87,26 @@ export function mountEncounter(el: HTMLElement, ctx: UiCtx) {
     levels = v.length ? v : null; renderSel();
   });
   q('en-hid').addEventListener('change', () => { hidden = q<HTMLInputElement>('en-hid').checked; });
-  q('en-lim').addEventListener('click', () => { qty.clear(); stop(); });
+  q('en-lim').addEventListener('click', () => { qty.clear(); loaded = undefined; stop(); });
+  const cur2 = () => saved().find(e => e.id === q<HTMLSelectElement>('en-gs').value);
+  q('en-load').addEventListener('click', () => {
+    const e = cur2(); if (!e) return;
+    qty.clear(); for (const r of e.monsters) if (MONSTERS[r.srd]) qty.set(r.srd, r.n);
+    loaded = { id: e.id, name: e.name }; renderSel();
+  });
+  q('en-save').addEventListener('click', () => {
+    const monsters = [...qty].filter(([, n]) => n > 0).map(([srd, n]) => ({ srd, n }));
+    if (!monsters.length) return ctx.toast(t('Añade monstruos antes de guardar'));
+    const name = prompt(t('Nombre del encuentro'), loaded?.name ?? '')?.trim().slice(0, 60);
+    if (!name) return;
+    const id = loaded?.name === name ? loaded.id : crypto.randomUUID(); // mismo nombre que el cargado: se sobrescribe
+    ctx.send({ t: 'encounter', entry: { id, name, monsters } });
+    loaded = { id, name }; ctx.toast(t('Encuentro «{n}» guardado', { n: name }));
+  });
+  q('en-del').addEventListener('click', () => {
+    const e = cur2();
+    if (e && confirm(t('¿Borrar el encuentro guardado «{n}»?', { n: e.name }))) { ctx.send({ t: 'encounterDelete', id: e.id }); if (loaded?.id === e.id) loaded = undefined; }
+  });
   q('en-col').addEventListener('click', () => {
     if (placing) return stop();
     placing = true; renderSel();
@@ -89,15 +119,15 @@ export function mountEncounter(el: HTMLElement, ctx: UiCtx) {
         const cols = Math.ceil(Math.sqrt(ids.length)), rows = Math.ceil(ids.length / cols);
         ctx.send({ t: 'spawnMany', hidden, items: ids.map((srd, i) => ({
           srd, x: Math.round(x + ((i % cols) - (cols - 1) / 2) * step), y: Math.round(y + (Math.floor(i / cols) - (rows - 1) / 2) * step) })) });
-        ctx.toast(hidden ? t('{n} criaturas colocadas (ocultas)', { n: ids.length }) : t('{n} criatura colocada|{n} criaturas colocadas', { n: ids.length }));
+        ctx.toast((hidden ? t('{n} criaturas colocadas (ocultas)', { n: ids.length }) : t('{n} criatura colocada|{n} criaturas colocadas', { n: ids.length })) + ' ' + t('La lista se conserva; «Vaciar» para empezar otra.'));
       }
       stop();
     });
   });
 
-  renderRes(); renderSel();
+  renderRes(); renderSel(); renderSaved();
   q<HTMLInputElement>('en-niv').placeholder = auto(ctx.state()).join(', ');
   return {
-    update(s: ClientState) { q<HTMLInputElement>('en-niv').placeholder = auto(s).join(', '); renderSel(); },
+    update(s: ClientState) { q<HTMLInputElement>('en-niv').placeholder = auto(s).join(', '); renderSel(); renderSaved(); },
   };
 }

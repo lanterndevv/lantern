@@ -27,8 +27,14 @@ dialog.pal::backdrop { background: rgba(12,10,8,.6); }
 @media (max-width: 700px), (pointer: coarse) and (max-width: 1024px) {
   :root { --sa-t: env(safe-area-inset-top, 0px); --sa-r: env(safe-area-inset-right, 0px); --sa-b: env(safe-area-inset-bottom, 0px); --sa-l: env(safe-area-inset-left, 0px); }
 
-  /* no se edita en el teléfono */
-  .mesa > .ed-bar, .mesa > .ed-insp { display: none !important; }
+  /* edición táctil básica: solo Mesa/Seleccionar y el inspector como hoja inferior (sin dibujar muros, luces ni regiones) */
+  .mesa > .ed-bar, .mesa:has(.init:not([hidden])) > .ed-bar { top: auto; bottom: calc(var(--sa-b) + 16px); left: auto; right: calc(var(--sa-r) + 8px); flex-direction: row; max-height: none; overflow: visible; }
+  .mesa:has(.hud:not([hidden])) > .ed-bar { bottom: calc(46vh + var(--sa-b) + 8px); }
+  .mesa > .ed-bar > button:not([data-t=none], [data-t=select]), .mesa > .ed-bar .ed-sub { display: none !important; }
+  .mesa > .ed-insp .ed-nudge, .mesa > .ed-insp .ed-auto, .mesa > .ed-insp .ed-diag { display: none !important; }
+  .mesa > .ed-insp:not(:has(.ed-form > h3)) { display: none !important; } /* nada seleccionado (o jugador): oculto */
+  .mesa > .ed-insp { position: fixed; top: auto; left: var(--sa-l); right: var(--sa-r); bottom: 0; width: auto; max-height: 50vh; z-index: 35;
+    padding-bottom: calc(var(--sa-b) + 12px); border-radius: var(--r-panel) var(--r-panel) 0 0; }
 
   /* título arriba a la izquierda; baja bajo el carrusel si hay combate */
   .mesa .tl { top: calc(var(--sa-t) + 8px); left: calc(var(--sa-l) + 8px); max-width: calc(100% - 76px - var(--sa-l) - var(--sa-r)); padding: 6px 10px; gap: 8px; }
@@ -67,6 +73,7 @@ dialog.pal::backdrop { background: rgba(12,10,8,.6); }
   .mesa .lado.plegado .dock-btns { display: none; } /* plegado en el móvil: solo el botón, no tapa el título */
   .mesa .init button { flex: none; white-space: nowrap; }
   body .tarjeta-x { left: auto; right: calc(var(--sa-r) + 8px); bottom: auto; top: calc(var(--sa-t) + 148px); } /* fuera de la hoja inferior del HUD */
+  body .lineas-velos { left: auto; right: calc(var(--sa-r) + 8px); bottom: auto; top: calc(var(--sa-t) + 200px); }
   .mesa .lado.plegado header { padding: 4px; }
   .mesa #plegar { min-width: 44px; }
   .mesa [role=tab] { padding: 0 12px; }

@@ -47,7 +47,7 @@ test('precarga: solo imágenes de la escena, sin fichas ocultas', () => {
   sc.background = '/assets/mapa.png'; sc.story = { image: '/assets/hist.png', layers: [{ image: '/assets/l1.png', depth: 0.5 }] };
   sc.tokens.push(tok('boss', 10, 10, { hidden: true, faction: 'enemy', img: '/assets/secreto.png' }));
   const fx = H(dm, { t: 'scenePrepare', id });
-  assert.deepEqual(fx.all, { t: 'prepare', urls: ['/assets/mapa.png', '/assets/hist.png', '/assets/l1.png'] });
+  assert.deepEqual(fx.all, { t: 'prepare', id, urls: ['/assets/mapa.png', '/assets/hist.png', '/assets/l1.png'] });
   assert.ok(!JSON.stringify(fx).includes('secreto'));
   assert.equal(room.activeId, 's'); // preparar no activa
   assert.equal(H(ana, { t: 'scenePrepare', id }).error, 'no permitido');

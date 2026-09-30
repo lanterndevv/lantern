@@ -1,9 +1,9 @@
 // Exportar/importar campañas (formato abierto, ver FORMAT.md) e importar mapas Universal VTT.
 import { createHash, randomUUID } from 'node:crypto';
 import { DEFAULT_SETTINGS } from '@lantern/protocol';
-import type { JournalEntry, Light, Scene, TableSettings, Wall } from '@lantern/protocol';
+import type { Encounter, JournalEntry, Light, Scene, TableSettings, Wall } from '@lantern/protocol';
 import { mergeSettings, type Room } from './room.ts';
-import { MAX_JOURNAL, MAX_SCENES, obj, parseJournal, parseScene } from './validate.ts';
+import { MAX_ENCOUNTERS, MAX_JOURNAL, MAX_SCENES, obj, parseEncounter, parseJournal, parseScene } from './validate.ts';
 
 export const MAX_ASSET = 25 * 1024 * 1024, MAX_EXPORT = 200 * 1024 * 1024;
 export const ASSET_RE = /^([0-9a-f]{64})\.(png|jpg|webp|mp3|ogg|webm|mp4|pdf)$/;
@@ -20,10 +20,10 @@ export async function exportCampaign(room: Room, read: (name: string) => Promise
     if ((size += Math.ceil(b.length / 3) * 4) > MAX_EXPORT) return 'tooLarge'; // el límite cuenta el base64
     assets[name] = b.toString('base64');
   }
-  return { format: 'lantern-campaign', version: 1, exportedAt: new Date().toISOString(), scenes, activeId: room.activeId, journal, settings: room.settings, assets };
+  return { format: 'lantern-campaign', version: 1, exportedAt: new Date().toISOString(), scenes, activeId: room.activeId, journal, encounters: room.encounters ?? [], settings: room.settings, assets };
 }
 
-export type Imported = { scenes: Scene[]; activeId: string; journal: JournalEntry[]; settings: TableSettings; assets: Map<string, Buffer> };
+export type Imported = { scenes: Scene[]; activeId: string; journal: JournalEntry[]; encounters: Encounter[]; settings: TableSettings; assets: Map<string, Buffer> };
 
 export function importCampaign(v: unknown): Imported | { error: string } {
   if (!obj(v) || v.format !== 'lantern-campaign' || v.version !== 1) return { error: 'formato no reconocido' };
@@ -39,6 +39,10 @@ export function importCampaign(v: unknown): Imported | { error: string } {
   if (!Array.isArray(rawJ) || rawJ.length > MAX_JOURNAL) return { error: 'diario inválido' };
   const journal = rawJ.map((e) => parseJournal(obj(e) && Array.isArray(e.visibleTo) ? { ...e, visibleTo: 'dm' } : e, new Map())); // listas de miembros → solo DM
   if (journal.some((e) => !e) || new Set(journal.map((e) => e!.id)).size !== journal.length) return { error: 'diario inválido' };
+  const rawE = v.encounters ?? []; // opcional (archivos anteriores no lo traen)
+  if (!Array.isArray(rawE) || rawE.length > MAX_ENCOUNTERS) return { error: 'encuentros inválidos' };
+  const encounters = rawE.map(parseEncounter);
+  if (encounters.some((e) => !e) || new Set(encounters.map((e) => e!.id)).size !== encounters.length) return { error: 'encuentros inválidos' };
   const settings = v.settings === undefined ? structuredClone(DEFAULT_SETTINGS) : mergeSettings(structuredClone(DEFAULT_SETTINGS), v.settings);
   if (!settings) return { error: 'ajustes inválidos' };
   const assets = new Map<string, Buffer>();
@@ -53,7 +57,7 @@ export function importCampaign(v: unknown): Imported | { error: string } {
       assets.set(name, b);
     }
   }
-  return { scenes: ok, activeId, journal: journal as JournalEntry[], settings, assets };
+  return { scenes: ok, activeId, journal: journal as JournalEntry[], encounters: encounters as Encounter[], settings, assets };
 }
 
 // ---- Universal VTT (.dd2vtt / .uvtt): coordenadas en casillas ----

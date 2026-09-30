@@ -74,7 +74,7 @@ export function diagnostics(s: ClientState): string[] {
 }
 
 export function mountEditor(toolbarEl: HTMLElement, inspectorEl: HTMLElement, ctx: EdCtx) {
-  let wallMode = '', active = 'none', sel: { kind: Kind; id: string } | null = null, picking = false, draft: Region | null = null, sig = '';
+  let wallMode = '', active = 'none', sel: { kind: Kind; id: string } | null = null, picking = false, draft: Region | null = null, sig = '', dirty = false; // dirty: el formulario tiene cambios sin guardar
   const st = () => ctx.state();
 
   // ---- barra ----
@@ -116,7 +116,7 @@ export function mountEditor(toolbarEl: HTMLElement, inspectorEl: HTMLElement, ct
   // ---- inspector ----
   inspectorEl.classList.add('ed-insp');
   inspectorEl.setAttribute('aria-label', t('Inspector'));
-  inspectorEl.innerHTML = `<div class="ed-form"></div><footer class="ed-diag" aria-label="${t('Diagnóstico')}"></footer>`;
+  inspectorEl.innerHTML = `<p class="ed-sucio" role="status" hidden>${t('Cambios sin guardar')}</p><div class="ed-form"></div><footer class="ed-diag" aria-label="${t('Diagnóstico')}"></footer>`;
   inspectorEl.insertAdjacentHTML('beforeend', `<div class="ed-btns ed-nudge" role="group" aria-label="${t('Ajuste fino de la cuadrícula')}">
     <button type="button" data-n="-1,0,0" aria-label="${t('Cuadrícula a la izquierda')}">◀</button><button type="button" data-n="0,-1,0" aria-label="${t('Cuadrícula arriba')}">▲</button>
     <button type="button" data-n="0,1,0" aria-label="${t('Cuadrícula abajo')}">▼</button><button type="button" data-n="1,0,0" aria-label="${t('Cuadrícula a la derecha')}">▶</button>
@@ -149,6 +149,9 @@ export function mountEditor(toolbarEl: HTMLElement, inspectorEl: HTMLElement, ct
     }
   });
   const form = inspectorEl.querySelector<HTMLElement>('.ed-form')!, diag = inspectorEl.querySelector<HTMLElement>('.ed-diag')!;
+  const sucio = inspectorEl.querySelector<HTMLElement>('.ed-sucio')!;
+  const setDirty = (v: boolean) => { dirty = v; sucio.hidden = !v; };
+  form.addEventListener('input', () => setDirty(true));
   const $ = <T extends HTMLElement = HTMLInputElement>(id: string) => form.querySelector<T>('#ed-' + id)!;
   const chk = (id: string, l: string, v?: boolean) => `<label class="chk"><input type="checkbox" id="ed-${id}"${v ? ' checked' : ''}> ${l}</label>`;
   const txt = (id: string, l: string, v: unknown, extra = '') => `<label>${l}<input id="ed-${id}" value="${esc(v)}" ${extra}></label>`;
@@ -227,6 +230,7 @@ export function mountEditor(toolbarEl: HTMLElement, inspectorEl: HTMLElement, ct
   }
 
   form.addEventListener('change', e => {
+    setDirty(true);
     const id = (e.target as HTMLElement).id;
     if ((id === 'ed-kind' || id === 'ed-action') && sel?.kind === 'region') { draft = readRegion(draft ?? (find() as Region)); render(); form.querySelector<HTMLElement>('#' + id)?.focus(); }
   });
@@ -240,11 +244,11 @@ export function mountEditor(toolbarEl: HTMLElement, inspectorEl: HTMLElement, ct
         const ls = s.scene.levels ?? [], i = Math.max(0, ls.findIndex(l => l.id === base.level));
         draft.toLevel = (ls[i + 1] ?? ls[i - 1])?.id;
       }
-      render(); ctx.toast(t('Plantilla aplicada; pulsa Guardar')); return;
+      setDirty(true); render(); ctx.toast(t('Plantilla aplicada; pulsa Guardar')); return;
     }
     if (b.dataset.a === 'pick') { draft = readRegion(draft ?? (it as Region)); picking = true; render(); ctx.toast(t('Haz clic en el mapa para fijar el destino')); return; }
     if (b.dataset.a === 'flip' && sel.kind === 'wall') { const w = it as Wall; ctx.send({ t: 'upsert', kind: 'wall', item: { ...w, oneWay: w.oneWay === 'left' ? 'right' : 'left' } }); return; }
-    if (b.dataset.a === 'del') { ctx.send({ t: 'remove', kind: sel.kind as 'wall' | 'light' | 'region', id: sel.id }); sel = null; draft = null; render(); return; }
+    if (b.dataset.a === 'del') { ctx.send({ t: 'remove', kind: sel.kind as 'wall' | 'light' | 'region', id: sel.id }); sel = null; draft = null; setDirty(false); render(); return; }
     if (b.dataset.a !== 'save' || !it) return;
     const num = (id: string) => Math.max(0, +$(id).value || 0);
     if (sel.kind === 'wall') {
@@ -265,7 +269,7 @@ export function mountEditor(toolbarEl: HTMLElement, inspectorEl: HTMLElement, ct
         hp: hpMax === undefined ? t.hp : { cur: Math.min(t.hp?.cur ?? hpMax, hpMax), max: hpMax, temp: t.hp?.temp ?? 0 }, ac: n('ac'), speed: n('speed'), initMod: init === '' ? undefined : +init || 0,
         edition: (($<HTMLSelectElement>('edition').value) || undefined) as Token['edition'], lucky: $('lucky').checked || undefined, inspiration: $('inspiration').checked || undefined, encounter: $('enc').value.trim() || undefined } });
     }
-    ctx.toast(t('Guardado'));
+    setDirty(false); ctx.toast(t('Guardado'));
   });
 
   // ---- EditOp → C2S ----
@@ -276,7 +280,13 @@ export function mountEditor(toolbarEl: HTMLElement, inspectorEl: HTMLElement, ct
     } else if (op.op === 'upsert') ctx.send({ t: 'upsert', kind: op.kind, item: op.item } as C2S);
     else if (op.op === 'remove') ctx.send({ t: 'remove', kind: op.kind, id: op.id } as C2S);
     else if (op.op === 'grid') ctx.send({ t: 'scene', patch: { grid: { size: op.size, offsetX: op.offsetX, offsetY: op.offsetY, feet: st().scene.grid.feet } } });
-    else { sel = op.kind && op.id ? { kind: op.kind, id: op.id } : null; draft = null; picking = false; sig = ''; render(); if (sel) form.querySelector<HTMLElement>('input,select,textarea')?.focus(); }
+    else {
+      const next = op.kind && op.id ? { kind: op.kind, id: op.id } : null;
+      if (next?.id === sel?.id) return;
+      // ponytail: si se cancela, el inspector sigue con lo pendiente pero el renderer ya resaltó el otro elemento
+      if (dirty && !confirm(t('Hay cambios sin guardar en el inspector. ¿Descartarlos?'))) return;
+      sel = next; draft = null; picking = false; sig = ''; setDirty(false); render(); if (sel) form.querySelector<HTMLElement>('input,select,textarea')?.focus();
+    }
   });
 
   render();
@@ -284,9 +294,9 @@ export function mountEditor(toolbarEl: HTMLElement, inspectorEl: HTMLElement, ct
     update(s: ClientState) {
       diag.innerHTML = diagnostics(s).map(l => `<div>${esc(l)}</div>`).join('');
       const it = find();
-      if (sel && !it) { sel = null; draft = null; picking = false; render(); return; }
+      if (sel && !it) { if (dirty) ctx.toast(t('El elemento se ha borrado; cambios descartados')); sel = null; draft = null; picking = false; setDirty(false); render(); return; }
       const k = JSON.stringify(it ?? null) + s.scene.grid.size;
-      if (k !== sig) { sig = k; if (!inspectorEl.contains(document.activeElement) && !draft) render(); }
+      if (k !== sig) { sig = k; if (!inspectorEl.contains(document.activeElement) && !draft && !dirty) render(); } // con cambios pendientes no se repinta
     },
     /** Llamar desde onMapClick. Devuelve true si el clic se ha consumido como destino de teletransporte. */
     mapClick(x: number, y: number): boolean {

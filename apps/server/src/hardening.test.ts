@@ -9,6 +9,7 @@ import WebSocket from 'ws';
 import { start } from './main.ts';
 import { MIGRATIONS, openDb } from './db.ts';
 import { createRoom, handle, joinRoom, filterFor } from './room.ts';
+import { PROTOCOL_VERSION } from '@lantern/protocol';
 
 const fakeRoll = (e: string) => ({ total: 7, detail: e });
 const man = (o: object = {}) => ({ id: 'mi-ext', name: 'Ext', version: '1.0', url: 'https://x.example/e.html', permissions: ['state', 'chat'], ...o });
@@ -74,7 +75,7 @@ test('welcome trae v y el límite de mensajes cierra con 1008', async () => {
   const base = `http://127.0.0.1:${srv.port()}`;
   const a = await ws(base, { t: 'join', name: 'DM' });
   await sleep(100);
-  assert.equal(a.msgs.find((m) => m.t === 'welcome').v, 1);
+  assert.equal(a.msgs.find((m) => m.t === 'welcome').v, PROTOCOL_VERSION);
   for (let i = 0; i < 300; i++) a.w.send(JSON.stringify({ t: 'clockReq' }));
   assert.equal(await a.closed, 1008);
   await srv.close();

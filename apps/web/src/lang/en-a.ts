@@ -199,7 +199,6 @@ export default {
   'Esconderse': 'Hide',
   'Usar objeto': 'Use Object',
   'Ayudar': 'Help',
-  'ayuda (Ayudar)': 'helps (Help action)',
   'Condiciones…': 'Conditions…',
   'Cegado': 'Blinded',
   'Hechizado': 'Charmed',

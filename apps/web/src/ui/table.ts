@@ -16,7 +16,7 @@ import { mountEditor } from './editor.ts';
 import { mountJournal, showHandout, showRegionMsg } from './journal.ts';
 import { mountLibrary, type UiCtx } from './library.ts';
 import { mountEncounter } from './encounter.ts';
-import { maybeStartTutorial } from './tutorial.ts';
+import { startTutorial } from './tutorial.ts';
 import { openRadial, tokenRadialItems, type RadialItem } from './radial.ts';
 import { mountChat2, chatSendFromInput, renderChatExtras } from './chat2.ts';
 import { mountDraw, bindUndo } from './draw.ts';
@@ -177,7 +177,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   const name = (id: string) => state.members.find(m => m.id === id)?.name ?? '???';
 
   // Estado de interacción
-  let selected: Id | undefined, targets: Id[] = [], armed: { tok: Id; a: Action } | undefined;
+  let selected: Id | undefined, targets: Id[] = [], armed: { tok: Id; a: Action; slot?: number } | undefined; // slot: nivel de espacio elegido
   let tpl: ReturnType<typeof templateTargeting> | undefined; // plantilla de área de la acción armada
   let drawApi: ReturnType<typeof mountDraw> | undefined, lasso: ReturnType<typeof mountLasso> | undefined; // se montan tras createTable; render() corre antes
   let mapCb: ((x: number, y: number) => void) | null = null;
@@ -196,7 +196,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     clearTimeout(tt); tt = window.setTimeout(() => t.classList.remove('show'), ms);
   };
   const fire = (tokenId: Id, actionId: Id, tg: Id[], extra?: { at: Point; dir?: Point }) => {
-    net.send({ t: 'act', tokenId, actionId, targets: tg, ...extra });
+    net.send({ t: 'act', tokenId, actionId, targets: tg, ...extra, ...(armed?.a.id === actionId && armed.slot ? { slot: armed.slot } : {}) });
     armed = undefined; targets = []; tpl?.cancel(); tpl = undefined; renderHud(); marks();
   };
   const atArea = (x: number, y: number) => tpl?.click(x, y);
@@ -251,12 +251,12 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   const tableEd = { setTool: (t: Parameters<Awaited<typeof table>['setTool']>[0]) => void table.then(x => x.setTool(t)), onEdit: (cb: Parameters<Awaited<typeof table>['onEdit']>[0]) => void table.then(x => x.onEdit(cb)) };
   const staffEd = w.role === 'dm' || w.role === 'assistant';
   const ed = staffEd ? mountEditor($('ed-bar'), $('ed-insp'), { send: m => net.send(m), state: () => state, table: tableEd, role: w.role, memberId: w.memberId, toast: m => say(m, 3500) }) : undefined;
-  $('ed-bar').hidden = !staffEd;
+  $('ed-bar').hidden = $('ed-insp').hidden = !staffEd;
   const jr = mountJournal($('p-dia'), { send: m => net.send(m), state: () => state, role: w.role, memberId: w.memberId, toast: m => say(m, 3500) });
   const lib = staffEd ? mountLibrary($('p-biblioteca'), ctx) : undefined;
   const enc = staffEd ? mountEncounter($('p-encuentros'), ctx) : undefined;
   $('t-biblioteca').hidden = $('t-encuentros').hidden = !staffEd;
-  maybeStartTutorial(ctx);
+  startTutorial(ctx);
 
   const sheet = mountSheet($('p-hoja'), { role: w.role, memberId: w.memberId, code: w.state.code, key: () => net.key(w.state.code), send: m => net.send(m), token: () => w.role === 'dm' ? tok(selected) ?? hudTok() : mine().find(t => t.id === selected) ?? mine()[0] });
   const staff = w.role === 'dm' || w.role === 'assistant';
@@ -356,12 +356,14 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     if (armed?.a.id === a.id) return cancel();
     spawn = undefined; renderMonsters();
     const tg = targets.filter(id => id !== tk.id); // el actor no se apunta a sí mismo sin querer; para curarse: armar y pulsar su token
-    if (!a.area && tg.length) return fire(tk.id, a.id, tg);
-    armed = { tok: tk.id, a };
+    const lv = freeLevels(tk, a); // con varios niveles libres no se dispara: primero se elige nivel
+    if (!a.area && tg.length && lv.length < 2) return fire(tk.id, a.id, tg);
+    armed = { tok: tk.id, a, ...(lv.length > 1 && { slot: lv[0] }) };
     tpl = a.area ? templateTargeting(a, { caster: tk.id, state: () => state, table: { setMarks: m => void table.then(x => x.setMarks(m)) }, baseMarks, fire }) : undefined;
     renderHud(); marks();
-    say(t(a.area ? '{name}: haz clic en el mapa' : '{name}: elige un objetivo', { name: a.name }));
+    say(lv.length > 1 ? t('{name}: elige nivel y objetivo', { name: a.name }) : t(a.area ? '{name}: haz clic en el mapa' : '{name}: elige un objetivo', { name: a.name }));
   };
+  const freeLevels = (tk: Token, a: Action) => a.slot ? Object.entries(tk.slots ?? {}).filter(([l, s]) => +l >= a.slot! && s.used < s.max).map(([l]) => +l).sort((x, y) => x - y) : [];
   const pick = (i: number) => {
     const t = hudTok(), a = t?.actions?.[i];
     if (t && a && !$('hud').hidden) armAction(t.id, a.id);
@@ -383,8 +385,12 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       return `<button type="button" class="acc c-${a.cost}" data-i="${i}" title="${esc(tip)}" aria-label="${esc(tip)} (${t('tecla {n}', { n: (i + 1) % 10 })})"
         aria-pressed="${armed?.a.id === a.id}"${u?.[a.cost] ? ' disabled' : ''}><b>${(i + 1) % 10}</b><span>${esc(a.name)}</span></button>`;
     }).join('');
-    const slots = Object.entries(tk.slots ?? {}).map(([lv, s]) =>
-      `<span class="slot" role="img" aria-label="${t('Nivel {lv}: {a} de {b} espacios', { lv, a: s.max - s.used, b: s.max })}">${t('N')}${lv} ${'◆'.repeat(Math.max(0, s.max - s.used))}${'◇'.repeat(Math.min(s.used, s.max))}</span>`).join('');
+    const pickLv = armed?.tok === tk.id && armed.slot ? freeLevels(tk, armed.a) : []; // conjuro armado: los niveles libres se pueden elegir
+    const slots = Object.entries(tk.slots ?? {}).map(([lv, s]) => {
+      const txt = `${t('N')}${lv} ${'◆'.repeat(Math.max(0, s.max - s.used))}${'◇'.repeat(Math.min(s.used, s.max))}`, lab = t('Nivel {lv}: {a} de {b} espacios', { lv, a: s.max - s.used, b: s.max });
+      return pickLv.includes(+lv) ? `<button type="button" class="slot" data-lv="${lv}" aria-pressed="${armed!.slot === +lv}" aria-label="${esc(t('Lanzar a nivel {lv}', { lv }) + '. ' + lab)}">${txt}</button>`
+        : `<span class="slot" role="img" aria-label="${lab}">${txt}</span>`;
+    }).join('');
     // ponytail: hoy `combat` es solo del DM; si el servidor rechaza «next» se muestra su error (toast)
     const end = c && (activeId() === tk.id || w.role === 'dm') ? `<button type="button" class="primary" data-end>${t('Fin de turno')}</button>` : '';
     const mv = c ? Math.min(u?.moved ?? 0, 9999) : 0, sp = (speedFor(tk, 'walk', state.settings.edition) ?? 0) + (u?.dash ?? 0);
@@ -401,6 +407,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   $('hud').onclick = e => {
     const b = (e.target as HTMLElement).closest('button'); if (!b) return;
     if (b.dataset.sync) void resync(b.dataset.sync);
+    else if (b.dataset.lv) { if (armed) armed.slot = +b.dataset.lv; renderHud(); }
     else if (b.dataset.i) pick(+b.dataset.i);
     else if (b.dataset.ds) net.send({ t: 'deathSave', tokenId: b.dataset.ds });
     else if (b.dataset.b) { const t = hudTok(); if (t) net.send({ t: 'budget', tokenId: t.id, slot: b.dataset.b as 'action', used: !state.combat?.used[t.id]?.[b.dataset.b as 'action'] }); }
@@ -695,14 +702,15 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   mountPalette({ commands: q => defaultCommands({
     role: w.role, memberId: w.memberId, send: m => net.send(m), state: () => state,
     center: () => ({ x: state.scene.width / 2, y: state.scene.height / 2 }), // ponytail: centro de la escena, no de la vista
-    mine: () => hudTok(), tab, focus: (x, y) => void table.then(t => t.focus(x, y)),
+    mine: () => hudTok(), tab, focus: (x, y) => void table.then(t => t.focus(x, y)), tutorial: () => startTutorial(ctx, true),
   }, q) });
   applyDisplayMode(displayModeFromUrl(), { table, root, state: w.state });
   // ---- fase 7b: plantas, antesala, tarjeta X, pruebas pedidas, cierre de sesión ----
   checkProtocol(w.v);
   if (w.role !== 'spectator') mountBeyond20(m => net.send(m)); // tiradas hechas en la hoja de DDB con Beyond20 (dominio propio en sus opciones)
   const normalView = displayModeFromUrl() === 'normal';
-  if (normalView) mountSafety({ send: m => net.send(m) }); // botón X y Alt+X
+  const safetyCtx = { send: (m: C2S) => net.send(m), state: () => state, staff };
+  if (normalView) mountSafety(safetyCtx); // botón X, Alt+X y líneas/velos
   const chkCtx = { send: (m: C2S) => net.send(m), state: () => state, me: w.memberId };
   lobby = normalView && w.role !== 'spectator' ? showLobby({ state: () => state, send: m => net.send(m), me: w.memberId, role: w.role, onReady() {} }) : undefined;
   lv = mountLevels($('lv'), { state: () => state, send: m => net.send(m), role: w.role,
@@ -757,10 +765,11 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       else if (m.t === 'handout') showHandout(m.entry);
       else if (m.t === 'regionMsg') showRegionMsg(m.text);
       else if (m.t === 'transition') story.transition(m);
-      else if (m.t === 'prepare') preload(m.urls);
+      else if (m.t === 'prepare') void preload(m.urls).then(() => { if (!staff) net.send({ t: 'prepared', id: m.id }); });
+      else if (m.t === 'prepared') lib?.prepared(m.id, m.memberId);
       else if (m.t === 'sfx') sfx(m.name);
       else if (m.t === 'clock') audio.clock(m.now);
-      else if (m.t === 'safety') handleSafety(m);
+      else if (m.t === 'safety') handleSafety(m, safetyCtx);
       else if (m.t === 'checkRequest') handleCheckRequest(m, { send: x => net.send(x), state: () => state, me: w.memberId });
       else if (m.t === 'sessionSummary') showSummary(m.summary, m2 => net.send(m2));
       else if (m.t === 'error') { if (/llave/.test(m.msg)) sfx('locked'); const to = $('toast'); to.textContent = tsrv(m.msg) + (m.re && m.msg === 'mensaje inválido' ? ` (${m.re})` : ''); to.classList.add('show'); setTimeout(() => to.classList.remove('show'), 3000); }

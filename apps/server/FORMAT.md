@@ -1,7 +1,7 @@
 # Formato de campaña de Lantern (`lantern-campaign`, versión 1)
 
 Formato abierto: un único archivo JSON (UTF-8) para que una campaña sobreviva al proyecto.
-Los tipos exactos están en `packages/protocol/src/index.ts` (`Scene`, `Token`, `Wall`, `Light`, `Region`, `JournalEntry`, `TableSettings`).
+Los tipos exactos están en `packages/protocol/src/index.ts` (`Scene`, `Token`, `Wall`, `Light`, `Region`, `JournalEntry`, `Encounter`, `TableSettings`).
 
 ```jsonc
 {
@@ -11,6 +11,7 @@ Los tipos exactos están en `packages/protocol/src/index.ts` (`Scene`, `Token`, 
   "scenes": [ /* Scene[] (la biblioteca) */ ],
   "activeId": "id-de-una-escena",             // la escena activa; si no existe, la primera
   "journal": [ /* JournalEntry[] */ ],
+  "encounters": [ /* Encounter[] (opcional) */ ],
   "settings": { /* TableSettings: mode, layers, edition, optional */ },
   "assets": { "<sha256>.<ext>": "<base64>" }   // todos los /assets/… referenciados
 }
@@ -23,6 +24,7 @@ Los tipos exactos están en `packages/protocol/src/index.ts` (`Scene`, `Token`, 
 - **Escena**: `id`, `name` (≤60), `width`/`height` (100–20000), `grid`, `walls`, `lights`, `tokens`, `globalLight` (0–1); opcionales
   `background`, `weather`, `story`, `regions`, `folder` (≤40), `audioPreset` (`AudioState`), `dmNotes` (≤5000).
 - **Diario**: `visibleTo` es `"dm"`, `"all"` o una lista de ids de miembro. Al importar, las listas pasan a `"dm"` (los miembros no viajan).
+- **Encuentros** (opcional; los archivos anteriores no lo traen): `id`, `name` (≤60) y `monsters` (1–20 filas `{ srd, n }`, `srd` = id de un monstruo del SRD de Lantern, `n` de 1 a 30, sin repetir `srd`). Máximo 100.
 - Al importar, `owners` de los tokens se vacía (los jugadores de la mesa original no existen en la nueva).
 - Los campos desconocidos se ignoran; una escena inválida rechaza todo el archivo.
 

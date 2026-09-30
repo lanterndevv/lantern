@@ -170,7 +170,6 @@ export default {
   'Tarjeta X (Alt+X)': 'X-Card (Alt+X)',
   'Pausa': 'Pause',
   'Alguien ha usado la tarjeta X. Seguimos cuando estemos listos.': 'Someone has used the X-Card. We will continue when we are ready.',
-  'Continuar': 'Continue',
   'Hay una versión nueva de Lantern. Recarga para continuar.': 'There is a new version of Lantern. Reload to continue.',
   'Recargar': 'Reload',
   // tutorial.ts
@@ -178,7 +177,6 @@ export default {
   'Mueve un token: la regla te dice los pies': 'Move a token: the ruler shows the distance in feet',
   'Pestaña Escena: clima, historia y música': 'Scene tab: weather, story and music',
   'Pestaña Biblioteca: tus escenas e importar mapas': 'Library tab: your scenes and map import',
-  'Encuentros: arrastra monstruos del SRD': 'Encounters: drag monsters from the SRD',
   'Invita: pulsa el código de arriba y compártelo': 'Invite: click the code at the top and share it',
   'Guía de bienvenida': 'Welcome guide',
   'Paso {i} de {n}': 'Step {i} of {n}',

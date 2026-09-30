@@ -289,7 +289,6 @@ export default {
   'Cancelar': 'Cancel',
   'Eso no es un PDF': 'That is not a PDF',
   'Subiendo PDF…': 'Uploading PDF…',
-  'Mostrado a los jugadores': 'Shown to the players',
   '¿Borrar «{n}»?': 'Delete “{n}”?',
   'Ampliar imagen': 'Enlarge image',
   'Cerrar': 'Close',

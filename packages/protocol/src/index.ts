@@ -126,7 +126,7 @@ export type Combat = {
   round: number;
   turn: number;                                 // índice en order
   order: { tokenId: Id; init: number }[];       // ya ordenado de mayor a menor
-  used: Record<Id, { action: boolean; bonus: boolean; reaction: boolean; moved: number; object?: boolean; dash?: number; dodge?: boolean; disengage?: boolean }>; // moved en pies · dash: velocidad extra por Correr
+  used: Record<Id, { action: boolean; bonus: boolean; reaction: boolean; moved: number; object?: boolean; dash?: number; dodge?: boolean; disengage?: boolean; helped?: Id }>; // moved en pies · dash: velocidad extra por Correr · helped: enemigo contra el que ayuda (Ayudar)
   awaiting?: Id[];                              // iniciativa pedida a los jugadores: aún sin tirar (el combate no avanza)
 };
 
@@ -212,6 +212,9 @@ export type JournalEntry = {
   pdf?: string;                              // /assets/….pdf: se muestra en un visor
 };
 
+/** Encuentro guardado del constructor (solo DM/asistente): monstruos del SRD y cuántos. */
+export type Encounter = { id: Id; name: string; monsters: { srd: string; n: number }[] };
+
 export type LibraryItem = { id: Id; name: string; folder?: string; visibleTo?: Id[]; active: boolean; tokens: number; walls: number; background?: string };
 
 // Turno propuesto por el copiloto; el cliente del DM lo aplica con los C2S normales (moveToken + act) si lo acepta.
@@ -258,6 +261,7 @@ export type ClientState = {
   audio: AudioState;
   journal: JournalEntry[];     // filtrado por visibleTo
   library?: LibraryItem[];     // solo DM/asistente
+  encounters?: Encounter[];    // solo DM/asistente: encuentros guardados
   extensions: ExtensionManifest[]; // instaladas en la mesa (todos las cargan)
   safety: { lines: string[]; veils: string[] }; // líneas y velos de la mesa (anónimos)
   sessionStart?: number;       // ms del servidor en que empezó la sesión actual
@@ -303,7 +307,7 @@ export type C2S =
   | { t: 'rollInit'; tokenId: Id }                                   // dueño: tira su iniciativa cuando la mesa lo pide
   | { t: 'answerSave'; pending: Id; tokenId: Id }                    // dueño: tira la salvación de una tarjeta que la espera
   | { t: 'route'; tokenId: Id; points: Point[] }                     // ruta planificada mientras se arrastra (fantasma para los demás)
-  | { t: 'turnAction'; tokenId: Id; op: 'dodge' | 'dash' | 'disengage' | 'hide' | 'useObject' }
+  | { t: 'turnAction'; tokenId: Id; op: 'dodge' | 'dash' | 'disengage' | 'hide' | 'useObject' | 'help'; target?: Id } // help: target = enemigo contiguo; el siguiente ataque de un aliado contra él va con ventaja
   | { t: 'budget'; tokenId: Id; slot: 'action' | 'bonus' | 'reaction' | 'object'; used: boolean } // corrección manual del presupuesto
   | { t: 'effect'; op: 'add'; tokenId: Id; effect: Omit<TurnEffect, 'id'> } | { t: 'effect'; op: 'apply' | 'dismiss'; tokenId: Id; effectId: Id } // add: DM
   | { t: 'legendary'; tokenId: Id; op: 'use' | 'reset' }             // DM
@@ -319,7 +323,7 @@ export type C2S =
   | { t: 'moveMany'; moves: { id: Id; x: number; y: number }[] }     // mover un grupo en formación (mismas reglas que moveToken)
   | { t: 'carry'; tokenId: Id; by: Id | null }                       // montura/agarre: tokenId pasa a moverse con `by`
   | { t: 'spawnCustom'; monster: ImportedCharacter & { cr?: string; size?: number; srdLike?: true }; x: number; y: number; hidden?: boolean } // DM: monstruo traído de su cuenta DDB
-  | { t: 'act'; tokenId: Id; actionId: Id; targets: Id[]; at?: Point; dir?: Point } // resolver una acción · at/dir: punto y dirección de la plantilla (el servidor calcula los objetivos)
+  | { t: 'act'; tokenId: Id; actionId: Id; targets: Id[]; at?: Point; dir?: Point; slot?: number } // resolver una acción · at/dir: punto y dirección de la plantilla (el servidor calcula los objetivos) · slot: nivel del espacio (≥ el del conjuro; sin él, el menor libre)
   | { t: 'confirm'; pending: Id; mode: 'full' | 'half' | 'none' | 'heal' } // heal: solo tarjetas manuales     // DM confirma daño pendiente
   | { t: 'spawn'; srd: string; x: number; y: number; hidden?: boolean } // DM añade monstruo del SRD
   | { t: 'automation'; value: 'assisted' | 'auto' | 'manual' }                   // DM
@@ -350,6 +354,8 @@ export type C2S =
   | { t: 'sceneDelete'; id: Id }                                     // DM (no la activa)
   | { t: 'journal'; entry: JournalEntry }                            // DM: crea/actualiza
   | { t: 'journalDelete'; id: Id }                                   // DM
+  | { t: 'encounter'; entry: Encounter }                             // DM: guardar (crear o sustituir por id) un encuentro
+  | { t: 'encounterDelete'; id: Id }                                 // DM
   | { t: 'handout'; entryId: Id }                                    // DM: muestra la entrada a quienes pueden verla
   | { t: 'spawnMany'; items: { srd: string; x: number; y: number }[]; hidden?: boolean } // DM: encuentro
   | { t: 'extInstall'; manifest: ExtensionManifest }                 // DM (el cliente descarga el manifiesto; el servidor lo valida)
@@ -358,6 +364,7 @@ export type C2S =
   | { t: 'heroPoint'; tokenId: Id }                                   // dueño: gasta 1 punto de héroe → +1d6 a su última tirada/tarjeta
   | { t: 'heroPoints'; tokenId: Id; value: number }                   // DM: fija los puntos
   | { t: 'safety'; op: 'x' }                                         // cualquiera: tarjeta X anónima (pausa)
+  | { t: 'safety'; op: 'resume' }                                    // DM/asistente: levanta la pausa para todos
   | { t: 'safety'; op: 'add' | 'remove'; list: 'lines' | 'veils'; text: string } // cualquiera, anónimo
   | { t: 'requestCheck'; tokenIds: Id[]; kind: 'save' | 'skill' | 'ability'; key: string; dc?: number; blind?: boolean } // DM
   | { t: 'answerCheck'; requestId: Id; tokenId: Id }                  // dueño responde a una prueba pedida
@@ -384,6 +391,7 @@ export type C2S =
   | { t: 'pin'; op: 'add'; x: number; y: number; entryId: Id } | { t: 'pin'; op: 'remove'; id: Id } // DM
   | { t: 'backup'; op: 'list' | 'now' } | { t: 'backup'; op: 'restore'; name: string } // DM
   | { t: 'scenePrepare'; id: Id }                                    // DM: los clientes precargan las imágenes de esa escena antes de activarla
+  | { t: 'prepared'; id: Id }                                        // un cliente terminó de precargar esa escena (se reenvía al DM)
   | { t: 'travel'; points: Point[]; pace: TravelPace; tableId?: Id; dc?: number } // DM: viaje medido con la regla (mapa del mundo): avanza el reloj y tira encuentros (1d20 ≥ dc por jornada; tableId = tabla del diario)
   | { t: 'tokenOwners'; tokenId: Id; owners: Id[] }; // DM: quién controla (mueve/actúa) el token; // DM                                                 // miembro: pide token de voz SFU (solo si state.livekit)                       // DM: resumen narrativo de la sesión → diario
 
@@ -395,7 +403,8 @@ export type S2C =
   | { t: 'ping'; from: Id; x: number; y: number }
   | { t: 'npcSay'; name: string; text: string; portrait?: string }
   | { t: 'transition'; title: string; subtitle?: string; kind?: TransitionKind; ms?: number }
-  | { t: 'prepare'; urls: string[] }                                   // precarga de la escena que el DM va a activar (solo imágenes)
+  | { t: 'prepare'; id: Id; urls: string[] }                          // precarga de la escena que el DM va a activar (solo imágenes)
+  | { t: 'prepared'; id: Id; memberId: Id }                          // (solo DM/asistente) ese miembro ya tiene la escena precargada
   | { t: 'sfx'; name: string }
   | { t: 'rtc'; from: Id; data: unknown }
   | { t: 'clock'; now: number }                                        // reloj del servidor (ms) para sincronizar audio; se envía tras welcome
@@ -405,7 +414,7 @@ export type S2C =
   | { t: 'cursor'; from: Id; x: number; y: number }
   | { t: 'focus'; x: number; y: number }                                // el DM mueve la cámara de todos
   | { t: 'reactionPrompt'; pending: Id; tokenId: Id; actionId: Id; text: string; expires: number } // «¿Usas Escudo?»
-  | { t: 'safety'; op: 'x' }                                           // tarjeta X: todos ven la pausa (sin autor)
+  | { t: 'safety'; op: 'x' | 'resume' }                                // tarjeta X: todos ven la pausa (sin autor) · resume: el DM la levanta
   | { t: 'route'; tokenId: Id; points: Point[] }                        // ruta planificada por otro jugador
   | { t: 'turnReminder'; tokenId: Id; phase: 'start' | 'end'; effects: TurnEffect[] } // al dueño y al DM
   | { t: 'saveRequest'; pending: Id; tokenId: Id; ability: Ability; dc: number; text: string; expires: number } // al dueño: tira tu salvación
@@ -422,7 +431,7 @@ export type S2C =
   | { t: 'backups'; list: { name: string; at: number; size: number }[] };                    // respuesta a C2S livekit: URL del SFU y JWT de acceso
 
 // Versión del protocolo: sube cuando un cambio rompe clientes viejos; el cliente ofrece recargar si no coincide.
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 // Extensión de terceros: página en un iframe sandbox que habla con la mesa por postMessage (ver packages/sdk).
 export type ExtensionPermission = 'state' | 'chat' | 'roll' | 'contextMenu' | 'panel' | 'tokens';

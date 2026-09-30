@@ -41,12 +41,18 @@ export function mountStory(root: HTMLElement, mapa: HTMLElement, o: { isDm: bool
     else if (a === 'tilt') void askTilt!.call(DeviceOrientationEvent).then(r => { if (r === 'granted') (e.target as HTMLElement).remove(); }, () => {});
   };
 
-  // PNJ que habla
-  let ti = 0, tc = 0;
-  const closeNpc = () => { clearInterval(ti); clearTimeout(tc); npc.hidden = true; };
-  npc.onclick = closeNpc;
+  // PNJ que habla: el primer clic (o Espacio) completa el texto; el segundo cierra
+  let ti = 0, tc = 0, full = '', hold = false;
+  const closeNpc = () => { clearInterval(ti); clearTimeout(tc); ti = 0; npc.hidden = true; };
+  // cierre automático: da tiempo a leer (90 ms por carácter, mín. 12 s) y espera mientras el puntero o el foco están encima
+  const autoClose = () => { clearTimeout(tc); tc = window.setTimeout(() => { if (hold) autoClose(); else closeNpc(); }, Math.max(12000, full.length * 90)); };
+  const finish = () => { clearInterval(ti); ti = 0; npc.querySelector('p')!.textContent = full; autoClose(); };
+  const npcClick = () => { if (ti) finish(); else closeNpc(); };
+  npc.onclick = npcClick;
+  npc.onpointerenter = npc.onfocus = () => { hold = true; };
+  npc.onpointerleave = npc.onblur = () => { hold = false; };
   document.addEventListener('keydown', e => {
-    if (e.key === ' ' && !npc.hidden && !e.ctrlKey && !e.altKey && !e.metaKey && !typing(e.target)) { e.preventDefault(); closeNpc(); }
+    if (e.key === ' ' && !npc.hidden && !e.ctrlKey && !e.altKey && !e.metaKey && !typing(e.target)) { e.preventDefault(); npcClick(); }
     else if (e.key.toLowerCase() === 'h' && !e.ctrlKey && !e.altKey && !e.metaKey && !typing(e.target) && root.classList.contains('historia-on')) toggleUi();
   });
 
@@ -91,13 +97,13 @@ export function mountStory(root: HTMLElement, mapa: HTMLElement, o: { isDm: bool
       if (m.portrait) { const i = new Image(); i.alt = ''; i.src = m.portrait; ret.append(i); } else ret.textContent = (m.name[0] ?? '?').toUpperCase();
       npc.querySelector('strong')!.textContent = m.name;
       announce(`${m.name}: ${m.text}`);
-      if (reduced()) txt.textContent = m.text;
+      full = m.text;
+      if (reduced()) { txt.textContent = m.text; autoClose(); }
       else {
         let n = 0; const inc = Math.ceil(m.text.length / 120); txt.textContent = '';
-        ti = window.setInterval(() => { n += inc; txt.textContent = m.text.slice(0, n); if (n >= m.text.length) clearInterval(ti); }, 28);
+        ti = window.setInterval(() => { n += inc; txt.textContent = m.text.slice(0, n); if (n >= m.text.length) finish(); }, 28);
       }
       npc.hidden = false;
-      tc = window.setTimeout(closeNpc, 12000);
     },
     transition(m: { title: string; subtitle?: string; kind?: TransitionKind; ms?: number }) {
       if (m.kind) { playTransition({ ...m, kind: m.kind }); announce(m.title + (m.subtitle ? '. ' + m.subtitle : '')); return; } // cambio de escena con efecto elegido por el DM

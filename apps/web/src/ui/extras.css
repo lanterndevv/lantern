@@ -27,6 +27,7 @@
 .cp-img .dmbtns button { min-height: 32px; padding: 0 6px; font-size: .8rem; }
 .cp fieldset, .dmt fieldset { border: 1px solid var(--borde); border-radius: var(--r-card); }
 .dmt section, .cp section { display: grid; gap: 8px; margin-bottom: 14px; }
+.dmt-g { margin-bottom: 12px; } .dmt-g > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font: 600 1.05rem var(--serif); font-variant-caps: small-caps; border-bottom: 1px solid var(--filete); margin-bottom: 10px; }
 .sx { display: grid; gap: 8px; margin-top: 12px; }
 .dj-enlace { min-height: 0; padding: 0 4px; border: 0; background: transparent; color: var(--ambar-claro); text-decoration: underline; }
 .dj-enlace:disabled { color: var(--peligro); text-decoration: line-through; }
