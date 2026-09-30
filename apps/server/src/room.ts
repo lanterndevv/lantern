@@ -538,7 +538,7 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       const cb = room.combat;
       if (cb && !isDM(m)) {
         if (cb.order[cb.turn]?.tokenId !== t.id) return { error: 'no es su turno' };
-        const sp = speedFor(t, mode as MoveMode);
+        const sp = speedFor(t, mode as MoveMode, room.settings.edition);
         if (sp === null) return { error: 'no puede moverse así' };
         // coste por tramo: terreno difícil casilla a casilla, diagonales según la mesa (routeCost)
         const feet = routeCost(s, t, pts, { diagonal: room.settings.diagonal, mode: mode as MoveMode }).feet;

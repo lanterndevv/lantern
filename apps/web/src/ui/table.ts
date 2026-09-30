@@ -1,4 +1,5 @@
 import type { C2S, Action, ImportedCharacter, ActionCard, Ability, ChatMsg, ClientState, DiceTheme, Id, Member, MoveMode, Point, Role, S2C, Token } from '@lantern/protocol';
+import { speedFor } from '@lantern/protocol/move';
 import { MONSTERS } from '@lantern/srd';
 import type { Table, TableOptions } from '../render/api.ts';
 import { net } from '../net.ts';
@@ -386,7 +387,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
       `<span class="slot" role="img" aria-label="${t('Nivel {lv}: {a} de {b} espacios', { lv, a: s.max - s.used, b: s.max })}">${t('N')}${lv} ${'◆'.repeat(Math.max(0, s.max - s.used))}${'◇'.repeat(Math.min(s.used, s.max))}</span>`).join('');
     // ponytail: hoy `combat` es solo del DM; si el servidor rechaza «next» se muestra su error (toast)
     const end = c && (activeId() === tk.id || w.role === 'dm') ? `<button type="button" class="primary" data-end>${t('Fin de turno')}</button>` : '';
-    const mv = c ? Math.min(u?.moved ?? 0, 9999) : 0, sp = (tk.speed ?? 30) + (u?.dash ?? 0);
+    const mv = c ? Math.min(u?.moved ?? 0, 9999) : 0, sp = (speedFor(tk, 'walk', state.settings.edition) ?? 0) + (u?.dash ?? 0);
     const move = c ? `<div class="mov"><span>${t('Movimiento {mv}/{sp} pies', { mv, sp })}</span><span class="hpbar" role="progressbar" aria-label="${t('Movimiento')}" aria-valuemin="0" aria-valuemax="${sp}" aria-valuenow="${Math.min(mv, sp)}"><i style="width:${Math.min(100, mv / sp * 100)}%"></i></span></div>` : '';
     const ddb = tk.ddb ? `<div class="det">${t('Vinculado · nivel {n}', { n: tk.ddb.level })} <button type="button" data-sync="${esc(tk.id)}">${t('Resincronizar')}</button></div>` : '';
     el.innerHTML = `${portrait(tk)}<div class="info"><strong>${esc(tk.name)}</strong>

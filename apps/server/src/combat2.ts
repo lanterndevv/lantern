@@ -2,7 +2,7 @@
 // La lógica vive aquí; room.ts solo la engancha. (Import circular con room.ts: solo se usan funciones en tiempo de llamada.)
 import { randomUUID } from 'node:crypto';
 import type { Ability, Action, ActionCard, ChatMsg, Grid, Id, Point, Scene, Token } from '@lantern/protocol';
-import { opportunities } from '@lantern/protocol/move';
+import { opportunities, speedFor } from '@lantern/protocol/move';
 import { ABILITY_ES, abilityMod, applyDamage, encounterXP, heal, inArea } from '@lantern/rules';
 import { cover, pointInPolygon, sightSegments } from '@lantern/vision';
 import { parseCharacter } from './import.ts';
@@ -395,7 +395,7 @@ export function turnAction(c: Ctx, m: MemberRec, msg: { tokenId: unknown; op: un
     else u.action = true;
     if (op === 'dodge') u.dodge = true;
     else if (op === 'disengage') u.disengage = true;
-    else if (op === 'dash') u.dash = (u.dash ?? 0) + (t.speed ?? 30);
+    else if (op === 'dash') u.dash = (u.dash ?? 0) + (speedFor(t, 'walk', room.settings.edition) ?? 0);
   }
   if (op === 'hide') {
     const r = d20Test(c, t, 'skill', 'stealth');

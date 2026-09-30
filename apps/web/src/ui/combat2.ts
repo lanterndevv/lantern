@@ -312,7 +312,7 @@ export function moveRuler(c: C2Ctx, table: () => Promise<Table>) {
   const paint = () => {
     const s = c.state(), tk = s.scene.tokens.find(x => x.id === id);
     if (!tk || pts.length < 2) return;
-    const sp = speedFor(tk, mode), u = s.combat?.used[tk.id], cb = !!s.combat && s.combat.order[s.combat.turn]?.tokenId === tk.id;
+    const sp = speedFor(tk, mode, s.settings.edition), u = s.combat?.used[tk.id], cb = !!s.combat && s.combat.order[s.combat.turn]?.tokenId === tk.id;
     const { feet, legs } = routeCost(s.scene, tk, pts, { diagonal: s.settings.diagonal, mode });
     const left = sp == null ? undefined : sp + (u?.dash ?? 0) - (u?.moved ?? 0); // pies que quedaban antes de este arrastre
     const foes = s.scene.tokens.filter(f => !f.hidden && f.id !== tk.id && !s.combat?.used[f.id]?.reaction);
