@@ -499,3 +499,23 @@ test('Multiataque: encadena los ataques con los mismos objetivos y gasta la acci
   assert.equal(room.combat!.used['trasgo-a'].action, true);
   assert.equal(H(dm, { t: 'act', tokenId: 'trasgo-a', actionId: 'multiattack', targets: ['kael'] }).error, 'ya usada');
 });
+
+test('Ayudar: ventaja en el siguiente ataque de un aliado contra ese enemigo', () => {
+  const { room, dm, player, H } = setup();
+  const ys = tok(room, 'ysolde'); ys.y = 450; // contigua al trasgo
+  tok(room, 'trasgo-a').hp = { cur: 200, max: 200, temp: 0 };
+  combat(room, ['kael', 'ysolde', 'trasgo-a']);
+  const mode = () => { room.combat!.used.ysolde = { action: false, bonus: false, reaction: false, moved: 0 }; return H(dm, { t: 'act', tokenId: 'ysolde', actionId: 'espada-larga', targets: ['trasgo-a'] }).chat!.card!.targets[0].attack!.mode; };
+  assert.equal(mode(), 'normal');
+  assert.match(H(player, { t: 'turnAction', tokenId: 'kael', op: 'help', target: 'ysolde' }).error!, /fuera de alcance/);
+  assert.equal(H(player, { t: 'turnAction', tokenId: 'kael', op: 'help', target: 'trasgo-a' }).state, true);
+  assert.equal(room.combat!.used.kael.action, true);
+  assert.equal(mode(), 'adv');
+  assert.equal(mode(), 'normal'); // se gasta con el primer ataque
+  // caduca al empezar el turno del que ayuda
+  combat(room, ['trasgo-a', 'kael']);
+  assert.equal(H(dm, { t: 'turnAction', tokenId: 'kael', op: 'help', target: 'trasgo-a' }).state, true);
+  assert.equal(room.combat!.used.kael.helped, 'trasgo-a');
+  H(dm, { t: 'combat', op: 'next' });
+  assert.equal(room.combat!.used.kael.helped, undefined);
+});

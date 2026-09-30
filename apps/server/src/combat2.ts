@@ -381,12 +381,21 @@ function reorder(c: Ctx, msg: { op: string; tokenId: unknown; to?: unknown }, t:
 }
 
 // ---- acciones del radial, presupuesto ----
-export function turnAction(c: Ctx, m: MemberRec, msg: { tokenId: unknown; op: unknown }): Effect {
+export function turnAction(c: Ctx, m: MemberRec, msg: { tokenId: unknown; op: unknown; target?: unknown }): Effect {
   const { room } = c, t = str(msg.tokenId, 64) ? room.scene.tokens.find((x) => x.id === msg.tokenId) : undefined;
   if (!t) return { error: 'token inexistente' };
   if (!dmOf(m) && !t.owners.includes(m.id)) return { error: 'no permitido' };
   const cb = room.combat, op = msg.op;
-  if (op !== 'dodge' && op !== 'dash' && op !== 'disengage' && op !== 'hide' && op !== 'useObject') return { error: 'mensaje inválido' };
+  if (op !== 'dodge' && op !== 'dash' && op !== 'disengage' && op !== 'hide' && op !== 'useObject' && op !== 'help') return { error: 'mensaje inválido' };
+  // Ayudar (ataque): enemigo contiguo al que ayuda; el efecto vive en combat.used, así que sin combate no hay nada que ayudar
+  // ponytail: Ayudar en una prueba de característica sigue siendo manual (lo aplica el DM)
+  const tg = op === 'help' ? (str(msg.target, 64) ? room.scene.tokens.find((x) => x.id === msg.target && (dmOf(m) || !x.hidden)) : undefined) : undefined;
+  if (op === 'help') {
+    if (!cb) return { error: 'sin combate' };
+    if (!tg || tg.id === t.id) return { error: 'objetivo inválido' };
+    const g = room.scene.grid.size;
+    if (Math.max(Math.abs(tg.x - t.x), Math.abs(tg.y - t.y)) > (tg.size + t.size) / 2 * g + 2) return { error: 'fuera de alcance' };
+  }
   const u = cb && (cb.used[t.id] ??= fresh());
   if (cb && !dmOf(m) && cb.order[cb.turn]?.tokenId !== t.id) return { error: 'no es su turno' };
   if (u) { // useObject: la primera interacción es gratuita; la segunda gasta la acción
@@ -395,13 +404,14 @@ export function turnAction(c: Ctx, m: MemberRec, msg: { tokenId: unknown; op: un
     else u.action = true;
     if (op === 'dodge') u.dodge = true;
     else if (op === 'disengage') u.disengage = true;
+    else if (op === 'help') u.helped = tg!.id;
     else if (op === 'dash') u.dash = (u.dash ?? 0) + (speedFor(t, 'walk', room.settings.edition) ?? 0);
   }
   if (op === 'hide') {
     const r = d20Test(c, t, 'skill', 'stealth');
     return { state: true, chats: [pushChat(room, { id: randomUUID(), from: c.from, at: c.now, roll: { expr: `Sigilo de ${t.name} (Esconderse)`, total: r.total, detail: r.detail, secret: true, ...(r.dice && { dice: r.dice }) } })] };
   }
-  const say2 = { dodge: 'se pone a la defensiva (Esquivar)', dash: 'corre (Correr)', disengage: 'se destraba (Destrabarse)', useObject: 'usa un objeto' }[op];
+  const say2 = { dodge: 'se pone a la defensiva (Esquivar)', dash: 'corre (Correr)', disengage: 'se destraba (Destrabarse)', useObject: 'usa un objeto', help: `ayuda contra ${tg?.name} (Ayudar)` }[op];
   return { state: true, chats: [say(c, `${t.name} ${say2}`)] };
 }
 export function budget(m: MemberRec, room: Room, msg: { tokenId: unknown; slot: unknown; used: unknown }): Effect {

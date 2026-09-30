@@ -126,7 +126,7 @@ export type Combat = {
   round: number;
   turn: number;                                 // índice en order
   order: { tokenId: Id; init: number }[];       // ya ordenado de mayor a menor
-  used: Record<Id, { action: boolean; bonus: boolean; reaction: boolean; moved: number; object?: boolean; dash?: number; dodge?: boolean; disengage?: boolean }>; // moved en pies · dash: velocidad extra por Correr
+  used: Record<Id, { action: boolean; bonus: boolean; reaction: boolean; moved: number; object?: boolean; dash?: number; dodge?: boolean; disengage?: boolean; helped?: Id }>; // moved en pies · dash: velocidad extra por Correr · helped: enemigo contra el que ayuda (Ayudar)
   awaiting?: Id[];                              // iniciativa pedida a los jugadores: aún sin tirar (el combate no avanza)
 };
 
@@ -303,7 +303,7 @@ export type C2S =
   | { t: 'rollInit'; tokenId: Id }                                   // dueño: tira su iniciativa cuando la mesa lo pide
   | { t: 'answerSave'; pending: Id; tokenId: Id }                    // dueño: tira la salvación de una tarjeta que la espera
   | { t: 'route'; tokenId: Id; points: Point[] }                     // ruta planificada mientras se arrastra (fantasma para los demás)
-  | { t: 'turnAction'; tokenId: Id; op: 'dodge' | 'dash' | 'disengage' | 'hide' | 'useObject' }
+  | { t: 'turnAction'; tokenId: Id; op: 'dodge' | 'dash' | 'disengage' | 'hide' | 'useObject' | 'help'; target?: Id } // help: target = enemigo contiguo; el siguiente ataque de un aliado contra él va con ventaja
   | { t: 'budget'; tokenId: Id; slot: 'action' | 'bonus' | 'reaction' | 'object'; used: boolean } // corrección manual del presupuesto
   | { t: 'effect'; op: 'add'; tokenId: Id; effect: Omit<TurnEffect, 'id'> } | { t: 'effect'; op: 'apply' | 'dismiss'; tokenId: Id; effectId: Id } // add: DM
   | { t: 'legendary'; tokenId: Id; op: 'use' | 'reset' }             // DM

@@ -775,8 +775,13 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       const rt = targets.map((t) => ({ ...t, ac: manual ? -999 : acOf(t),
         ...((dexSave || (manual && sv)) && { saves: { ...t.saves, ...(dexSave && { dex: (t.saves?.dex ?? 0) + cov.get(t.id)! }), ...(manual && sv && { [sv]: (t.saves?.[sv] ?? 0) + (dexSave && sv === 'dex' ? cov.get(t.id)! : 0) - 999 }) } }) }));
       const opt = room.settings.optional;
+      // Ayudar: un aliado del atacante (misma facción) ayudó contra este objetivo → ventaja en el primer ataque
+      const helpers = cb && act.kind === 'attack' ? Object.entries(cb.used).filter(([h, u]) => u?.helped && h !== tk.id && s.tokens.find((x) => x.id === h)?.faction === tk.faction) : [];
+      const helped = new Set(helpers.map(([, u]) => u.helped));
+      const flankOn = opt.flanking && act.range <= 5;
       const card = resolveAction(tk, act2, rt, undefined, { within5ft: (t) => dist(t) <= 5 + 5 * (tk.size - 1), cover: (t) => cov.get(t.id) ?? 0,
-        edition: room.settings.edition, brutalCrit: opt.brutalCrit, dodge: (t) => !!cb?.used[t.id]?.dodge, flank: opt.flanking && act.range <= 5 ? (t) => flanked(s, tk, t) : undefined });
+        edition: room.settings.edition, brutalCrit: opt.brutalCrit, dodge: (t) => !!cb?.used[t.id]?.dodge, flank: (t) => (flankOn && flanked(s, tk, t)) || helped.has(t.id) });
+      for (const [, u] of helpers) if (targets.some((t) => t.id === u.helped)) delete u.helped; // se gasta con el primer ataque
       if (act.kind === 'attack' || dexSave) for (const ct of card.targets) { const c = cov.get(ct.id); if (c) ct.cover = c; }
       if (manual) { card.manual = true; for (const ct of card.targets) if (ct.save) ct.save.total += 999; }
       const brk: ChatMsg[] = [];

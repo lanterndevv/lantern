@@ -286,6 +286,8 @@ export function combat2RadialItems(tk: Token, c: C2Ctx): RadialItem[] {
     out.push(
       { id: 'mount', label: t('Montar en…'), icon: 'help', run: pick(t('Montar'), o => ({ t: 'carry', tokenId: tk.id, by: o.id })) },
       { id: 'grab', label: t('Agarrar a…'), icon: 'help', run: pick(t('Agarrar'), o => ({ t: 'carry', tokenId: o.id, by: tk.id })) },
+      // Ayudar (acción): el siguiente ataque de un aliado contra ese enemigo va con ventaja (lo aplica el servidor)
+      { id: 'help', label: t('Ayudar contra…'), icon: 'help', disabled: !s.combat, run: pick(t('Ayudar'), o => ({ t: 'turnAction', tokenId: tk.id, op: 'help', target: o.id })) },
     );
     const carried = tk.carriedBy != null, carrying = s.scene.tokens.filter(o => o.carriedBy === tk.id);
     if (carried || carrying.length) out.push({ id: 'drop', label: t('Soltar'), icon: 'disengage', run: () => {

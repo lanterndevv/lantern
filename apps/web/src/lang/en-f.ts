@@ -816,4 +816,5 @@ export default {
   "sin espacios de ese nivel": "no slots of that level",
   "{name}: elige nivel y objetivo": "{name}: choose level and target",
   "Lanzar a nivel {lv}": "Cast at level {lv}",
+  "Ayudar contra…": "Help against…",
 } as Record<string, string>;
