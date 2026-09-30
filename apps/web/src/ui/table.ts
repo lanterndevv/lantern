@@ -184,7 +184,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   const tok = (id?: Id) => state.scene.tokens.find(t => t.id === id);
   const mine = () => state.scene.tokens.filter(t => t.owners.includes(w.memberId));
   const activeId = () => state.combat?.order[state.combat.turn]?.tokenId;
-  const hudTok = () => { const m = mine(); return m.find(t => t.id === selected) ?? m[0] ?? (w.role === 'dm' ? tok(selected) ?? tok(activeId()) : undefined); };
+  const hudTok = () => { const m = mine(); return m.find(t => t.id === selected) ?? m.find(t => t.id === activeId()) ?? m[0] ?? (w.role === 'dm' ? tok(selected) ?? tok(activeId()) : undefined); };
   const layerOn = (k: keyof ClientState['settings']['layers']) => state.settings.mode === 'full' && state.settings.layers[k];
   const canConfirm = w.role === 'dm' || w.role === 'assistant';
   const areaR = (a: Action) => a.area!.size / state.scene.grid.feet * state.scene.grid.size;
@@ -213,13 +213,14 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     onDrag: (id, pts) => ruler?.drag(id, pts),
     onTokenClick: (id, shift) => {
       if (pickToken(id)) return;
-      const t = tok(id); if (!t) return;
-      if (armed?.a.area) return atArea(t.x, t.y);
+      const tk = tok(id); if (!tk) return;
+      if (armed?.a.area) return atArea(tk.x, tk.y);
       if (armed) {
         if (shift) { targets = [...new Set([...targets, id])]; marks(); return; }
         return fire(armed.tok, armed.a.id, [...new Set([...targets, id])]);
       }
       selected = id; targets = shift ? [...new Set([...targets, id])] : [id]; sheet.render();
+      if (hudTok()?.id !== id) say(t('Objetivo: {name}', { name: tk.name }));
       renderHud(); marks(); renderBar();
     },
     onMapClick: (x, y) => {
@@ -337,6 +338,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     if (key === turnKey) return;
     turnKey = key;
     const tk = tok(id);
+    if (tk && (w.role === 'dm' || tk.owners.includes(w.memberId))) { selected = tk.id; targets = []; if (armed) cancel(); } // el HUD sigue al token del turno
     if (!tk || !tk.owners.includes(w.memberId)) return;
     sfx('bell');
     if (camOn()) void table.then(tb => tb.focus(tk.x, tk.y));
@@ -351,7 +353,8 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     if (!tk || !a) return;
     if (armed?.a.id === a.id) return cancel();
     spawn = undefined; renderMonsters();
-    if (!a.area && targets.length) return fire(tk.id, a.id, targets);
+    const tg = targets.filter(id => id !== tk.id); // el actor no se apunta a sí mismo sin querer; para curarse: armar y pulsar su token
+    if (!a.area && tg.length) return fire(tk.id, a.id, tg);
     armed = { tok: tk.id, a };
     tpl = a.area ? templateTargeting(a, { caster: tk.id, state: () => state, table: { setMarks: m => void table.then(x => x.setMarks(m)) }, baseMarks, fire }) : undefined;
     renderHud(); marks();

@@ -810,4 +810,5 @@ export default {
   "Dragón blanco joven": "Young White Dragon",
   "Dragón blanco adulto": "Adult White Dragon",
   "Dragón blanco ancestral": "Ancient White Dragon",
+  "Objetivo: {name}": "Target: {name}",
 } as Record<string, string>;
