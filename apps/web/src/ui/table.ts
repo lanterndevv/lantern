@@ -251,7 +251,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   const tableEd = { setTool: (t: Parameters<Awaited<typeof table>['setTool']>[0]) => void table.then(x => x.setTool(t)), onEdit: (cb: Parameters<Awaited<typeof table>['onEdit']>[0]) => void table.then(x => x.onEdit(cb)) };
   const staffEd = w.role === 'dm' || w.role === 'assistant';
   const ed = staffEd ? mountEditor($('ed-bar'), $('ed-insp'), { send: m => net.send(m), state: () => state, table: tableEd, role: w.role, memberId: w.memberId, toast: m => say(m, 3500) }) : undefined;
-  $('ed-bar').hidden = !staffEd;
+  $('ed-bar').hidden = $('ed-insp').hidden = !staffEd;
   const jr = mountJournal($('p-dia'), { send: m => net.send(m), state: () => state, role: w.role, memberId: w.memberId, toast: m => say(m, 3500) });
   const lib = staffEd ? mountLibrary($('p-biblioteca'), ctx) : undefined;
   const enc = staffEd ? mountEncounter($('p-encuentros'), ctx) : undefined;

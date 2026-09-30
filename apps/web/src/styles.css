@@ -474,7 +474,7 @@ kbd { font: .8rem var(--mono); color: var(--txt2); }
 .mesa > .lv button { min-height: 36px; padding: 0 10px; }
 .mesa > .lv button[aria-pressed=true] { background: var(--oro-fondo); color: var(--sobre-ambar); border-color: var(--oro-borde); }
 .mesa > .lv .chk { min-height: 36px; }
-.mesa > .ed-bar { top: 148px; }
+.mesa > :is(.ed-bar, .ed-insp) { top: 148px; } /* bajo la barra de plantas (.lv) */
 /* copiloto */
 .cop-out { min-height: 0; margin: 8px 0; } .cop-out:empty { display: none; }
 .cop-txt { white-space: pre-wrap; margin: 0 0 4px; }
