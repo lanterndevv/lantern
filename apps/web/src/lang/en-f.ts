@@ -868,4 +868,6 @@ export default {
   "Botón X: pide parar la escena sin tener que explicar nada": "X button: ask to stop the scene without having to explain anything",
   "Repetir la guía": "Replay the guide",
   "Ayuda": "Help",
+  "Durante la sesión": "During the session",
+  "Administrar campaña": "Manage campaign",
 } as Record<string, string>;

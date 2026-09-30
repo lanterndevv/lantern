@@ -8,7 +8,7 @@ export type DmCtx = { send(m: C2S): void; state(): ClientState; code: string; ke
 
 export function mountDmTools(el: HTMLElement, cx: DmCtx) {
   el.classList.add('dmt');
-  el.innerHTML = `
+  el.innerHTML = `<details class="dmt-g" open><summary>${t('Durante la sesión')}</summary>
     <section aria-labelledby="dt-as"><h3 id="dt-as">${t('Ver como jugador')}</h3><p class="det">${t('Muestra lo que ve ese jugador (visión, niebla, ocultos). Mientras tanto no recibes los cambios propios de tu vista.')}</p>
       <div class="fila"><label>${t('Jugador')}<select data-as></select></label><button type="button" data-a="as">${t('Ver')}</button><button type="button" data-a="asoff" class="secondary">${t('Volver a mi vista')}</button></div></section>
     <section aria-labelledby="dt-rest"><h3 id="dt-rest">${t('Descanso del grupo')}</h3>
@@ -19,11 +19,12 @@ export function mountDmTools(el: HTMLElement, cx: DmCtx) {
         <button class="primary" type="submit">${t('Publicar reparto en el registro')}</button></form></section>
     <section aria-labelledby="dt-pdf"><h3 id="dt-pdf">${t('Documentos PDF')}</h3><p class="det">${t('Se guardan como entrada del diario con visor; muéstralos desde el Diario. Zoom sincronizado opcional.')}</p>
       <label>${t('Subir PDF')}<input type="file" accept="application/pdf" data-pdf></label><p class="det" role="status" data-pst></p></section>
-    <section aria-labelledby="dt-pin"><h3 id="dt-pin">${t('Marcadores en el mapa')}</h3><p class="det">${t('Desde una entrada del Diario: «Fijar en el mapa». Los jugadores solo ven los de entradas que pueden leer.')}</p><ul class="cp-lista" data-pins></ul></section>
+    <section aria-labelledby="dt-pin"><h3 id="dt-pin">${t('Marcadores en el mapa')}</h3><p class="det">${t('Desde una entrada del Diario: «Fijar en el mapa». Los jugadores solo ven los de entradas que pueden leer.')}</p><ul class="cp-lista" data-pins></ul></section></details>
+    <details class="dmt-g"><summary>${t('Administrar campaña')}</summary>
     <section aria-labelledby="dt-bk"><h3 id="dt-bk">${t('Copias de seguridad')}</h3><p class="det">${t('Automáticas cada pocos minutos y al cerrar la sesión (últimas 10, junto a la base de datos).')}</p>
       <div class="dmbtns"><button type="button" data-a="bk-now">${t('Copiar ahora')}</button><button type="button" data-a="bk-list">${t('Actualizar lista')}</button></div><ul class="cp-lista" data-bk></ul></section>
     <section aria-labelledby="dt-mg"><h3 id="dt-mg">${t('Importar con fusión')}</h3><p class="det">${t('Elige un archivo de campaña (.json exportado) y qué traer a esta mesa.')}</p>
-      <input type="file" accept="application/json,.json" data-mg><div data-mgsel></div></section>`;
+      <input type="file" accept="application/json,.json" data-mg><div data-mgsel></div></section></details>`;
   const q = <T extends HTMLElement>(s: string) => el.querySelector<T>(s)!;
   const hdr = () => ({ 'x-lantern-code': cx.code, 'x-lantern-key': cx.key() ?? '' });
 
