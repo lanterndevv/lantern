@@ -8,7 +8,7 @@
 ## Configuración
 - Carpeta de datos (`os.UserConfigDir()/Lantern`, en Linux `~/.config/lantern`) con `lantern.env` (formato `CLAVE=valor`, una por línea, `#` comentarios, permisos 600).
 - El servidor lee `LANTERN_CONFIG=<ruta a lantern.env>` o, si no existe, `lantern.env` en el directorio de trabajo; las variables de entorno reales tienen prioridad.
-- Claves: `PORT`, `HOST`, `LANTERN_DB`, `LANTERN_ASSETS`, `LANTERN_BACKUP_DIR`, `LANTERN_ORIGIN` (URL pública, p.ej. https://xxx.trycloudflare.com),
+- Claves: `PORT`, `HOST`, `TRUST_PROXY` (`1` salvo en modo LAN: X-Forwarded-For solo cuenta en conexiones desde loopback), `LANTERN_DB`, `LANTERN_ASSETS`, `LANTERN_BACKUP_DIR`, `LANTERN_ORIGIN` (URL pública, p.ej. https://xxx.trycloudflare.com),
   `LANTERN_ADMIN_TOKEN`, `LANTERN_LLM_FORMAT` (openai|anthropic|gemini), `LANTERN_LLM_URL`, `LANTERN_LLM_KEY`, `LANTERN_LLM_MODEL`, `LANTERN_LLM_HEADERS` (JSON),
   `LANTERN_LLM2_*` (reserva, mismas claves), `LANTERN_LAYA`, `LANTERN_LAYA_PYTHON`, `LANTERN_LAYA_DEVICE`, `LANTERN_LIVEKIT_URL/KEY/SECRET`.
 

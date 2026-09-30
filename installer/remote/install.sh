@@ -67,7 +67,7 @@ ENV=/etc/lantern/lantern.env
 [ -f "$ENV" ] || ( umask 077; : > "$ENV" )
 setenv() { ( umask 077; { grep -v "^$1=" "$ENV" || true; } > "$ENV.tmp"; printf '%s=%s\n' "$1" "$2" >> "$ENV.tmp"; mv "$ENV.tmp" "$ENV" ); }
 grep -q '^LANTERN_ADMIN_TOKEN=' "$ENV" || setenv LANTERN_ADMIN_TOKEN "$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-setenv PORT "$PORT"; setenv HOST 127.0.0.1
+setenv PORT "$PORT"; setenv HOST 127.0.0.1; setenv TRUST_PROXY 1   # detrás de Caddy: IP real para los límites (solo desde loopback)
 setenv LANTERN_DB /var/lib/lantern/lantern.db; setenv LANTERN_ASSETS /var/lib/lantern/assets
 setenv LANTERN_BACKUP_DIR /var/lib/lantern/backups
 [ -z "$DOMAIN" ] || setenv LANTERN_ORIGIN "https://$DOMAIN"
