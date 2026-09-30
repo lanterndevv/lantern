@@ -16,6 +16,14 @@ export type UiCtx = {
 const esc = (s: string) => s.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 const NOFOLDER = t('Sin carpeta');
 
+/** Cambiar de escena termina el combate en el servidor (y descarta tiradas pendientes): se pide confirmación si hay uno. */
+const leaveOk = (c: { state(): ClientState }) => !c.state().combat || confirm(t('Hay un combate en curso. Cambiar de escena lo termina y descarta las tiradas pendientes. ¿Continuar?'));
+export function activateScene(c: { send(m: C2S): void; state(): ClientState }, id: string, transition?: Extract<C2S, { t: 'sceneActivate' }>['transition']): boolean {
+  if (!leaveOk(c)) return false;
+  c.send({ t: 'sceneActivate', id, ...(transition && { transition }) });
+  return true;
+}
+
 export function mountLibrary(el: HTMLElement, ctx: UiCtx) {
   const staff = ctx.role === 'dm' || ctx.role === 'assistant';
   if (!staff) { el.textContent = t('Solo el DM y los asistentes ven la biblioteca.'); return { update() {} }; }
@@ -84,7 +92,7 @@ export function mountLibrary(el: HTMLElement, ctx: UiCtx) {
     const it = items.find(i => i.id === b?.closest('li')?.getAttribute('data-id'));
     if (!b || !it) return;
     const a = b.dataset.a;
-    if (a === 'act') { const transition = tx.get(); ctx.send({ t: 'sceneActivate', id: it.id, ...(transition && { transition }) }); }
+    if (a === 'act') activateScene(ctx, it.id, tx.get());
     else if (a === 'prep') { ctx.send({ t: 'scenePrepare', id: it.id }); ctx.toast(t('Precargando la escena en todos los clientes')); }
     else if (a === 'dup') ctx.send({ t: 'sceneNew', name: t('{n} (copia)', { n: it.name }), from: it.id });
     else if (a === 'ren') { const n = prompt(t('Nuevo nombre'), it.name)?.trim(); if (n) ctx.send({ t: 'sceneUpdate', id: it.id, name: n }); }
@@ -94,7 +102,9 @@ export function mountLibrary(el: HTMLElement, ctx: UiCtx) {
   });
   q('bib-nueva').addEventListener('click', () => {
     const n = prompt(t('Nombre de la escena'), t('Escena nueva'))?.trim();
-    if (n) ctx.send({ t: 'sceneNew', name: n });
+    if (!n) return;
+    whenNew(it => { if (confirm(t('Escena creada: «{n}». ¿Abrirla ahora?', { n: it.name }))) activateScene(ctx, it.id); });
+    ctx.send({ t: 'sceneNew', name: n });
   });
 
   // Reinicia el input para poder elegir el mismo archivo otra vez y cierra el menú.
@@ -107,10 +117,11 @@ export function mountLibrary(el: HTMLElement, ctx: UiCtx) {
   pick('bib-uvtt', async f => {
     await api('/api/uvtt', { method: 'POST', headers: hdr({ 'content-type': 'application/json' }), body: await f.text() });
     ctx.toast(t('Escena importada'));
-    whenNew(it => { if (confirm(t('Escena importada: «{n}». ¿Activarla ahora?', { n: it.name }))) ctx.send({ t: 'sceneActivate', id: it.id }); });
+    whenNew(it => { if (confirm(t('Escena importada: «{n}». ¿Activarla ahora?', { n: it.name }))) activateScene(ctx, it.id); });
   });
 
   pick('bib-img', async f => {
+    if (!leaveOk(ctx)) return; // la escena importada se activa sola
     const type = f.type || 'application/octet-stream';
     const r = await api('/api/assets', { method: 'POST', headers: hdr({ 'content-type': type }), body: f });
     const txt = await r.text();

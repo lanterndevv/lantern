@@ -3,6 +3,7 @@ import { MONSTERS } from '@lantern/srd';
 import { SKILLS } from '@lantern/rules';
 import './mobile.css';
 import { t, lang } from '../i18n.ts';
+import { activateScene } from './library.ts';
 
 /** Nombre de monstruo para mostrar: en inglés, el id SRD en Title Case (los nombres del paquete están en español). */
 export const monName = (id: string, es: string) => lang === 'en' ? id.replace(/(^|-)(\w)/g, (_, s, c) => (s && ' ') + c.toUpperCase()) : es;
@@ -102,7 +103,7 @@ export function defaultCommands(x: PaletteCtx, q = ''): Cmd[] {
   if (dm) {
     const at = x.center();
     for (const [id, m] of Object.entries(MONSTERS)) add('Monstruos', t('Añadir {name}', { name: monName(id, m.name) }), () => x.send({ t: 'spawn', srd: id, x: at.x, y: at.y }), `${t('VD')} ${m.cr}`);
-    for (const l of s.library ?? []) if (!l.active) add('Escenas', t('Ir a escena {name}', { name: l.name }), () => x.send({ t: 'sceneActivate', id: l.id }), l.folder);
+    for (const l of s.library ?? []) if (!l.active) add('Escenas', t('Ir a escena {name}', { name: l.name }), () => activateScene(x, l.id), l.folder);
     for (const [k, n] of CLIMA) add('Clima', t('Clima: {n}', { n }), () => x.send({ t: 'scene', patch: { weather: { kind: k, intensity: .6, wind: 0 } } }));
     add('Vista', t('Modo Historia'), () => x.send({ t: 'view', value: 'story' }));
     add('Vista', t('Modo Táctico'), () => x.send({ t: 'view', value: 'tactical' }));
