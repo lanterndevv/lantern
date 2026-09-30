@@ -855,4 +855,7 @@ export default {
   "Ataque extra": "Extra Attack",
   "curación": "healing",
   "Creador rápido": "Quick builder",
+  "«{n}» solo la ves tú. ¿Hacerla visible para todos y mostrarla?": "Only you can see “{n}”. Make it visible to everyone and show it?",
+  "Mostrado a: {names}": "Shown to: {names}",
+  "Mostrado a todos los jugadores": "Shown to all players",
 } as Record<string, string>;
