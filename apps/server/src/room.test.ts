@@ -713,3 +713,31 @@ test('precarga: el acuse de un jugador solo llega al DM', () => {
   assert.equal(fx.sends![0].who(dm), true);
   assert.equal(fx.sends![0].who(player), false);
 });
+
+test('cast: conjuro del spellbook gasta el menor espacio libre, lleva concentración y falla sin espacios', () => {
+  const { room, player, dm } = setup();
+  const k = tok(room, 'kael');
+  k.slots = { 1: { max: 1, used: 0 }, 2: { max: 1, used: 0 } };
+  k.spellbook = [{ name: 'Mage Armor', level: 1, id: 'mage-armor' }, { name: 'Hex Homebrew', level: 1, conc: true }, { name: 'Light', level: 0 }];
+  assert.equal(handle(room, dm, { t: 'cast', tokenId: 'kael', name: 'Mage Armor' }, fakeRoll).error, undefined); // el DM también puede
+  assert.equal(handle(room, player, { t: 'cast', tokenId: 'kael', name: 'Hex Homebrew' }, fakeRoll).error, undefined);
+  assert.deepEqual([k.slots[1].used, k.slots[2].used], [1, 1]);
+  assert.equal(k.concentration, 'Hex Homebrew');
+  assert.equal(handle(room, player, { t: 'cast', tokenId: 'kael', name: 'Mage Armor' }, fakeRoll).error, 'sin espacios de conjuro');
+  assert.equal(handle(room, player, { t: 'cast', tokenId: 'kael', name: 'Light' }, fakeRoll).error, undefined); // truco: sin espacio
+  assert.equal(handle(room, player, { t: 'cast', tokenId: 'kael', name: 'Nope' }, fakeRoll).error, 'conjuro inexistente');
+  assert.equal(handle(room, player, { t: 'cast', tokenId: 'trasgo-a', name: 'Light' }, fakeRoll).error !== undefined, true);
+});
+
+test('roll con etiqueta; spellbook se valida al importar', () => {
+  const { room, player } = setup();
+  const fx = handle(room, player, { t: 'roll', expr: '1d20+6', label: 'Espada larga · ataque' }, fakeRoll);
+  assert.equal(fx.chat?.roll?.label, 'Espada larga · ataque');
+  assert.ok(handle(room, player, { t: 'roll', expr: 'd20', label: 'x'.repeat(81) }, fakeRoll).error);
+  const base = { name: 'Kael', ddbId: 0, level: 3, classes: 'Mago 3', darkvision: 0 };
+  assert.equal(handle(room, player, { t: 'importCharacter', tokenId: 'kael', data: { ...base, spellbook: [{ name: 'Mage Armor', level: 1, id: 'mage-armor' }] } }, fakeRoll).error, undefined);
+  assert.deepEqual(tok(room, 'kael').spellbook, [{ name: 'Mage Armor', level: 1, id: 'mage-armor' }]);
+  assert.ok(handle(room, player, { t: 'importCharacter', tokenId: 'kael', data: { ...base, spellbook: [{ name: 'X', level: 12 }] } }, fakeRoll).error);
+  assert.equal(handle(room, player, { t: 'importCharacter', tokenId: 'kael', data: base }, fakeRoll).error, undefined);
+  assert.equal(tok(room, 'kael').spellbook, undefined); // resincronizar sin conjuros los quita
+});

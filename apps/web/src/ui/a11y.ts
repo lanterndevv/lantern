@@ -130,7 +130,7 @@ const estado = (k: { hp?: { cur: number; max: number } }) => {
 const fac = { ally: t('aliado'), enemy: t('enemigo'), neutral: t('neutral') } as const;
 
 function cardText(m: ChatMsg): string {
-  if (m.roll) return m.roll.secret ? '' : t('Tirada {expr}: {total}', { expr: m.roll.expr, total: m.roll.total });
+  if (m.roll) return m.roll.secret ? '' : t('Tirada {expr}: {total}', { expr: m.roll.label ? `${m.roll.label} (${m.roll.expr})` : m.roll.expr, total: m.roll.total });
   const c = m.card;
   if (!c) return '';
   const tg = c.targets.map(x => {

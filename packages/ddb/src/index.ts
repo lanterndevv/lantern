@@ -1,7 +1,7 @@
 // Traduce el JSON de character-service de D&D Beyond (v5, el objeto `data`) a ImportedCharacter.
 // Solo estadísticas de juego: nada de texto de reglas ni descripciones.
-import type { Ability, Action, ImportedCharacter } from '@lantern/protocol';
-import { SPELLS } from '@lantern/srd';
+import type { Ability, Action, ImportedCharacter, SpellbookEntry } from '@lantern/protocol';
+import { SPELLS, SPELL_INDEX } from '@lantern/srd';
 
 type J = Record<string, any>;
 const ABIL: Ability[] = ['str', 'dex', 'con', 'int', 'wis', 'cha'];       // statId 1..6
@@ -152,11 +152,20 @@ export function mapCharacter(json: unknown): ImportedCharacter {
     }),
     ...['race', 'class', 'item', 'feat', 'background'].flatMap(k => (c.spells?.[k] ?? []).map((s: J) => ({ s, abil: s.spellCastingAbilityId, known: false }))),
   ];
+  // El resto (utilidad o fuera del SRD) va al spellbook: solo nombre, nivel y concentración; la descripción de DDB nunca se guarda.
+  const spellbook: SpellbookEntry[] = [];
   for (const { s, abil, known } of all) {
     const d = s.definition;
-    const base = d && SPELLS[slug(d.name)];
+    if (!d?.name || !(d.level === 0 || known || s.prepared || s.alwaysPrepared)) continue;
+    const base = SPELLS[slug(d.name)];
     const a0 = abil || mainAbil;
-    if (!base || !a0 || !(d.level === 0 || known || s.prepared || s.alwaysPrepared) || actions.some(a => a.id === base.id)) continue;
+    if (!base || !a0) {
+      const id = slug(d.name), name = String(d.name).slice(0, 64);
+      if (!spellbook.some(e => e.name === name) && spellbook.length < 100)
+        spellbook.push({ name, level: Math.min(9, Math.max(0, d.level | 0)), ...(d.concentration && { conc: true }), ...(SPELL_INDEX[id] && { id }) });
+      continue;
+    }
+    if (actions.some(a => a.id === base.id)) continue;
     const cm = md[a0 - 1];
     const a: Action = { ...base };
     if (a.toHit != null) a.toHit = prof + cm;
@@ -192,7 +201,7 @@ export function mapCharacter(json: unknown): ImportedCharacter {
     hp: { max: hp, cur: Math.max(0, hp - (c.removedHitPoints ?? 0)), temp: c.temporaryHitPoints ?? 0 },
     ac, speed, initMod: dex + sum('bonus', 'initiative'), saves, darkvision: feet * 12, defenses,
     abilities: Object.fromEntries(ABIL.map((a, i) => [a, score[i]])) as Record<Ability, number>, skills, prof,
-    actions, slots: Object.keys(slots).length ? slots : undefined,
+    actions, slots: Object.keys(slots).length ? slots : undefined, ...(spellbook.length && { spellbook }),
   };
 }
 

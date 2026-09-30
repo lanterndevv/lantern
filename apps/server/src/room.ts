@@ -323,6 +323,11 @@ function flanked(s: Scene, at: Token, t: Token) {
 
 // ---- mutaciones ----
 const DENY: Effect = { error: 'no permitido' };
+// Nivel de espacio a gastar: el elegido (≥ min y con alguno libre) o el menor libre ≥ min. 0 = ninguno.
+const pickSlot = (tk: Token, min: number, chosen?: number) => {
+  const free = (l: number) => l >= min && !!tk.slots?.[l] && tk.slots[l].used < tk.slots[l].max;
+  return chosen !== undefined ? (free(chosen) ? chosen : 0) : Object.keys(tk.slots ?? {}).map(Number).sort((a, b) => a - b).find(free) ?? 0;
+};
 const isDM = (m: MemberRec) => m.role === 'dm' || m.role === 'assistant';
 
 const OFF_SCENE = ['chat', 'roll', 'rtc', 'diceTheme', 'safety', 'clock', 'clockReq', 'livekit', 'rollTable', 'join']; // lo único que puede hacer quien no ve la escena activa
@@ -497,6 +502,22 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       if (m2.spell !== null) t.concentration = m2.spell as string;
       return { state: true, chats };
     }
+    case 'cast': { // conjuro del spellbook: sin automatización, solo gasta el espacio y lleva la concentración
+      if (!str(m2.name, 64) || (m2.slot !== undefined && !(Number.isInteger(m2.slot) && m2.slot >= 1 && m2.slot <= 9))) return { error: 'mensaje inválido' };
+      const t = tokenOf();
+      if (!t) return { error: 'token inexistente' };
+      if (!isDM(m) && !t.owners.includes(m.id) && !(role === 'trusted' && t.faction === 'ally')) return DENY;
+      const sp = t.spellbook?.find((e) => e.name === m2.name);
+      if (!sp) return { error: 'conjuro inexistente' };
+      // ponytail: no gasta el presupuesto de acción en combate; el DM lo corrige con 'budget'
+      const lvl = sp.level ? pickSlot(t, sp.level, m2.slot as number | undefined) : 0;
+      if (sp.level && !lvl) return { error: m2.slot !== undefined ? 'sin espacios de ese nivel' : 'sin espacios de conjuro' };
+      if (lvl) t.slots![lvl].used++;
+      const chats = sp.conc && t.concentration ? breakConcentration(ctx, t) : [];
+      if (sp.conc) t.concentration = sp.name;
+      chats.push(say(ctx, lvl ? `${t.name} lanza ${sp.name} (nivel ${lvl})` : `${t.name} lanza ${sp.name}`));
+      return { state: true, chats };
+    }
     case 'deathSave': {
       const t = tokenOf();
       if (!t) return { error: 'token inexistente' };
@@ -617,11 +638,11 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       return { chat: pushChat(room, { id: randomUUID(), from: m.id, at: now, text: m2.text }) };
     }
     case 'roll': {
-      if (!str(m2.expr, 100) || (m2.secret !== undefined && typeof m2.secret !== 'boolean')) return { error: 'mensaje inválido' };
+      if (!str(m2.expr, 100) || (m2.secret !== undefined && typeof m2.secret !== 'boolean') || (m2.label !== undefined && !str(m2.label, 80))) return { error: 'mensaje inválido' };
       let r;
       try { r = rollFn(m2.expr); } catch { return { error: 'expresión inválida' }; }
       if (!r || !num(r.total)) return { error: 'expresión inválida' };
-      return { chat: pushChat(room, { id: randomUUID(), from: m.id, at: now, roll: { expr: m2.expr, total: r.total, detail: String(r.detail), secret: m2.secret === true, ...(Array.isArray(r.dice) && { dice: r.dice }) } }) };
+      return { chat: pushChat(room, { id: randomUUID(), from: m.id, at: now, roll: { expr: m2.expr, ...(m2.label !== undefined && { label: m2.label as string }), total: r.total, detail: String(r.detail), secret: m2.secret === true, ...(Array.isArray(r.dice) && { dice: r.dice }) } }) };
     }
     case 'ping': {
       if (!inScene(s, m2.x, m2.y)) return { error: 'mensaje inválido' };
@@ -759,13 +780,9 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
         if (cb.used[tk.id]?.[act.cost]) return { error: 'ya usada' };
       }
       let lvl = 0;
-      if (act.slot && m2.slot !== undefined) { // nivel elegido: tiene que ser ≥ el del conjuro y quedar alguno libre
-        const sl = tk.slots?.[m2.slot as number];
-        if (m2.slot < act.slot || !sl || sl.used >= sl.max) return { error: 'sin espacios de ese nivel' };
-        lvl = m2.slot as number;
-      } else if (act.slot) {
-        lvl = Object.keys(tk.slots ?? {}).map(Number).sort((a, b) => a - b).find((l) => l >= act.slot! && tk.slots![l].used < tk.slots![l].max) ?? 0;
-        if (!lvl) return { error: 'sin espacios de conjuro' };
+      if (act.slot) {
+        lvl = pickSlot(tk, act.slot, m2.slot as number | undefined);
+        if (!lvl) return { error: m2.slot !== undefined ? 'sin espacios de ese nivel' : 'sin espacios de conjuro' };
       }
       const act2 = lvl > (act.slot ?? 0) ? upcast(act, lvl) : act; // daño/curación escalados al nivel del espacio
       const dexSave = act.kind === 'save' && act.save?.ability === 'dex';
@@ -832,6 +849,7 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       const d = parseCharacter(m2.data);
       if (!d) return { error: 'datos de personaje inválidos' };
       const { ddbId, level, classes, avatar, ...stats } = d;
+      delete t.spellbook; // una resincronización sin conjuros de utilidad no debe dejar los viejos
       Object.assign(t, stats, ddbId && { ddb: { id: ddbId, level, classes, syncedAt: now } }, avatar && { img: avatar }); // ddbId 0 = creado en Lantern, sin vínculo
       return { state: true, chat: pushChat(room, { id: randomUUID(), from: m.id, at: now, text: ddbId ? `${t.name} se ha vinculado con D&D Beyond (nivel ${level})` : `${t.name} se ha actualizado (nivel ${level})` }) };
     }
