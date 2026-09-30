@@ -358,6 +358,7 @@ kbd { font: .8rem var(--mono); color: var(--txt2); }
 .ed-bar button[aria-pressed=true] { background: var(--oro-fondo); color: var(--sobre-ambar); border-color: var(--oro-borde); }
 .ed-sub { position: absolute; left: calc(100% + 6px); top: 0; display: grid; gap: 4px; padding: 6px; background: var(--isla); border: 1px solid var(--filete); box-shadow: var(--sombra-isla); border-radius: var(--r-card); white-space: nowrap; z-index: 5; }
 .ed-insp { display: flex; flex-direction: column; gap: 8px; padding: 12px; overflow-y: auto; }
+.ed-sucio { margin: 0; padding: 6px 10px; border-radius: var(--r-btn); background: color-mix(in srgb, var(--ambar) 18%, transparent); color: var(--ambar-claro); font-size: .9rem; }
 .ed-form { display: grid; gap: 10px; }
 .ed-form h3, .dj-lector h3 { margin: 0; font: 600 1.2rem var(--serif); }
 .ed-insp select, .ed-insp textarea, .dj select, .dj textarea { font: inherit; color: inherit; background: var(--sombra); border: 1px solid var(--borde); border-radius: var(--r-btn); padding: 8px 12px; min-height: 44px; width: 100%; }

@@ -831,4 +831,7 @@ export default {
   "demasiados encuentros": "too many encounters",
   "encuentros inválidos": "invalid encounters",
   "Precargada en {a}/{b}": "Preloaded on {a}/{b}",
+  "Cambios sin guardar": "Unsaved changes",
+  "Hay cambios sin guardar en el inspector. ¿Descartarlos?": "The inspector has unsaved changes. Discard them?",
+  "El elemento se ha borrado; cambios descartados": "The item was deleted; changes discarded",
 } as Record<string, string>;
