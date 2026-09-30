@@ -235,7 +235,7 @@ export function start(port = Number(process.env.PORT ?? 8787), dbPath?: string, 
         if ('error' in made) return json(res, 400, made);
         const { room, key } = made;
         room.scenes = Object.fromEntries(imp.scenes.map((s) => [s.id, s])); room.activeId = imp.activeId;
-        room.journal = imp.journal; room.settings = imp.settings;
+        room.journal = imp.journal; room.encounters = imp.encounters; room.settings = imp.settings;
         mkdirSync(assets, { recursive: true });
         for (const [name, data] of imp.assets) await writeFile(join(assets, name), data);
         rooms.set(room.code, room);

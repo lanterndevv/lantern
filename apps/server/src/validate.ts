@@ -1,6 +1,7 @@
 // Validación de todo lo que entra al servidor (mensajes de cliente e importaciones): nada es de fiar.
-import type { ExtensionManifest, ExtensionPermission, Ability, AudioState, Grid, Id, JournalEntry, Light, Point, Region, Scene, Token, TurnEffect, Wall, Weather } from '@lantern/protocol';
+import type { Encounter, ExtensionManifest, ExtensionPermission, Ability, AudioState, Grid, Id, JournalEntry, Light, Point, Region, Scene, Token, TurnEffect, Wall, Weather } from '@lantern/protocol';
 import { CONDITIONS, roll } from '@lantern/rules';
+import { MONSTERS } from '@lantern/srd';
 import { parseCharacter } from './import.ts';
 
 export const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -22,7 +23,7 @@ export const MAX_LEVELS = 10;
 
 export const WEATHER = ['none', 'rain', 'snow', 'fog', 'ash', 'storm', 'leaves', 'embers', 'fireflies', 'sand', 'dust'];
 export const SFX = ['door', 'thunder', 'roar', 'collapse', 'bell', 'scream', 'magic', 'coins', 'trap', 'hit', 'crit', 'heal', 'miss'];
-export const MAX_ITEMS = 500, MAX_WALLS = 5000, MAX_REGIONS = 100, MAX_LAYERS = 12, MAX_SCENES = 100, MAX_JOURNAL = 500;
+export const MAX_ITEMS = 500, MAX_WALLS = 5000, MAX_REGIONS = 100, MAX_LAYERS = 12, MAX_SCENES = 100, MAX_JOURNAL = 500, MAX_ENCOUNTERS = 100;
 const ABILITIES = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
 const REGION_KINDS = ['difficult', 'trap', 'teleport', 'fog', 'darkness', 'sound', 'message', 'weather'];
 
@@ -225,6 +226,14 @@ function parseTable(v: unknown): JournalEntry['table'] | null {
   }
   const sorted = [...rows].sort((a, b) => a.min - b.min);
   return sorted.some((r, i) => i > 0 && r.min <= sorted[i - 1].max) ? null : { dice: v.dice, rows };
+}
+
+/** Encuentro guardado: 1–20 filas de monstruos del SRD, 1–30 de cada uno. */
+export function parseEncounter(v: unknown): Encounter | null {
+  if (!obj(v) || !str(v.id, 64) || !str(v.name, 60) || !Array.isArray(v.monsters) || v.monsters.length < 1 || v.monsters.length > 20) return null;
+  const monsters = v.monsters.map((r) => obj(r) && typeof r.srd === 'string' && Object.hasOwn(MONSTERS, r.srd) && int(r.n, 1, 30) ? { srd: r.srd, n: r.n } : null);
+  if (monsters.some((r) => !r) || new Set(monsters.map((r) => r!.srd)).size !== monsters.length) return null;
+  return { id: v.id, name: v.name, monsters: monsters as Encounter['monsters'] };
 }
 
 export function parseJournal(v: unknown, members: ReadonlyMap<Id, unknown>): JournalEntry | null {

@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { DEFAULT_SETTINGS, DICE_THEMES } from '@lantern/protocol';
 import type { AudioState, Combat, JournalEntry, Scene } from '@lantern/protocol';
-import { parseManifest, MAX_EXTENSIONS } from './validate.ts';
+import { parseEncounter, parseManifest, MAX_ENCOUNTERS, MAX_EXTENSIONS } from './validate.ts';
 import { mergeSettings, mkRoom, type Room, type MemberRec } from './room.ts';
 
 // Migraciones ordenadas y numeradas (índice + 1 = versión). Nunca se editan las ya publicadas: se añade una nueva.
@@ -61,7 +61,7 @@ export function openDb(path = process.env.LANTERN_DB ?? 'lantern.db') {
       db.exec('BEGIN');
       try {
         upRoom.run(r.code, 'null', // la columna scene es solo de migración: la biblioteca vive en scenes
-           JSON.stringify(r.chat), r.automation, JSON.stringify(r.combat ?? null), JSON.stringify(r.pending), JSON.stringify(r.settings), r.view, JSON.stringify(r.audio), JSON.stringify(r.scenes), r.activeId, JSON.stringify(r.journal), JSON.stringify(r.extensions), JSON.stringify({ safety: r.safety, sessionStart: r.sessionStart, maxRound: r.maxRound, clock: r.clock ?? 480, holds: r.holds }));
+           JSON.stringify(r.chat), r.automation, JSON.stringify(r.combat ?? null), JSON.stringify(r.pending), JSON.stringify(r.settings), r.view, JSON.stringify(r.audio), JSON.stringify(r.scenes), r.activeId, JSON.stringify(r.journal), JSON.stringify(r.extensions), JSON.stringify({ safety: r.safety, sessionStart: r.sessionStart, maxRound: r.maxRound, clock: r.clock ?? 480, holds: r.holds, encounters: r.encounters }));
         delMembers.run(r.code); // ponytail: reescribe todos los miembros; incremental si crecen las mesas
         for (const m of r.members.values()) insMember.run(r.code, m.id, m.name, m.role, JSON.stringify(m.keyHashes), m.dice);
         db.exec('COMMIT');
@@ -88,6 +88,7 @@ export function openDb(path = process.env.LANTERN_DB ?? 'lantern.db') {
       return mkRoom({
         safety: { lines: sl(ex2?.safety?.lines), veils: sl(ex2?.safety?.veils) },
         sessionStart: Number.isFinite(ex2?.sessionStart) ? ex2.sessionStart : Date.now(), maxRound: Number.isInteger(ex2?.maxRound) ? ex2.maxRound : 0, ...(Number.isFinite(ex2?.clock) && { clock: ex2.clock }), ...(ex2?.holds && typeof ex2.holds === 'object' && !Array.isArray(ex2.holds) && { holds: ex2.holds }),
+        ...(Array.isArray(ex2?.encounters) && { encounters: ex2.encounters.flatMap((e: unknown) => parseEncounter(e) ?? []).slice(0, MAX_ENCOUNTERS) }), // tolerante: lo inválido se descarta
         scenes, activeId: Object.hasOwn(scenes, row.active) ? row.active : Object.keys(scenes)[0],
         journal: Array.isArray(j) ? (j as JournalEntry[]).filter((e) => e && typeof e.id === 'string') : [],
         extensions: Array.isArray(ex) ? ex.flatMap((e) => { const m = parseManifest(e); return typeof m === 'string' ? [] : [m]; }).slice(0, MAX_EXTENSIONS) : [], // migración tolerante

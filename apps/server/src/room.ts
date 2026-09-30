@@ -1,7 +1,7 @@
 // Lógica pura de una mesa: sin sockets ni BD. Todo lo que llega de un cliente se valida aquí.
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { CODE_ALPHABET, DEFAULT_SETTINGS, DICE_THEMES, blocksMove } from '@lantern/protocol';
-import type { Ability, ActionCard, AudioState, C2S, ChatMsg, ClientState, Combat, DiceTheme, Die, ExtensionManifest, Hp, Id, JournalEntry, LibraryItem, Member, MoveMode, Point, Region, Role, S2C, Scene, SessionSummary, TableSettings, Token, Wall } from '@lantern/protocol';
+import type { Ability, ActionCard, AudioState, C2S, ChatMsg, ClientState, Combat, DiceTheme, Die, Encounter, ExtensionManifest, Hp, Id, JournalEntry, LibraryItem, Member, MoveMode, Point, Region, Role, S2C, Scene, SessionSummary, TableSettings, Token, Wall } from '@lantern/protocol';
 import { ABILITY_ES, CONDITIONS, SKILLS, abilityMod, applyCard, applyDamage, autoFailSave, concentrationDC, d20Penalty, deathSave, editionOf, encounterXP, grantTemp, heal, inArea, resolveAction, tokenInArea, roll as diceRoll } from '@lantern/rules';
 import { MONSTERS, SPELL_INDEX, upcast } from '@lantern/srd';
 import { spellRegions } from './areas.ts';
@@ -17,13 +17,13 @@ import { canUndo, clockOf, handleWorld, hiddenWhisper } from './world.ts';
 import { handleExtras } from './extras.ts';
 import { handleJourney } from './journey.ts';
 import { canReadDoc, canSeeScene } from './perms.ts';
-import { MAX_EXTENSIONS, MAX_ITEMS, MAX_JOURNAL, MAX_LAYERS, MAX_LEVELS, MAX_REGIONS, MAX_SCENES, MAX_WALLS, SFX, inScene, inr, num, obj, parseAudio, parseJournal, parseLayer, parseLight, parseManifest, parseRegion, parseToken, parseWall, parseWeather, patchScene, pt, short, str, urlOk } from './validate.ts';
+import { MAX_ENCOUNTERS, MAX_EXTENSIONS, MAX_ITEMS, MAX_JOURNAL, MAX_LAYERS, MAX_LEVELS, MAX_REGIONS, MAX_SCENES, MAX_WALLS, SFX, inScene, inr, num, obj, parseAudio, parseEncounter, parseJournal, parseLayer, parseLight, parseManifest, parseRegion, parseToken, parseWall, parseWeather, patchScene, pt, short, str, urlOk } from './validate.ts';
 
 /** Salvaciones tiradas por el servidor y ocultas hasta que el dueño pulse (o caduquen), por tarjeta pendiente. */
 export type SaveHold = { until: number; res: Record<Id, { save: NonNullable<ActionCard['targets'][number]['save']>; amount?: number; die?: Die }> };
 export type MemberRec = { id: Id; name: string; role: Role; keyHashes: string[]; dice: DiceTheme };
 export type Room = { code: string; scene: Scene; scenes: Record<Id, Scene>; activeId: Id; journal: JournalEntry[]; members: Map<Id, MemberRec>; chat: ChatMsg[]; automation: 'assisted' | 'auto' | 'manual'; combat?: Combat; pending: ActionCard[]; settings: TableSettings; view: 'tactical' | 'story'; audio: AudioState; extensions: ExtensionManifest[];
-  safety: { lines: string[]; veils: string[] }; sessionStart: number; maxRound: number; clock?: number; holds?: Record<Id, SaveHold>; // persistidos (clock: minutos del mundo, 480 por defecto; holds: salvaciones de jugadores ya tiradas y ocultas)
+  safety: { lines: string[]; veils: string[] }; sessionStart: number; maxRound: number; clock?: number; holds?: Record<Id, SaveHold>; encounters?: Encounter[]; // persistidos (clock: minutos del mundo, 480 por defecto; holds: salvaciones de jugadores ya tiradas y ocultas)
   checks?: Map<Id, CheckReq>; xAt?: number; extLog?: Map<Id, number[]> }; // solo en memoria
 type CheckReq = { id: Id; tokenIds: Id[]; kind: 'save' | 'skill' | 'ability'; key: string; dc?: number; blind: boolean; label: string; answers: Map<Id, { name: string; total: number; ok?: boolean }> };
 export type RollFn = (expr: string) => { total: number; detail: string; dice?: Die[] };
@@ -97,7 +97,7 @@ function filterBase(room: Room, member: MemberRec, online: ReadonlySet<Id> = new
   const extensions = structuredClone(room.extensions), automation = room.automation, settings = structuredClone(room.settings), view = room.view, audio = structuredClone(room.audio);
   const journal = structuredClone(room.journal.filter((e) => canRead(e, member)));
   const safety = structuredClone(room.safety), sessionStart = room.sessionStart;
-  if (isDM(member)) return { code: room.code, members, scene: structuredClone(s), automation, settings, view, audio, journal, extensions, safety, sessionStart, copilot: copilotOn(), copilotLlm: !!process.env.LANTERN_LLM_URL, livekit: livekitOn(), library: libraryOf(room), ...(room.combat && { combat: structuredClone(room.combat) }) };
+  if (isDM(member)) return { code: room.code, members, scene: structuredClone(s), automation, settings, view, audio, journal, extensions, safety, sessionStart, copilot: copilotOn(), copilotLlm: !!process.env.LANTERN_LLM_URL, livekit: livekitOn(), library: libraryOf(room), encounters: structuredClone(room.encounters ?? []), ...(room.combat && { combat: structuredClone(room.combat) }) };
 
   if (!canSeeScene(s, member)) { // escena reservada a otros: mapa en blanco, sin fichas, paredes ni historia
     const blank: Scene = { id: s.id, name: '', width: s.width, height: s.height, grid: structuredClone(s.grid), walls: [], lights: [], tokens: [], globalLight: 0 };
@@ -1005,6 +1005,23 @@ function handleBase(room: Room, m: MemberRec, msg: unknown, rollFn: RollFn, now 
       if (i >= 0) room.journal[i] = e;
       else if (room.journal.length >= MAX_JOURNAL) return { error: 'demasiadas entradas' };
       else room.journal.push(e);
+      return { state: true };
+    }
+    case 'encounter': {
+      if (!isDM(m)) return DENY;
+      const e = parseEncounter(m2.entry);
+      if (!e) return { error: 'encuentro inválido' };
+      const list = (room.encounters ??= []), i = list.findIndex((x) => x.id === e.id);
+      if (i >= 0) list[i] = e;
+      else if (list.length >= MAX_ENCOUNTERS) return { error: 'demasiados encuentros' };
+      else list.push(e);
+      return { state: true };
+    }
+    case 'encounterDelete': {
+      if (!isDM(m)) return DENY;
+      const i = str(m2.id, 64) ? room.encounters?.findIndex((x) => x.id === m2.id) ?? -1 : -1;
+      if (i < 0) return { error: 'no existe' };
+      room.encounters!.splice(i, 1);
       return { state: true };
     }
     case 'journalDelete': {

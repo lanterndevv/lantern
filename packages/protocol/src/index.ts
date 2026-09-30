@@ -212,6 +212,9 @@ export type JournalEntry = {
   pdf?: string;                              // /assets/….pdf: se muestra en un visor
 };
 
+/** Encuentro guardado del constructor (solo DM/asistente): monstruos del SRD y cuántos. */
+export type Encounter = { id: Id; name: string; monsters: { srd: string; n: number }[] };
+
 export type LibraryItem = { id: Id; name: string; folder?: string; visibleTo?: Id[]; active: boolean; tokens: number; walls: number; background?: string };
 
 // Turno propuesto por el copiloto; el cliente del DM lo aplica con los C2S normales (moveToken + act) si lo acepta.
@@ -258,6 +261,7 @@ export type ClientState = {
   audio: AudioState;
   journal: JournalEntry[];     // filtrado por visibleTo
   library?: LibraryItem[];     // solo DM/asistente
+  encounters?: Encounter[];    // solo DM/asistente: encuentros guardados
   extensions: ExtensionManifest[]; // instaladas en la mesa (todos las cargan)
   safety: { lines: string[]; veils: string[] }; // líneas y velos de la mesa (anónimos)
   sessionStart?: number;       // ms del servidor en que empezó la sesión actual
@@ -350,6 +354,8 @@ export type C2S =
   | { t: 'sceneDelete'; id: Id }                                     // DM (no la activa)
   | { t: 'journal'; entry: JournalEntry }                            // DM: crea/actualiza
   | { t: 'journalDelete'; id: Id }                                   // DM
+  | { t: 'encounter'; entry: Encounter }                             // DM: guardar (crear o sustituir por id) un encuentro
+  | { t: 'encounterDelete'; id: Id }                                 // DM
   | { t: 'handout'; entryId: Id }                                    // DM: muestra la entrada a quienes pueden verla
   | { t: 'spawnMany'; items: { srd: string; x: number; y: number }[]; hidden?: boolean } // DM: encuentro
   | { t: 'extInstall'; manifest: ExtensionManifest }                 // DM (el cliente descarga el manifiesto; el servidor lo valida)

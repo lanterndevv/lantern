@@ -31,7 +31,8 @@ test('export → import conserva escenas, diario, ajustes y recursos', async () 
   t.ws.send(JSON.stringify({ t: 'sceneNew', name: 'Segunda' }));
   t.ws.send(JSON.stringify({ t: 'journal', entry: { id: 'j1', title: 'Pista', body: 'Texto', visibleTo: 'all', image: url } }));
   t.ws.send(JSON.stringify({ t: 'settings', patch: { edition: '2014' } }));
-  await t.wait((m) => m.t === 'state' && m.state.journal.length === 1 && m.state.settings.edition === '2014' && m.state.library?.length === 2);
+  t.ws.send(JSON.stringify({ t: 'encounter', entry: { id: 'e1', name: 'Emboscada', monsters: [{ srd: 'goblin-warrior', n: 3 }] } }));
+  await t.wait((m) => m.t === 'state' && m.state.journal.length === 1 && m.state.settings.edition === '2014' && m.state.library?.length === 2 && m.state.encounters?.length === 1);
 
   assert.equal((await fetch(t.base + '/api/export')).status, 403);
   const res = await fetch(t.base + '/api/export', { headers: t.h });
@@ -54,6 +55,7 @@ test('export → import conserva escenas, diario, ajustes y recursos', async () 
   assert.equal(got.find((m) => m.t === 'welcome').role, 'dm');
   assert.deepEqual(st.library.map((l: any) => l.name).sort(), ['Cueva del osgo', 'Segunda']);
   assert.equal(st.scene.background, url); assert.equal(st.journal[0].title, 'Pista'); assert.equal(st.settings.edition, '2014');
+  assert.deepEqual(st.encounters, [{ id: 'e1', name: 'Emboscada', monsters: [{ srd: 'goblin-warrior', n: 3 }] }]);
   assert.deepEqual(Buffer.from(await (await fetch(t.base + url)).arrayBuffer()), png);
   ws2.close();
 
@@ -62,7 +64,7 @@ test('export → import conserva escenas, diario, ajustes y recursos', async () 
   const evil = Buffer.from('otro contenido');
   for (const bad of [{ ...doc, format: 'x' }, { ...doc, version: 2 }, { ...doc, scenes: [{ ...doc.scenes[0], width: 5 }] }, { ...doc, scenes: [] },
     { ...doc, assets: { [sha256(png) + '.png']: evil.toString('base64') } }, { ...doc, assets: { [sha256(evil) + '.exe']: evil.toString('base64') } }, { ...doc, assets: { '../x.png': 'AA==' } },
-    { ...doc, scenes: [{ ...doc.scenes[0], background: 'javascript:1' }] }, { ...doc, journal: [{ id: 'x', title: '', body: '', visibleTo: 'all' }] }])
+    { ...doc, scenes: [{ ...doc.scenes[0], background: 'javascript:1' }] }, { ...doc, journal: [{ id: 'x', title: '', body: '', visibleTo: 'all' }] }, { ...doc, encounters: [{ id: 'x', name: 'X', monsters: [{ srd: 'no-existe', n: 1 }] }] }])
     assert.equal((await post(bad)).status, 400);
   assert.equal((await fetch(t.base + '/api/import', { method: 'POST', headers: t.h, body: 'no es json' })).status, 400);
   await t.done();

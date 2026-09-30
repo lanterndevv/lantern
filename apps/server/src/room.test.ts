@@ -687,3 +687,17 @@ test('d20Test usa la edición de la criatura, no solo la de la mesa', () => {
   assert.deepEqual(exprs, ['2d20kl1']);
   assert.equal(r.mod, d20Test({ room, from: dm.id, now: 0, rollFn }, { ...t, exhaustion: 0 }, 'save', 'dex').mod); // sin el −6 de 2024
 });
+
+test('encuentros guardados: solo el DM los guarda y los ve', () => {
+  const { room, dm, player } = setup();
+  const e = { id: 'e1', name: 'Emboscada', monsters: [{ srd: 'goblin-warrior', n: 3 }] };
+  assert.equal(handle(room, player, { t: 'encounter', entry: e }, fakeRoll).error, 'no permitido');
+  assert.equal(handle(room, dm, { t: 'encounter', entry: { ...e, monsters: [{ srd: 'no-existe', n: 1 }] } }, fakeRoll).error, 'encuentro inválido');
+  assert.equal(handle(room, dm, { t: 'encounter', entry: { ...e, monsters: [{ srd: 'goblin-warrior', n: 31 }] } }, fakeRoll).error, 'encuentro inválido');
+  assert.equal(handle(room, dm, { t: 'encounter', entry: e }, fakeRoll).state, true);
+  handle(room, dm, { t: 'encounter', entry: { ...e, name: 'Emboscada 2' } }, fakeRoll); // mismo id: sustituye
+  assert.deepEqual(filterFor(room, dm).encounters!.map((x) => x.name), ['Emboscada 2']);
+  assert.equal(filterFor(room, player).encounters, undefined);
+  assert.equal(handle(room, dm, { t: 'encounterDelete', id: 'e1' }, fakeRoll).state, true);
+  assert.deepEqual(filterFor(room, dm).encounters, []);
+});
