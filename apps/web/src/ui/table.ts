@@ -291,11 +291,12 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   let exts: ReturnType<typeof mountExtensions> | undefined; // se monta más abajo; render() corre antes
   let lv: ReturnType<typeof mountLevels> | undefined, lobby: ReturnType<typeof showLobby> | undefined, cr: ReturnType<typeof mountCheckRequester> | undefined;
   const render = (s: ClientState) => {
-    voz.onState(s.members); exts?.update(s); copilot?.update(); chat2.update(s); drawApi?.update(s); clock.update(s); extras.update(); lasso?.update();
-    co?.update(s); ed?.update(s); jr.update(s); lib?.update(s); enc?.update(s); lv?.update(s); lobby?.update(); cr?.render();
     const was = new Map(state.scene.walls.filter(w => w.kind === 'door').map(w => [w.id, !!w.open]));
     for (const d of s.scene.walls) if (d.kind === 'door' && was.has(d.id) && was.get(d.id) !== !!d.open) { sfx(d.open ? 'door' : 'doorclose'); break; } // uno por cambio de estado
-    state = s; paintGl();
+    state = s; // antes de los paneles: varios leen state() en vez del argumento
+    voz.onState(s.members); exts?.update(s); copilot?.update(); chat2.update(s); drawApi?.update(s); clock.update(s); extras.update(); lasso?.update();
+    co?.update(s); ed?.update(s); jr.update(s); lib?.update(s); enc?.update(s); lv?.update(s); lobby?.update(); cr?.render();
+    paintGl();
     $('escena').textContent = s.scene.name;
     $('cod').textContent = `${s.code.slice(0, 3)}-${s.code.slice(3)}`;
     $('miembros').innerHTML = s.members.map((m: Member) =>
