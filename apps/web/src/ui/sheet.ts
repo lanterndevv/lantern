@@ -1,5 +1,6 @@
 import type { Ability, C2S, Token } from '@lantern/protocol';
 import { CONDITIONS, SKILLS } from '@lantern/rules';
+import { acOf } from './combat2.ts';
 import { openCreator } from './creator.ts';
 import { tokenImagePicker } from './draw.ts';
 import { mountSheetExtras } from './sheetx.ts';
@@ -68,7 +69,7 @@ export function mountSheet(el: HTMLElement, cx: Ctx) {
       ${tk.ddb ? `<span class="det">${esc(tk.ddb.classes)} · ${t('nivel')} ${tk.ddb.level}</span>` : ''}</div>
       ${hp ? `<div class="hpbar grande" role="progressbar" aria-label="${t('Puntos de golpe')}" aria-valuemin="0" aria-valuemax="${hp.max}" aria-valuenow="${hp.cur}"><i style="width:${Math.max(0, Math.min(100, hp.cur / hp.max * 100))}%"></i></div>` : ''}
       <div class="stats">${hp ? `<span>${t('PG')} <b>${hp.cur}/${hp.max}</b>${hp.temp ? ` <em>+${hp.temp} ${t('temp')}</em>` : ''}</span>` : ''}
-        ${tk.ac != null ? `<span>${t('CA')} <b>${tk.ac}</b></span>` : ''}${tk.speed != null ? `<span>${t('Vel.')} <b>${tk.speed}</b> ${t('pies')}</span>` : ''}
+        ${tk.ac != null ? `<span>${t('CA')} <b>${acOf(tk)}</b>${tk.shielded ? ` (${t('Escudo')})` : ''}</span>` : ''}${tk.speed != null ? `<span>${t('Vel.')} <b>${tk.speed}</b> ${t('pies')}</span>` : ''}
         ${tk.prof != null ? `<span>${t('Comp.')} <b>${sg(prof)}</b></span>` : ''}</div>
       ${tk.concentration ? `<div class="conc">${t('Concentración:')} <strong>${esc(tk.concentration)}</strong> <button type="button" data-conc="${esc(tk.id)}">${t('Terminar concentración')}</button></div>` : ''}`;
     const abl = ab ? `<h3>${t('Características')}</h3><div class="abs">${ABS.map(a => `<button type="button" class="ab" data-c="ability" data-k="${a}" aria-label="${esc(t('{ab} {v}, modificador {m}: tirar', { ab: t(AB[a]), v: ab[a], m: sg(mod(ab[a])) }))}"><span>${t(AB[a])}</span><b>${sg(mod(ab[a]))}</b><small>${ab[a]}</small></button>`).join('')}</div>` : '';
