@@ -140,3 +140,17 @@ test('monstruo: estadísticas, defensas, cr, tamaño y ataques del HTML', () => 
   assert.equal(mapMonster({ name: 'x', stats: [], challengeRatingId: 30, sizeId: 4 }).cr, '25');
   assert.throws(() => mapMonster({}));
 });
+
+test('conjuros sin automatizar al spellbook (solo nombre); armas no equipadas fuera', () => {
+  const sp = (name: string, level: number, x: object = {}) => ({ prepared: true, definition: { name, level, ...x } });
+  const w = (name: string, equipped: boolean) => ({ equipped, definition: { id: name, name, filterType: 'Weapon', attackType: 1, categoryId: 1, damage: { diceString: '1d6' }, damageType: 'Piercing' } });
+  const c = mapCharacter({
+    name: 'Prueba', id: 1, stats: [1, 2, 3, 4, 5, 6].map(id => ({ id, value: id === 4 ? 16 : 10 })),
+    classes: [{ id: 9, level: 3, isStartingClass: true, definition: { name: 'Wizard', spellCastingAbilityId: 4 } }],
+    inventory: [w('Dagger', true), w('Spear', false)],
+    classSpells: [{ characterClassId: 9, spells: [sp('Fire Bolt', 0), sp('Mage Armor', 1, { description: '<p>texto</p>' }), sp('Hex Homebrew', 2, { concentration: true }),
+      { prepared: false, definition: { name: 'Shield', level: 1 } }] }],
+  });
+  assert.deepEqual(c.actions!.map(a => a.id), ['ddb-dagger', 'fire-bolt']);
+  assert.deepEqual(c.spellbook, [{ name: 'Mage Armor', level: 1, id: 'mage-armor' }, { name: 'Hex Homebrew', level: 2, conc: true }]);
+});

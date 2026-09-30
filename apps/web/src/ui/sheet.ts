@@ -3,6 +3,7 @@ import { CONDITIONS, SKILLS } from '@lantern/rules';
 import { acOf } from './combat2.ts';
 import { openCreator } from './creator.ts';
 import { tokenImagePicker } from './draw.ts';
+import { mountSheetActions } from './sheetacts.ts';
 import { mountSheetExtras } from './sheetx.ts';
 import { t } from '../i18n.ts';
 
@@ -30,7 +31,7 @@ export const deathSavesHtml = (tk: Token) => {
     <button type="button" class="primary" data-ds="${esc(tk.id)}">${t('Tirar salvación de muerte')}</button></div>`;
 };
 
-type Ctx = { role: string; memberId: string; token: () => Token | undefined; send: (m: C2S) => void; code: string; key: () => string | null };
+type Ctx = { role: string; memberId: string; token: () => Token | undefined; send: (m: C2S) => void; code: string; key: () => string | null; arm?: (tokenId: string, actionId: string) => void };
 
 export function mountSheet(el: HTMLElement, cx: Ctx) {
   const dm = cx.role === 'dm';
@@ -39,6 +40,7 @@ export function mountSheet(el: HTMLElement, cx: Ctx) {
     <div id="sh-hp" class="sr" role="status" aria-live="polite"></div>
     <div id="sh-img"></div>
     <div id="sh-dyn" class="sb"></div>
+    <div id="sh-acts" class="sb"></div>
     <div id="sh-x"></div>
     <div id="sh-forms" hidden>
       <form id="sh-cond" class="fila"><label>${t('Condición')}<select id="sh-cid">${Object.entries(CONDITIONS).map(([k, v]) => `<option value="${k}">${esc(t(v))}</option>`).join('')}</select></label>
@@ -50,12 +52,12 @@ export function mountSheet(el: HTMLElement, cx: Ctx) {
       <button type="button" id="sh-crear" class="secondary">${t('Creador rápido')}</button>
     </div>`;
   const q = <T extends HTMLElement>(id: string) => el.querySelector<T>('#' + id)!;
-  const sx = mountSheetExtras(q('sh-x'), cx);
+  const sx = mountSheetExtras(q('sh-x'), cx), sa = mountSheetActions(q('sh-acts'), cx);
   let lastHp = '', lastId = '', imgId = '';
   const render = () => {
     const tk = cx.token();
     q('sh-vacio').hidden = !!tk; q('sh-forms').hidden = !tk;
-    if (!tk) { q('sh-dyn').replaceChildren(); q('sh-img').replaceChildren(); imgId = ''; sx.render(); return; }
+    if (!tk) { q('sh-dyn').replaceChildren(); q('sh-img').replaceChildren(); imgId = ''; sx.render(); sa.render(); return; }
     if (tk.id !== imgId) { // el selector de imagen es estático: solo se rehace al cambiar de token (si no, se pierde el estado de la subida)
       imgId = tk.id;
       q('sh-img').replaceChildren(...(dm || tk.owners.includes(cx.memberId) ? [tokenImagePicker(tk, cx)] : []));
@@ -91,7 +93,7 @@ export function mountSheet(el: HTMLElement, cx: Ctx) {
     }).join('')}</ul>` : `<p class="det">${t('Sin condiciones.')}</p>`;
     const ds = tk.deathSaves && hp?.cur === 0 ? deathSavesHtml(tk) : '';
     q('sh-dyn').innerHTML = head + (abl && '<hr class="sb-taper">') + abl + svs + sks + '<hr class="sb-taper">' + exh + `<h3>${t('Condiciones')}</h3>` + conds + ds;
-    sx.render();
+    sx.render(); sa.render();
   };
   el.addEventListener('click', e => {
     const b = (e.target as HTMLElement).closest('button'); const tk = cx.token();

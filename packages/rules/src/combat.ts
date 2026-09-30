@@ -5,7 +5,7 @@ import { editionOf } from './rest.ts';
 
 const d20 = (rng: () => number) => Math.floor(rng() * 20) + 1;
 // Duplica N en cada NdM: '2d6+3' → '4d6+3'
-const doubleDice = (expr: string) => expr.replace(/(\d*)d(\d+)/gi, (_, n, m) => `${(n === '' ? 1 : Number(n)) * 2}d${m}`);
+export const doubleDice = (expr: string) => expr.replace(/(\d*)d(\d+)/gi, (_, n, m) => `${(n === '' ? 1 : Number(n)) * 2}d${m}`);
 // Visión ciega o verdadera al alcance anulan la invisibilidad del otro. ponytail: no mira línea de visión (el servidor ya exige objetivos visibles)
 const sees = (v: Token, o: Token) => { const r = Math.max(v.senses?.blindsight ?? 0, v.senses?.truesight ?? 0); return r > 0 && Math.hypot(o.x - v.x, o.y - v.y) <= r; };
 const unseen = (conds: string[], seen: boolean) => seen ? conds.filter((c) => c !== 'invisible') : conds;

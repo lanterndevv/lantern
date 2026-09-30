@@ -26,7 +26,7 @@ export const CHAR_FORMAT = 'lantern-character';
 export function tokenToExport(t: Token): { format: typeof CHAR_FORMAT; version: 1; data: ImportedCharacter } {
   const level = t.hitDice?.max ?? t.ddb?.level ?? 1;
   const d: ImportedCharacter = { ddbId: 0, name: t.name, level, classes: t.ddb?.classes ?? '', darkvision: t.darkvision };
-  for (const k of ['hp', 'ac', 'speed', 'initMod', 'saves', 'defenses', 'slots', 'abilities', 'skills', 'prof', 'hitDice', 'lucky'] as const) if (t[k] !== undefined) (d as Record<string, unknown>)[k] = structuredClone(t[k]);
+  for (const k of ['hp', 'ac', 'speed', 'initMod', 'saves', 'defenses', 'slots', 'spellbook', 'abilities', 'skills', 'prof', 'hitDice', 'lucky'] as const) if (t[k] !== undefined) (d as Record<string, unknown>)[k] = structuredClone(t[k]);
   if (t.actions) d.actions = cleanActions(structuredClone(t.actions));
   return { format: CHAR_FORMAT, version: 1, data: d };
 }

@@ -62,10 +62,10 @@ export function parseToken(s: Scene, v: unknown): Token | null {
   }
   // Ficha completa: se valida con el mismo parser que los personajes importados (acciones, salvaciones, espacios…).
   const stats: Record<string, unknown> = { name: 'x', ddbId: 0, level: 1, classes: '', darkvision: 0 };
-  for (const k of ['speed', 'initMod', 'saves', 'defenses', 'actions', 'slots', 'abilities', 'skills', 'prof'] as const) if (v[k] !== undefined) stats[k] = v[k];
+  for (const k of ['speed', 'initMod', 'saves', 'defenses', 'actions', 'slots', 'spellbook', 'abilities', 'skills', 'prof'] as const) if (v[k] !== undefined) stats[k] = v[k];
   const c = parseCharacter(stats, 99);
   if (!c) return null;
-  for (const k of ['speed', 'initMod', 'saves', 'defenses', 'actions', 'slots', 'abilities', 'skills', 'prof'] as const) if (c[k] !== undefined) (t as Record<string, unknown>)[k] = c[k];
+  for (const k of ['speed', 'initMod', 'saves', 'defenses', 'actions', 'slots', 'spellbook', 'abilities', 'skills', 'prof'] as const) if (c[k] !== undefined) (t as Record<string, unknown>)[k] = c[k];
   for (const k of ['srd', 'concentration'] as const) if (v[k] !== undefined) { if (!str(v[k], 64)) return null; t[k] = v[k]; }
   if (v.notes !== undefined) { if (!short(v.notes, 2000)) return null; t.notes = v.notes; }
   if (v.exhaustion !== undefined) { if (!int(v.exhaustion, 0, 6)) return null; t.exhaustion = v.exhaustion; }

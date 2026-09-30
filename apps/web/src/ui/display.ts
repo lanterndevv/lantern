@@ -67,7 +67,7 @@ export function applyDisplayMode(
 
   function addLog(m: ChatMsg) {
     const who = state?.members.find(x => x.id === m.from)?.name ?? '';
-    const txt = m.roll ? (m.roll.secret ? '' : `${who}: ${m.roll.expr} = ${m.roll.total}`)
+    const txt = m.roll ? (m.roll.secret ? '' : `${who}: ${m.roll.label ? m.roll.label + ' · ' : ''}${m.roll.expr} = ${m.roll.total}`)
       : m.card ? `${m.card.actorName}: ${m.card.actionName}` : '';
     if (!txt) return;
     const li = el('li', ''); li.textContent = txt;

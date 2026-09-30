@@ -258,7 +258,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
   $('t-biblioteca').hidden = $('t-encuentros').hidden = !staffEd;
   startTutorial(ctx);
 
-  const sheet = mountSheet($('p-hoja'), { role: w.role, memberId: w.memberId, code: w.state.code, key: () => net.key(w.state.code), send: m => net.send(m), token: () => w.role === 'dm' ? tok(selected) ?? hudTok() : mine().find(t => t.id === selected) ?? mine()[0] });
+  const sheet = mountSheet($('p-hoja'), { role: w.role, memberId: w.memberId, code: w.state.code, key: () => net.key(w.state.code), send: m => net.send(m), arm: (tk, a) => armAction(tk, a), token: () => w.role === 'dm' ? tok(selected) ?? hudTok() : mine().find(t => t.id === selected) ?? mine()[0] });
   const staff = w.role === 'dm' || w.role === 'assistant';
   const settings = staff ? mountSettings($('p-aj'), m => net.send(m), w.memberId) : undefined;
   $('t-aj').hidden = !staff;
@@ -602,7 +602,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
         table.then(tb => tb.floatText(t.id, `${c.kind === 'heal' ? '+' : '−'}${t.amount}`, c.kind === 'heal' ? HEAL : dmgColor(c.damageType), c.kind === 'heal' ? undefined : dmgSvg(c.damageType, dmgColor(c.damageType))));
     } else if (m.roll) {
       el.className = 'msg tirada';
-      el.innerHTML = `<span class="quien">${who}</span><code>${esc(m.roll.expr)}</code>
+      el.innerHTML = `<span class="quien">${who}</span>${m.roll.label ? `<span class="etq">${esc(m.roll.label)}</span>` : ''}<code>${esc(m.roll.expr)}</code>
         ${m.roll.expr === 'iniciativa' ? '' : `<strong class="total">${m.roll.total}</strong>`}<span class="det">${esc(m.roll.detail)}</span>
         ${m.roll.secret ? `<em class="secreta">${t('secreta')}</em>` : ''}${rollBadges(m.roll)}`;
     } else {
@@ -615,7 +615,7 @@ export function mountTable(app: HTMLElement, w: Extract<S2C, { t: 'welcome' }>) 
     if (live && show3d && dice?.length && !rolled.has(m.id)) {
       rolled.add(m.id); sfx('dice');
       const th = state.members.find(x => x.id === m.from)?.dice ?? 'linterna';
-      void trayP.then(t => t.roll(dice, th, m.card ? `${m.card.actorName} · ${m.card.actionName}` : `${name(m.from)} · ${m.roll!.expr}`, m.roll?.total));
+      void trayP.then(t => t.roll(dice, th, m.card ? `${m.card.actorName} · ${m.card.actionName}` : `${name(m.from)} · ${m.roll!.label ?? m.roll!.expr}`, m.roll?.total));
     }
     if (live && /\bsube a nivel \d+/.test(m.text ?? '')) sfx('levelup');
     else if (live && /descanso (largo|corto)/.test(m.text ?? '') && !/propone/.test(m.text ?? '')) sfx('rest');

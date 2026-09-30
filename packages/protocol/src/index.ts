@@ -47,6 +47,9 @@ export type Action = {
   multi?: { id: Id; n: number }[];     // Multiataque: encadena n veces cada acción (por id) con los mismos objetivos, gastando solo esta acción
 };
 
+// id: slug del SRD si el conjuro está en SPELL_INDEX (para su descripción). Nunca se guarda texto de fuera del SRD.
+export type SpellbookEntry = { name: string; level: number; conc?: boolean; id?: string };
+
 export type Token = {
   id: Id; name: string;
   x: number; y: number;        // centro, px
@@ -66,6 +69,7 @@ export type Token = {
   defenses?: { resist?: string[]; immune?: string[]; vuln?: string[] };
   actions?: Action[];
   slots?: Record<number, { max: number; used: number }>; // espacios de conjuro por nivel
+  spellbook?: SpellbookEntry[];  // conjuros sin acción automatizable (utilidad o fuera del SRD): solo nombre
   srd?: string;                // id de la entrada del compendio SRD de la que sale
   notes?: string;              // nota privada del DM (el servidor la quita para los demás)
   level?: Id;                  // planta en la que está (ausente = planta base)
@@ -117,7 +121,7 @@ export const DEFAULT_SETTINGS: TableSettings = {
 
 // Lo que el puente (extensión Lantern Link) extrae de un personaje de D&D Beyond.
 // Solo estadísticas de juego del propio usuario; nunca texto de reglas ni el token de sesión.
-export type ImportedCharacter = Pick<Token, 'name' | 'hp' | 'ac' | 'speed' | 'initMod' | 'saves' | 'darkvision' | 'actions' | 'slots' | 'defenses' | 'abilities' | 'skills' | 'prof' | 'hitDice' | 'lucky'> & {
+export type ImportedCharacter = Pick<Token, 'name' | 'hp' | 'ac' | 'speed' | 'initMod' | 'saves' | 'darkvision' | 'actions' | 'slots' | 'spellbook' | 'defenses' | 'abilities' | 'skills' | 'prof' | 'hitDice' | 'lucky'> & {
   ddbId: number; level: number; classes: string; avatar?: string;
 };
 
@@ -278,7 +282,7 @@ export type ChatMsg = {
   to?: Id[];                   // susurro: solo estos miembros (y el DM) lo ven
   as?: string;                 // en personaje: nombre del token con el que habla
   emote?: boolean;             // /me: acción narrada
-  roll?: { expr: string; total: number; detail: string; secret: boolean; dice?: Die[]; blind?: boolean; external?: 'beyond20'; rerolled?: true }; // blind: ni quien tira lo ve · external: tirada hecha fuera (confianza del cliente)
+  roll?: { expr: string; label?: string; total: number; detail: string; secret: boolean; dice?: Die[]; blind?: boolean; external?: 'beyond20'; rerolled?: true }; // blind: ni quien tira lo ve · external: tirada hecha fuera (confianza del cliente)
   card?: ActionCard;
   loot?: { title: string; lines: { item: string; to?: string }[] }; // tarjeta de botín con su reparto
   doc?: { entryId: Id; title: string; image?: string; pdf?: boolean }; // tarjeta de documento mostrado (susurro a quienes lo reciben)
@@ -295,7 +299,7 @@ export type C2S =
   | { t: 'remove'; kind: 'token' | 'wall' | 'light'; id: Id }
   | { t: 'door'; id: Id; open: boolean }
   | { t: 'chat'; text: string; to?: Id[]; as?: Id; emote?: boolean } // as = token propio para hablar en personaje
-  | { t: 'roll'; expr: string; secret?: boolean; as?: Id } // as: token cuyas @variables (@str, @prof…) se usan
+  | { t: 'roll'; expr: string; secret?: boolean; as?: Id; label?: string } // as: token cuyas @variables (@str, @prof…) se usan · label: «Espada larga · ataque»
   | { t: 'ping'; x: number; y: number }
   | { t: 'claim'; tokenId: Id }                                      // jugador elige un aliado sin dueño
   | { t: 'combat'; op: 'start' | 'next' | 'prev' | 'end' }           // DM
@@ -334,6 +338,7 @@ export type C2S =
   | { t: 'condition'; tokenId: Id; condition: string; on: boolean; rounds?: number; saveEnd?: { ability: Ability; dc: number }; sourceId?: string } // DM, o dueño sobre su token
   | { t: 'hp'; tokenId: Id; delta: number; kind: 'damage' | 'heal' | 'temp'; damageType?: string } // DM, o dueño sobre su token
   | { t: 'concentration'; tokenId: Id; spell: string | null }        // dueño o DM
+  | { t: 'cast'; tokenId: Id; name: string; slot?: number }         // dueño o DM: lanza un conjuro del spellbook (gasta espacio, concentración)
   | { t: 'deathSave'; tokenId: Id }                                   // dueño en su turno (o DM)
   | { t: 'check'; tokenId: Id; kind: 'save' | 'skill' | 'ability'; key: string; secret?: boolean } // tirada desde la hoja: el servidor aplica mods, agotamiento y condiciones
   | { t: 'scene'; patch: Partial<Pick<Scene, 'name' | 'background' | 'globalLight' | 'weather' | 'story' | 'grid' | 'width' | 'height' | 'miles'>> } // DM

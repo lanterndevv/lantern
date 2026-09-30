@@ -248,6 +248,14 @@ dialog h2 { font: 500 1.35rem var(--serif); margin: 0 0 12px; padding-bottom: 6p
 .sk button { display: flex; align-items: center; gap: 6px; padding: 0 8px; font-size: .8rem; text-align: left; }
 .sk button b { margin-left: auto; font-family: var(--mono); }
 .sk small { color: var(--txt3); font-size: .65rem; }
+.sa-l { list-style: none; margin: 0 0 8px; padding: 0; }
+.sa { padding: 4px 0; border-bottom: 1px solid var(--linea); }
+.sa summary { cursor: pointer; }
+.sa-txt { font-size: .8rem; white-space: pre-line; margin: 4px 0; }
+.sa-b { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.sa-b button { padding: 0 8px; font: .8rem var(--mono); }
+h4 .slots { display: inline-flex; font-size: .8rem; }
+.msg .etq { color: var(--txt2); margin-right: 6px; }
 .pt { flex: none; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--txt3); }
 .pt.on { background: var(--txt2); border-color: var(--txt2); }
 .fila-h { display: flex; align-items: center; gap: 10px; }

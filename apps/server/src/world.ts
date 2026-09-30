@@ -63,7 +63,7 @@ function sync(s: Scene, before: Map<Id, { x: number; y: number }>) {
 }
 
 // ---- deshacer ----
-const SNAP = new Set(['upsert', 'remove', 'moveToken', 'moveMany', 'door', 'spawn', 'spawnMany', 'spawnCustom', 'scene', 'hp', 'condition', 'concentration', 'deathSave',
+const SNAP = new Set(['upsert', 'remove', 'moveToken', 'moveMany', 'door', 'spawn', 'spawnMany', 'spawnCustom', 'scene', 'hp', 'condition', 'concentration', 'cast', 'deathSave',
   'claim', 'act', 'confirm', 'importCharacter', 'heroPoint', 'heroPoints', 'tokenImage', 'carry']);
 
 // ponytail: instantánea = JSON de toda la escena (hasta 30 por mesa); diff por token para saber qué tocó cada cambio. Cambios de combate/chat no se deshacen.

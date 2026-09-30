@@ -106,6 +106,15 @@ export function parseCharacter(v: unknown, maxHit = 30): ImportedCharacter | nul
       c.slots[Number(k)] = { max: s.max, used: s.used };
     }
   }
+  if (v.spellbook !== undefined) {
+    if (!Array.isArray(v.spellbook) || v.spellbook.length > 100) return null;
+    c.spellbook = [];
+    for (const e of v.spellbook) {
+      if (!obj(e) || !keysIn(e, ['name', 'level', 'conc', 'id']) || !str(e.name, 64) || !int(e.level, 0, 9)
+        || (e.conc !== undefined && typeof e.conc !== 'boolean') || (e.id !== undefined && !(typeof e.id === 'string' && /^[a-z0-9-]{1,64}$/.test(e.id)))) return null;
+      c.spellbook.push({ name: e.name, level: e.level, ...(e.conc && { conc: true }), ...(e.id !== undefined && { id: e.id as string }) });
+    }
+  }
   const img = avatar(v.avatar);
   if (img) c.avatar = img;
   return c;
