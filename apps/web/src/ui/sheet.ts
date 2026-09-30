@@ -47,7 +47,7 @@ export function mountSheet(el: HTMLElement, cx: Ctx) {
       ${dm ? `<form id="sh-hpf" class="fila"><label>${t('Cantidad')}<input id="sh-n" type="number" min="1" inputmode="numeric" required></label>
         <label>${t('Tipo de daño')}<select id="sh-dt">${Object.entries(DTYPES).map(([k, v]) => `<option value="${k}">${t(v)}</option>`).join('')}</select></label>
         <div class="dmbtns3"><button type="button" data-hp="damage">${t('Daño')}</button><button type="button" data-hp="heal">${t('Curar')}</button><button type="button" data-hp="temp">${t('Temp')}</button></div></form>` : ''}
-      <button type="button" id="sh-crear" class="secondary">${t('Crear personaje')}</button>
+      <button type="button" id="sh-crear" class="secondary">${t('Creador rápido')}</button>
     </div>`;
   const q = <T extends HTMLElement>(id: string) => el.querySelector<T>('#' + id)!;
   const sx = mountSheetExtras(q('sh-x'), cx);
